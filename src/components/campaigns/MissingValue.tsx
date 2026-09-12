@@ -26,7 +26,21 @@ export type MissingReason =
   /** The service holds it and its disclosure policy declines to publish it. */
   | 'withheld'
   /** The site never declared it, and the platform does not measure it. */
-  | 'undeclared';
+  | 'undeclared'
+  /**
+   * The service published it and this page declined to render it.
+   *
+   * A fourth cause because the other three all point at somebody else, and this
+   * one points here. A page refusal rendered as 'withheld' accuses the service
+   * of a decision it did not make, and rendered as 'unreported' accuses it of a
+   * gap it does not have. Both send a reader to the wrong place to ask why.
+   *
+   * The tooltip does not say WHICH refusal fired, because the two kinds (a
+   * record that breaks a rule it declares, and a correct record this page
+   * cannot check) are counted separately in the notes under every table that
+   * uses this, and a cell is the wrong place to re-litigate them.
+   */
+  | 'unshown';
 
 const REASONS: Record<MissingReason, { label: string; title: string }> = {
   unreported: {
@@ -42,6 +56,11 @@ const REASONS: Record<MissingReason, { label: string; title: string }> = {
     label: 'Not declared',
     title:
       'The site did not declare this when it joined. The platform does not measure it, so there is nothing to fall back on.',
+  },
+  unshown: {
+    label: 'Not shown',
+    title:
+      'The campaign service published this value and this page is not rendering it. The notes under this table say why.',
   },
 };
 

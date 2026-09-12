@@ -1,0 +1,53 @@
+{
+  "campaigns": [
+    {
+      "base_model": {
+        "id": "bioimage-io/cellpose-sam",
+        "name": "Cellpose-SAM",
+        "url": "#/models/cellpose-sam"
+      },
+      "campaign_id": "cellpose-sam-community",
+      "description": "An open community fine-tunes Cellpose-SAM on microscopy archives that are too large to move. Each contributor trains locally, whenever it suits them, and the checkpoints that come back are periodically averaged into a community model that everyone can use. Each merge tries the checkpoints it has received one at a time and keeps the ones that improve the pooled model.",
+      "model_licence": "CC-BY-4.0",
+      "n_active_sites": 9,
+      "payload": {
+        "bytes_per_contribution": 1300000000,
+        "bytes_per_site_per_round": null,
+        "kind": "full_state_dict",
+        "label": "Full Cellpose-SAM checkpoint"
+      },
+      "progress": {
+        "mode": "asynchronous",
+        "n_contributions": 33,
+        "n_versions": 9
+      },
+      "started_at": "2026-06-15T09:00:00.000Z",
+      "status": "open",
+      "title": "Community Cellpose-SAM fine-tuning"
+    },
+    {
+      "base_model": null,
+      "campaign_id": "unet-consortium",
+      "description": "Two sites train a small U-Net on public benchmark datasets that stay where they are. The network is small enough that the whole state dict is exchanged each round.",
+      "model_licence": "MIT",
+      "n_active_sites": 2,
+      "payload": {
+        "bytes_per_contribution": null,
+        "bytes_per_site_per_round": 7760000,
+        "kind": "full_state_dict",
+        "label": "Full state dict"
+      },
+      "progress": {
+        "mode": "synchronous",
+        "round": {
+          "current": 12,
+          "total": 12
+        }
+      },
+      "started_at": "2026-07-19T14:03:00Z",
+      "status": "completed",
+      "title": "U-Net nucleus segmentation consortium"
+    }
+  ],
+  "schema_version": "0.10.0-draft"
+}

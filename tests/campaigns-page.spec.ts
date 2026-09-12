@@ -31,8 +31,9 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.7.0-draft';
+const SCHEMA_VERSION = '0.10.0-draft';
 const CAMPAIGN_ID = 'stub-consortium';
+const ASYNC_CAMPAIGN_ID = 'stub-soup';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
 /** Rounds 0, 1, 4, 5 of an otherwise 0..5 series. 2 and 3 were never reported. */
@@ -43,6 +44,10 @@ function stubRounds(): Array<Record<string, unknown>> {
     eval_on: ['stub-site-a', 'stub-site-b'],
     merge_weights: null,
     metric: {
+      // The plottable role. A RoundRecord.metric that is not a witness is
+      // refused by the page rather than drawn, so every stub that expects a
+      // curve has to carry this.
+      role: 'witness',
       name: 'validation Dice',
       higher_is_better: true,
       per_site: null,
@@ -61,13 +66,75 @@ function stubRounds(): Array<Record<string, unknown>> {
   }));
 }
 
+/** The two-site roster. Extracted so a test can vary one site without spreading a record. */
+function stubSites(): Array<Record<string, unknown>> {
+  return [
+    {
+      site_id: 'stub-site-a',
+      site_name: 'Stub site A',
+      country: null,
+      role: 'founding',
+      joined_round: 0,
+      left_round: null,
+      accelerator: null,
+      datasets: [
+        {
+          name: 'stub-nuclei',
+          objects: 'nuclei',
+          n_train: 536,
+          n_val: null,
+          n_test: null,
+          source: null,
+          licence: 'CC0-1.0',
+          citation: null,
+          split_fingerprint: null,
+        },
+      ],
+      n_train_images: 536,
+      activity: 'reported',
+      bioengine_version: null,
+      // Typed into a join form, not measured. The roster has to say so.
+      declared: ['site_name', 'n_train_images'],
+    },
+    {
+      site_id: 'stub-site-b',
+      site_name: 'Stub site B',
+      country: null,
+      role: 'founding',
+      joined_round: 0,
+      left_round: null,
+      accelerator: null,
+      datasets: [],
+      // Not reported by this site, which must render as such and never as 0.
+      n_train_images: null,
+      // The service does not know what this site is doing, which is the
+      // ordinary case and must not be dressed up as a state.
+      activity: null,
+      bioengine_version: null,
+      declared: null,
+    },
+  ];
+}
+
 /**
  * A record shaped like the FIRST REAL campaign rather than like the design
  * mockup: full state dicts instead of a LoRA adapter, image counts with no byte
  * figure, and a metric with a name of its own. If the page renders this one
  * correctly it cannot be hardcoding "adapter", "TB" or "score".
+ *
+ * Synchronous. The async counterpart is stubAsyncRecord() below.
  */
-function stubRecord(overrides: Record<string, unknown> = {}) {
+function stubRecord(overrides: Record<string, any> = {}) {
+  // `round`, `rounds` and `sites` are the SYNCHRONOUS ARM's fields and have
+  // lived inside `progress` on the wire since 0.8.0-draft. They are still
+  // accepted flat here and folded in below, so a test that varies the round
+  // series can say `stubRecord({ rounds })` without restating the
+  // discriminant. What goes out on the wire is always the union shape, which
+  // is the part that has to be right; the convenience is local to this file.
+  //
+  // `progress` may also be passed whole, which is how the async stubs reuse
+  // every campaign-level field on this record without duplicating it.
+  const { round, rounds, sites, progress, ...rest } = overrides;
   return {
     schema_version: SCHEMA_VERSION,
     campaign_id: CAMPAIGN_ID,
@@ -86,54 +153,12 @@ function stubRecord(overrides: Record<string, unknown> = {}) {
     base_model: null,
     aggregation: { method: 'FedAvg', weighting: 'sample count' },
     licence_policy: { accepted_data_licences: ['CC0-1.0'], model_licence: 'MIT' },
-    round: { current: 6, total: 12, started_at: '2026-07-19T14:03:00Z' },
-    sites: [
-      {
-        site_id: 'stub-site-a',
-        site_name: 'Stub site A',
-        country: null,
-        role: 'founding',
-        joined_round: 0,
-        left_round: null,
-        accelerator: null,
-        datasets: [
-          {
-            name: 'stub-nuclei',
-            objects: 'nuclei',
-            n_train: 536,
-            n_val: null,
-            n_test: null,
-            source: null,
-            licence: 'CC0-1.0',
-            citation: null,
-            split_fingerprint: null,
-          },
-        ],
-        n_train_images: 536,
-        activity: 'reported',
-        bioengine_version: null,
-        // Typed into a join form, not measured. The roster has to say so.
-        declared: ['site_name', 'n_train_images'],
-      },
-      {
-        site_id: 'stub-site-b',
-        site_name: 'Stub site B',
-        country: null,
-        role: 'founding',
-        joined_round: 0,
-        left_round: null,
-        accelerator: null,
-        datasets: [],
-        // Not reported by this site, which must render as such and never as 0.
-        n_train_images: null,
-        // The service does not know what this site is doing, which is the
-        // ordinary case and must not be dressed up as a state.
-        activity: null,
-        bioengine_version: null,
-        declared: null,
-      },
-    ],
-    rounds: stubRounds(),
+    progress: progress ?? {
+      mode: 'synchronous',
+      round: round ?? { current: 6, total: 12, started_at: '2026-07-19T14:03:00Z' },
+      rounds: rounds ?? stubRounds(),
+      sites: sites ?? stubSites(),
+    },
     reporting: { dropped_reports: 2, reconciled: false, reconciled_at: null },
     transport: {
       observed: {
@@ -159,23 +184,312 @@ function stubRecord(overrides: Record<string, unknown> = {}) {
     stewards: [{ name: 'Stub steward', workspace: 'stub-workspace' }],
     published_model: null,
     generated_at: '2026-09-06T00:00:00Z',
-    ...overrides,
+    ...rest,
   };
 }
 
-function stubSummary(record: ReturnType<typeof stubRecord>) {
+/**
+ * The index summary, derived from whichever arm the record is in.
+ *
+ * The index carries its own discriminated `progress`, so this switches rather
+ * than reaching for a round number that an async campaign has no honest value
+ * for. Deriving it from the record instead of hand-writing a second literal is
+ * what keeps a summary test from passing against a detail record it contradicts.
+ */
+function stubSummary(record: Record<string, any>) {
+  const progress = record.progress;
+  const isAsync = progress.mode === 'asynchronous';
   return {
     campaign_id: record.campaign_id,
     title: record.title,
     description: record.description,
     status: record.status,
     base_model: record.base_model,
-    round: { current: record.round.current, total: record.round.total },
-    n_active_sites: record.sites.length,
+    progress: isAsync
+      ? {
+          mode: 'asynchronous',
+          n_contributions: progress.contributions.length,
+          n_versions: progress.soups.length,
+        }
+      : {
+          mode: 'synchronous',
+          round: { current: progress.round.current, total: progress.round.total },
+        },
+    n_active_sites: isAsync ? progress.contributors.length : progress.sites.length,
     payload: record.payload,
     model_licence: record.licence_policy.model_licence,
-    started_at: record.round.started_at,
+    started_at: isAsync ? progress.started_at : progress.round.started_at,
   };
+}
+
+// ---------------------------------------------------------------------------
+// The ASYNCHRONOUS arm: contributors, a contribution stream, and a soup
+// lineage. Everything below is invented for this spec and shares nothing with
+// the src/services/__fixtures__ corpus, on purpose. The fixtures exercise the
+// page at a realistic size; these stubs are small enough that every assertion
+// below can name the exact record it is about.
+// ---------------------------------------------------------------------------
+
+/** Whole Cellpose-SAM checkpoints, not adapters. The greedy fork moves full weights. */
+const ASYNC_CHECKPOINT_BYTES = 1_300_000_000;
+
+function stubContributors(): Array<Record<string, unknown>> {
+  return [
+    {
+      contributor_id: 'stub-alpha',
+      contributor_name: 'Stub contributor Alpha',
+      country: null,
+      joined_at: '2026-08-02T09:00:00Z',
+      latest_contribution_at: '2026-08-22T09:00:00Z',
+      n_contributions: 3,
+      accelerator: null,
+      datasets: [],
+      n_train_images: 412,
+      bioengine_version: null,
+      declared: ['n_train_images'],
+    },
+    {
+      contributor_id: 'stub-beta',
+      contributor_name: 'Stub contributor Beta',
+      country: null,
+      joined_at: '2026-08-05T09:00:00Z',
+      latest_contribution_at: '2026-08-21T09:00:00Z',
+      n_contributions: 2,
+      accelerator: null,
+      datasets: [],
+      n_train_images: null,
+      bioengine_version: null,
+      declared: null,
+    },
+    {
+      contributor_id: 'stub-gamma',
+      contributor_name: 'Stub contributor Gamma',
+      country: null,
+      joined_at: '2026-08-19T09:00:00Z',
+      latest_contribution_at: '2026-09-04T09:00:00Z',
+      n_contributions: 2,
+      accelerator: null,
+      datasets: [],
+      n_train_images: 903,
+      bioengine_version: null,
+      declared: [],
+    },
+  ];
+}
+
+/**
+ * Nine contributions across three contributors and three merges, one of which
+ * published nothing.
+ *
+ * The dispositions are picked so no single contributor owns every exclusion.
+ * That is not decoration: a lane whose every dot is grey reads as a finding
+ * about that contributor, which is the one thing the excluded state must never
+ * be able to say, so the stub that guards the state has to be shaped the way a
+ * real campaign is rather than the way a minimal case would be.
+ *
+ * c8 and c9 are excluded by a merge that published NO version, which is the
+ * case worth stubbing rather than a second copy of the ordinary one. Their dots
+ * are grey and the merge that greyed them is not in `soups`, so a chart that
+ * drew its markers from `soups` alone would leave them in a stretch of timeline
+ * with no merge in it at all, under a legend saying a merge had assessed them.
+ */
+function stubContributions(): Array<Record<string, unknown>> {
+  const rows: Array<[string, string, string, string | null, string | null]> = [
+    // id, contributor, received_at, disposition, merged_into
+    ['stub-c1', 'stub-alpha', '2026-08-02T09:00:00Z', 'included', 'stub-soup-1'],
+    ['stub-c2', 'stub-beta', '2026-08-05T11:30:00Z', 'included', 'stub-soup-1'],
+    ['stub-c3', 'stub-alpha', '2026-08-06T16:45:00Z', 'excluded', null],
+    ['stub-c4', 'stub-gamma', '2026-08-19T08:15:00Z', 'included', 'stub-soup-2'],
+    ['stub-c5', 'stub-beta', '2026-08-21T13:00:00Z', 'excluded', null],
+    ['stub-c6', 'stub-alpha', '2026-08-22T09:00:00Z', 'included', 'stub-soup-2'],
+    // Both weighed by the 3 Sept merge, which kept neither and so published no
+    // version. `merged_into` is null for the same reason it is null on any
+    // exclusion: nothing folded them in.
+    ['stub-c8', 'stub-beta', '2026-09-01T07:40:00Z', 'excluded', null],
+    ['stub-c9', 'stub-gamma', '2026-09-02T15:10:00Z', 'excluded', null],
+    // After the last merge, so it has not been assessed by anything yet.
+    ['stub-c7', 'stub-gamma', '2026-09-04T10:20:00Z', 'pending', null],
+  ];
+  return rows.map(([contribution_id, contributor_id, received_at, disposition, merged_into]) => ({
+    contribution_id,
+    contributor_id,
+    received_at,
+    base_version: 'v0',
+    bytes_out: ASYNC_CHECKPOINT_BYTES,
+    n_train_images: 412,
+    dataset_name: 'stub-local-nuclei',
+    declared: ['n_train_images', 'dataset_name'],
+    disposition,
+    merged_into,
+  }));
+}
+
+/** The witness score, which the page may plot. Rises, but not by construction. */
+function stubWitness(aggregate: number, scoring: number): Record<string, unknown> {
+  return {
+    role: 'witness',
+    name: 'validation F1 (witness split)',
+    higher_is_better: true,
+    per_site: null,
+    per_site_basis: null,
+    aggregate,
+    aggregate_basis:
+      'mean over the contributors that evaluated this version on a held-out split held back from selection',
+    n_sites_scored: scoring,
+    n_datasets_scored: null,
+    aggregate_withheld: null,
+  };
+}
+
+/**
+ * The gate score, which the page may NAME and must never plot.
+ *
+ * Deliberately monotone, and deliberately carried on every soup, because the
+ * assertion worth having is that a rising series sitting right there in the
+ * record still does not reach the chart.
+ */
+function stubSelection(aggregate: number, scoring: number): Record<string, unknown> {
+  return {
+    role: 'selection',
+    name: 'pooled AP50 on the selection split',
+    higher_is_better: true,
+    per_site: null,
+    per_site_basis: null,
+    aggregate,
+    aggregate_basis: 'the score the greedy gate admitted contributions against',
+    n_sites_scored: scoring,
+    n_datasets_scored: null,
+    aggregate_withheld: null,
+  };
+}
+
+/** Two merges. Each assessed three contributions and kept two. */
+function stubSoups(): Array<Record<string, unknown>> {
+  return [
+    {
+      soup_id: 'stub-soup-1',
+      index: 0,
+      merged_at: '2026-08-08T02:00:00Z',
+      contributions: ['stub-c1', 'stub-c2'],
+      assessed: ['stub-c1', 'stub-c2', 'stub-c3'],
+      // Uniform souping has no per-contribution weight to publish, so null
+      // here is inapplicability and not a withhold.
+      weights: null,
+      community_model: {
+        artifact_id: 'stub-workspace/stub-community-model',
+        version: 'v1',
+        url: null,
+        n_contributions_cumulative: 2,
+      },
+      witness_metric: stubWitness(0.7412, 2),
+      selection_metric: stubSelection(0.6293, 2),
+      global_sha256: STUB_DIGEST,
+      transport: {
+        bytes_out: ASYNC_CHECKPOINT_BYTES * 2,
+        bytes_in: ASYNC_CHECKPOINT_BYTES * 3,
+        n_transfers: 5,
+        sources_complete: true,
+      },
+    },
+    {
+      soup_id: 'stub-soup-2',
+      index: 1,
+      merged_at: '2026-08-24T02:00:00Z',
+      contributions: ['stub-c4', 'stub-c6'],
+      assessed: ['stub-c4', 'stub-c5', 'stub-c6'],
+      weights: null,
+      community_model: {
+        artifact_id: 'stub-workspace/stub-community-model',
+        version: 'v2',
+        url: null,
+        n_contributions_cumulative: 4,
+      },
+      witness_metric: stubWitness(0.7683, 3),
+      selection_metric: stubSelection(0.6466, 3),
+      global_sha256: STUB_DIGEST,
+      transport: {
+        bytes_out: ASYNC_CHECKPOINT_BYTES * 3,
+        bytes_in: ASYNC_CHECKPOINT_BYTES * 3,
+        n_transfers: 6,
+        sources_complete: true,
+      },
+    },
+  ];
+}
+
+/**
+ * One merge that ran and published nothing, plus one that had nothing to weigh.
+ *
+ * Both kinds, because the page distinguishes them and only one is interesting.
+ * The 3 Sept entry weighed two real candidates and kept neither. The 12 Sept one
+ * had an empty pool. Neither carries an index, a version or a metric, because
+ * there is no published checkpoint to number or score.
+ */
+function stubEmptyMerges(): Array<Record<string, unknown>> {
+  return [
+    {
+      merged_at: '2026-09-03T02:00:00Z',
+      assessed: ['stub-c8', 'stub-c9'],
+      transport: {
+        // Nothing published, so nothing distributed. Zero out is a measurement.
+        bytes_out: 0,
+        bytes_in: ASYNC_CHECKPOINT_BYTES * 2,
+        n_transfers: 2,
+        sources_complete: true,
+      },
+    },
+    {
+      merged_at: '2026-09-12T02:00:00Z',
+      assessed: [],
+      transport: {
+        bytes_out: 0,
+        bytes_in: 0,
+        n_transfers: 0,
+        sources_complete: true,
+      },
+    },
+  ];
+}
+
+/**
+ * The async record. Reuses every campaign-level field from stubRecord() and
+ * swaps the progress arm, so a field that only exists on one arm cannot drift
+ * between the two stubs.
+ */
+function stubAsyncRecord(
+  progressOverrides: Record<string, any> = {},
+  overrides: Record<string, any> = {}
+) {
+  return stubRecord({
+    campaign_id: ASYNC_CAMPAIGN_ID,
+    title: 'Stub community model soup',
+    description: 'A stub async campaign that exists only inside this test.',
+    experiment: null,
+    aggregation: { method: 'greedy soup', weighting: 'uniform' },
+    payload: {
+      kind: 'full_state_dict',
+      label: 'Full Cellpose-SAM checkpoint',
+      // No round, so no per-round figure. The per-contribution one is the
+      // only honest payload size an async campaign has.
+      bytes_per_site_per_round: null,
+      bytes_per_contribution: ASYNC_CHECKPOINT_BYTES,
+    },
+    progress: {
+      mode: 'asynchronous',
+      started_at: '2026-08-01T00:00:00Z',
+      contributions: stubContributions(),
+      soups: stubSoups(),
+      empty_merges: stubEmptyMerges(),
+      contributors: stubContributors(),
+      merge_trigger: {
+        kind: 'scheduled',
+        next_merge_at: '2026-09-14T02:00:00Z',
+        contributions_per_merge: null,
+      },
+      ...progressOverrides,
+    },
+    ...overrides,
+  });
 }
 
 /**
@@ -187,7 +501,7 @@ function stubSummary(record: ReturnType<typeof stubRecord>) {
 async function stubCampaignService(
   page: Page,
   opts: {
-    record?: ReturnType<typeof stubRecord>;
+    record?: Record<string, any>;
     status?: number;
     /**
      * Version the stub service claims, on BOTH endpoints. Defaults to the one
@@ -1650,8 +1964,7 @@ test('self-declared roster values are marked, and the roster is not called attes
 test('a site that reports no provenance does not get its values presented as measured', async ({
   page,
 }) => {
-  const record = stubRecord();
-  const sites = (record.sites as any[]).map((site, i) =>
+  const sites = stubSites().map((site, i) =>
     i === 0
       ? {
           ...site,
@@ -1663,7 +1976,7 @@ test('a site that reports no provenance does not get its values presented as mea
         }
       : site
   );
-  await stubCampaignService(page, { record: { ...record, sites } });
+  await stubCampaignService(page, { record: stubRecord({ sites }) });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
   await waitForLoaded(page);
 
@@ -1703,8 +2016,7 @@ test('a site that reports no provenance does not get its values presented as mea
  * lose their contrast, even though each would still render its own string.
  */
 test('the three provenance states are distinguishable from each other', async ({ page }) => {
-  const record = stubRecord();
-  const base = (record.sites as any[])[0];
+  const base = stubSites()[0];
   const sites = [
     // Declared: the site listed this field on its join form.
     { ...base, site_id: 'prov-declared', site_name: 'Declared site', declared: ['n_train_images'] },
@@ -1714,7 +2026,7 @@ test('the three provenance states are distinguishable from each other', async ({
     // Unknown: no declared list at all. Not evidence of measurement.
     { ...base, site_id: 'prov-unknown', site_name: 'Unknown site', declared: null },
   ];
-  await stubCampaignService(page, { record: { ...record, sites } });
+  await stubCampaignService(page, { record: stubRecord({ sites }) });
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
   await waitForLoaded(page);
 
@@ -1779,7 +2091,7 @@ test('a service on a different schema is refused at the index, not rendered', as
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.7\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.10\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1797,7 +2109,7 @@ test('a service on a different schema is refused at the detail page too', async 
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.7\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.10\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1837,7 +2149,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.7.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.10.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub nucleus segmentation consortium')).toBeVisible();
@@ -1902,4 +2214,578 @@ test('the same digit scan does find digits when the service answers', async ({ p
   const text = await regionTextWithoutDiagnostics(page);
   expect(text.match(/\d/g)).not.toBeNull();
   expect(text).toContain('7.76 MB');
+});
+
+// ---------------------------------------------------------------------------
+// The asynchronous arm.
+//
+// These are the same kind of assertions as everything above: mostly negative,
+// and aimed at the things this page can get wrong in a way nobody would notice.
+// Two of them are load-bearing beyond ordinary rendering.
+//
+// The first is the improvement curve. Contributions are SELECTED on a held-out
+// score, so a plot of that score rises on every published version whether or
+// not the model improved. The curve is only information when it is measured on
+// a split the gate never consulted. Both scores travel in the record and both
+// are rising, so nothing about the rendered page distinguishes the honest curve
+// from the circular one by eye. A test is the only thing that can.
+//
+// The second is the excluded state. "Assessed, not included" is a neutral
+// lineage fact and it must not be rendered as a failure or as a ranking, which
+// means the assertions are about colour, wording and the ABSENCE of a
+// per-contributor breakdown rather than about a number being present.
+// ---------------------------------------------------------------------------
+
+test('an async campaign reports contributions and versions, never rounds', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // Lowercased throughout: the tile labels are uppercased in CSS, so innerText
+  // reads them back as "COMMUNITY VERSIONS".
+  const text = await regionText(page);
+  expect(text.toLowerCase()).toContain('contributors');
+  expect(text.toLowerCase()).toContain('contributions');
+  expect(text.toLowerCase()).toContain('community versions');
+  // The counts come from the stub and not from anywhere else.
+  expect(text).toContain('Latest is v2');
+
+  // A campaign with no rounds must not be described as being in one. This is
+  // the failure the progress union exists to make impossible, and it is worth
+  // asserting on the rendered page as well as in the type, because the type
+  // only binds code that was written after the split.
+  expect(text).not.toContain('Round ');
+  expect(text).not.toMatch(/\bof 12 rounds\b/);
+});
+
+test('the contribution counters split pending from assessed-and-not-included', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // Seven contributions: four folded in, two assessed and left out, one that
+  // arrived after the last merge and has not been looked at.
+  expect(text).toContain('1 waiting for the next merge');
+  expect(text).toContain('4 assessed and not included');
+});
+
+/**
+ * The wording of the excluded state, asserted as wording.
+ *
+ * Every other test in this file would still pass if "not included" were
+ * rendered as "rejected" in red with a cross. That is the version of this
+ * feature that does real harm, because a contributor reads the colour before
+ * the caption, and it is invisible to any assertion about counts.
+ */
+test('a contribution that was not taken is never rendered as a failure', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('Assessed by a merge, not included in it');
+  expect(text).toContain('not a mark against the contribution or the data behind it');
+
+  for (const word of ['rejected', 'Rejected', 'failed', 'Failed', 'refused', 'worse']) {
+    expect(text, `the excluded state was described as "${word}"`).not.toContain(word);
+  }
+});
+
+test('the excluded dot is neutral, not a warning colour', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // Grey. Asserted on the fill itself rather than on a class name, because the
+  // class name is not what a reader sees and a palette change that swapped the
+  // colour under the same class would pass a class assertion.
+  const fills = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('circle[data-state="excluded"]')).map((c) =>
+      (c as SVGElement).getAttribute('fill')
+    )
+  );
+  expect(fills.length).toBeGreaterThan(0);
+  for (const fill of fills) {
+    expect(fill).toBe('#9ca3af');
+  }
+});
+
+/**
+ * No per-contributor exclusion count, anywhere.
+ *
+ * A count of how often each contributor was not taken is a leaderboard of
+ * whose data is hardest with the ranking implied instead of stated. The
+ * campaign-wide total is published and the breakdown is not, and the only way
+ * to hold that line is to assert the breakdown's absence, since it is the kind
+ * of thing that gets added later as an obvious convenience.
+ */
+test('no per-contributor exclusion breakdown is published', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // Alpha has one exclusion and Beta has one; a per-contributor column would
+  // put a count next to each name. None of these phrasings may appear.
+  for (const phrase of [
+    'Not included',
+    'not taken',
+    'Exclusions',
+    'excluded contributions',
+    'acceptance rate',
+  ]) {
+    expect(text, `a per-contributor breakdown appeared as "${phrase}"`).not.toContain(phrase);
+  }
+
+  // And there is no table column for it either. The roster is a table, so a
+  // header assertion is the specific thing that would catch this.
+  const headers = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('th')).map((h) => (h as HTMLElement).innerText.trim())
+  );
+  for (const header of headers) {
+    expect(header.toLowerCase()).not.toContain('excluded');
+    expect(header.toLowerCase()).not.toContain('rejected');
+  }
+});
+
+/**
+ * The improvement curve plots the witness split and not the gate.
+ *
+ * Both scores are in the stub and both rise. The chart's accessible label
+ * carries the metric name, which is what makes this checkable without reading
+ * pixels.
+ */
+test('the improvement curve is drawn from the witness metric, never the selection metric', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const chart = page.locator('svg[aria-label*="community version"]');
+  await expect(chart).toHaveCount(1);
+  await expect(chart).toHaveAttribute('aria-label', /validation F1 \(witness split\)/);
+  await expect(chart).not.toHaveAttribute('aria-label', /AP50/);
+
+  const text = await regionText(page);
+  // The gate is NAMED, because a reader told that some contributions were not
+  // taken is entitled to know what the criterion was...
+  expect(text).toContain('pooled AP50 on the selection split');
+  // ...and it is named in the sentence that says it is not what is plotted.
+  expect(text).toContain('It is not the');
+  expect(text).toContain('cannot show whether the model improved');
+
+  // None of the gate's values reach the page. Naming a metric is publication of
+  // a criterion; rendering its series is publication of a result, and this is
+  // the one series on the page that would be circular.
+  for (const value of ['0.629', '0.647', '0.6293', '0.6466']) {
+    expect(text, `a selection-metric value ${value} was rendered`).not.toContain(value);
+  }
+});
+
+test('the gate score does not appear as a lineage column', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // A column read top to bottom IS a series, whatever it is called, so the
+  // no-series rule rules out the column as well as the chart.
+  const headers = await page.evaluate(() =>
+    Array.from(document.querySelectorAll('th')).map((h) => (h as HTMLElement).innerText.trim())
+  );
+  for (const header of headers) {
+    expect(header.toLowerCase()).not.toContain('ap50');
+    expect(header.toLowerCase()).not.toContain('selection');
+    expect(header.toLowerCase()).not.toContain('gate');
+  }
+});
+
+test('the lineage says how many contributions a merge assessed, not just how many it kept', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // The column header is uppercased in CSS, so innerText reads "FOLDED IN".
+  expect(text.toLowerCase()).toContain('folded in');
+  // Both merges kept two of the three they looked at. Without the denominator
+  // the table reads as though two arrived and two were taken.
+  expect(text).toContain('of 3 assessed');
+  expect(text).toContain('v1');
+  expect(text).toContain('v2');
+});
+
+/**
+ * A merge that did not publish an assessed count renders without a denominator
+ * rather than inventing one.
+ *
+ * `assessed: null` is a producer that does not record the selection, which is
+ * a different campaign from one that assessed exactly what it kept. Falling
+ * back to `contributions.length` would render "2 of 2 assessed" and assert that
+ * the merge took everything, which is the one thing the record does not say.
+ */
+test('a merge with no assessed list shows no denominator', async ({ page }) => {
+  const soups = stubSoups().map((soup) => ({ ...soup, assessed: null }));
+  await stubCampaignService(page, { record: stubAsyncRecord({ soups }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  // Scoped to the lineage table, not the whole region. The campaign-wide
+  // "2 assessed and not included" tile is still correct and still rendered
+  // here: what this test is about is the DENOMINATOR next to a merge, and a
+  // region-wide search for the word would fail on the tile instead.
+  const table = await page.evaluate(() => {
+    const heads = Array.from(document.querySelectorAll('th')).map((h) =>
+      (h as HTMLElement).innerText.trim().toLowerCase()
+    );
+    if (!heads.includes('folded in')) return null;
+    const el = Array.from(document.querySelectorAll('table')).find((t) =>
+      Array.from(t.querySelectorAll('th')).some(
+        (h) => (h as HTMLElement).innerText.trim().toLowerCase() === 'folded in'
+      )
+    );
+    return el ? (el as HTMLElement).innerText.replace(/\s+/g, ' ').trim() : null;
+  });
+
+  expect(table).not.toBeNull();
+  // The counts a merge DID fold in are still published. What is absent is the
+  // "of N assessed" it would take a record that states the selection to say.
+  expect(table).toContain('v1');
+  expect(table).toContain('v2');
+  expect(table).not.toContain('assessed');
+});
+
+test('a scheduled trigger gives a date and says what it covers', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('The next merge is scheduled for');
+  // "assessed for it" and not "in it": under a greedy gate, arriving before the
+  // merge is not the same as being in the version it publishes.
+  expect(text).toContain('is assessed for it');
+  expect(text).not.toContain('then is in it');
+});
+
+test('a manual trigger predicts nothing', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      merge_trigger: { kind: 'manual', next_merge_at: null, contributions_per_merge: null },
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('run by the campaign stewards');
+  expect(text).toContain('no next date to show');
+  expect(text).not.toContain('scheduled for');
+});
+
+/**
+ * An on-contributions trigger shows the threshold and stops short of a time.
+ *
+ * The countdown is the tempting version and it is a prediction: when N is
+ * reached depends on when volunteers finish runs on hardware nobody here
+ * controls. A predicted merge time that slips is worse than no prediction on a
+ * page whose whole claim is that its numbers are observations.
+ */
+test('an on-contributions trigger names the threshold and gives no date', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord({
+      merge_trigger: { kind: 'on_contributions', next_merge_at: null, contributions_per_merge: 5 },
+    }),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('A merge runs every 5 contributions');
+  expect(text).toContain('there is no date to give');
+  expect(text).not.toContain('scheduled for');
+});
+
+/**
+ * A trigger the service did not state predicts nothing either.
+ *
+ * `merge_trigger: null` is the ordinary case for a campaign whose steward has
+ * not configured one, and the page must render the stream without any of the
+ * three trigger sentences rather than defaulting to the friendliest of them.
+ */
+test('an unstated merge trigger produces no prediction of any kind', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord({ merge_trigger: null }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('Contributions and merges');
+  expect(text).not.toContain('scheduled for');
+  expect(text).not.toContain('A merge runs every');
+  expect(text).not.toContain('run by the campaign stewards');
+});
+
+/**
+ * The nouns follow the mode.
+ *
+ * A contributor trains when it suits them and owes nobody a schedule. Calling
+ * them a site imports an obligation the campaign never asked for, and it is
+ * exactly the sort of wrong nobody files a bug about.
+ */
+test('an async campaign calls its participants contributors and its steps merges', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('left the participating contributors');
+  expect(text).not.toContain('left the participating sites');
+  expect(text).not.toContain('per site per round');
+});
+
+test('a synchronous campaign still calls its participants sites', async ({ page }) => {
+  await stubCampaignService(page);
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('left the participating sites');
+  expect(text).not.toContain('left the participating contributors');
+});
+
+/**
+ * The index renders an async campaign without inventing a round number.
+ *
+ * The summary used to carry a bare `round: {current, total}`, which an async
+ * campaign has no honest value for: sending nulls would have rendered every
+ * async campaign as a synchronous one with missing telemetry, which is a
+ * stronger and wronger claim than saying nothing.
+ */
+test('the campaign index shows contributions and versions for an async campaign', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto('/#/campaigns');
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('Stub community model soup');
+  expect(text).not.toMatch(/Round \d/);
+  expect(text).not.toContain('of 12');
+});
+
+/**
+ * Two numbers, never their quotient, on the async arm too.
+ *
+ * The no-ratio rule was written against the synchronous page. Under full-weight
+ * souping it matters more rather than less: bytes moved accumulates with every
+ * contribution and the data held does not, so the quotient is a function of how
+ * long the campaign has run and changes sign partway through a long one.
+ */
+test('no saving ratio is rendered on an async campaign', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  for (const phrase of [
+    'saving',
+    'savings',
+    'times less',
+    'times smaller',
+    'reduction',
+    '% of the data',
+    'x less',
+  ]) {
+    expect(text, `a saving ratio was rendered as "${phrase}"`).not.toContain(phrase);
+  }
+  expect(text).not.toMatch(/\d+\s*(?:x|×)\s*(?:less|smaller|fewer)/i);
+});
+
+/**
+ * A merge that published nothing is still drawn.
+ *
+ * The defect this guards is a chart that takes its merge markers from `soups`.
+ * Under greedy souping a merge can weigh a pool and keep none of it, and the
+ * backend records that with no soup and no version, so a soups-only chart shows
+ * the contributions it greyed out sitting in a stretch of timeline with no merge
+ * anywhere in it, under a legend that says a merge assessed them. The chart
+ * contradicts its own key and a reader resolves it by blaming the next visible
+ * merge, which is the wrong one.
+ *
+ * Asserted on the marker count rather than on any caption, because the caption
+ * is the thing a well-meaning edit deletes and the marker is the claim.
+ */
+test('a merge that published no version is drawn on the stream', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const published = page.locator('svg g[data-merge-kind="published"]');
+  const empty = page.locator('svg g[data-merge-kind="empty"]');
+  await expect(published).toHaveCount(2);
+  await expect(empty).toHaveCount(2);
+});
+
+/**
+ * And drawn DIFFERENTLY, which is the other half of the same claim.
+ *
+ * A marker that looked like a version marker would say a version was published,
+ * so the stroke has to differ and not only the element. Asserted on the computed
+ * stroke rather than on a class name, because the class is not what a reader
+ * sees.
+ */
+test('an empty merge marker is visually distinct from a published one', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const strokes = await page.evaluate(() => {
+    const read = (kind: string) => {
+      const line = document.querySelector(`svg g[data-merge-kind="${kind}"] line`);
+      return line
+        ? {
+            stroke: line.getAttribute('stroke'),
+            dash: line.getAttribute('stroke-dasharray'),
+          }
+        : null;
+    };
+    return { published: read('published'), empty: read('empty') };
+  });
+  expect(strokes.published).not.toBeNull();
+  expect(strokes.empty).not.toBeNull();
+  expect(strokes.empty!.stroke).not.toBe(strokes.published!.stroke);
+  // Dashed, and the published marker is not. Two channels rather than one, so
+  // the distinction survives a reader who cannot separate the two colours.
+  expect(strokes.empty!.dash).toBeTruthy();
+  expect(strokes.published!.dash).toBeFalsy();
+});
+
+/**
+ * An empty merge publishes no version, so it must not reach the lineage table
+ * or the improvement curve.
+ *
+ * The table is a table of VERSIONS. A row with no version in it would be the
+ * page inventing a release, and a point on the curve with no checkpoint behind
+ * it would be a score attributed to a model that was never published.
+ */
+test('an empty merge adds no row to the lineage and no point to the curve', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const lineageRows = await page.evaluate(() => {
+    const tables = Array.from(document.querySelectorAll('table'));
+    const table = tables.find((t) =>
+      Array.from(t.querySelectorAll('th')).some((th) =>
+        (th.textContent ?? '').toLowerCase().includes('folded in')
+      )
+    );
+    return table ? table.querySelectorAll('tbody tr').length : -1;
+  });
+  // Two soups, two rows. Not four.
+  expect(lineageRows).toBe(2);
+
+  const points = await page.locator('svg circle[data-version]').count();
+  expect(points).toBe(2);
+});
+
+/**
+ * The legend entry is conditional, on the same rule as the dot states.
+ *
+ * A legend that explains a marker the reader cannot see on the chart tells them
+ * something happened that did not, which on this particular marker would mean
+ * reporting a merge that declined contributions when none ever did.
+ */
+test('the empty merge legend appears only when an empty merge is on the chart', async ({
+  page,
+}) => {
+  await stubCampaignService(page, { record: stubAsyncRecord({ empty_merges: [] }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('Merge that published a version');
+  expect(text).not.toContain('Merge that published no new version');
+  expect(text).not.toContain('published no new version. That happens when');
+  await expect(page.locator('svg g[data-merge-kind="empty"]')).toHaveCount(0);
+});
+
+/**
+ * A campaign that does not report empty merges says so.
+ *
+ * Null is not zero. Without this the page shows a complete-looking set of merge
+ * markers for a campaign whose service simply never sent the other kind, and
+ * every gap between markers reads as a quiet stretch rather than as a stretch
+ * the page cannot see into.
+ */
+test('an unreported empty-merge list is disclosed rather than read as none', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord({ empty_merges: null }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('Only merges that published a version are marked');
+  expect(text).toContain('not drawn');
+  // And no claim about a count it does not have.
+  expect(text).not.toContain('merges published no new version');
+});
+
+/**
+ * The empty-merge caption must not turn into a fault report.
+ *
+ * A merge that weighed contributions and kept none is the community model
+ * already being at least as good as anything on offer. The standing rule is that
+ * "evaluated, not included" is never a failure and never a ranking, and it binds
+ * the merge-level phrasing exactly as it binds the contribution-level one.
+ */
+test('the empty merge caption states no failure and names no contributor', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  expect(text).toContain('2 merges published no new version');
+  for (const phrase of [
+    'failed',
+    'failure',
+    'rejected',
+    'wasted',
+    'unsuccessful',
+    'poor',
+    'not good enough',
+  ]) {
+    expect(text, `the empty-merge copy read as a fault: "${phrase}"`).not.toContain(phrase);
+  }
+  // The contributors whose work that merge declined are not named next to it.
+  const caption = text.slice(text.indexOf('2 merges published no new version'));
+  expect(caption).not.toContain('Stub Beta');
+  expect(caption).not.toContain('Stub Gamma');
+});
+
+/**
+ * The campaign-wide "assessed and not included" total counts exclusions from a
+ * merge that published nothing, exactly as live-kudu specified.
+ *
+ * This is the seam where the two records meet: those contributions have no
+ * `merged_into` and belong to no soup, so a page that derived the total by
+ * walking `soups` would silently drop them and report a more selective-looking
+ * campaign than the one that ran.
+ */
+test('exclusions from an empty merge still reach the campaign-wide total', async ({ page }) => {
+  await stubCampaignService(page, { record: stubAsyncRecord() });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+  // c3 and c5 were declined by merges that published; c8 and c9 by one that did
+  // not. All four are in the total.
+  expect(text).toContain('4 assessed and not included');
+  // Still no per-contributor breakdown of any of them.
+  expect(text).not.toMatch(/Stub (Alpha|Beta|Gamma)[^.]{0,40}(excluded|not included|assessed)/i);
 });

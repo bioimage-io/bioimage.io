@@ -16,10 +16,20 @@ const STATUS_STYLES: Record<CampaignStatus, { label: string; className: string }
 
 const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => {
   const status = STATUS_STYLES[campaign.status] ?? STATUS_STYLES.closed;
-  const perRound = formatBytes(campaign.payload?.bytes_per_site_per_round);
-  const progress =
-    campaign.round.current !== null && campaign.round.total
-      ? Math.min(1, campaign.round.current / campaign.round.total)
+  const summary = campaign.progress;
+  const async = summary.mode === 'asynchronous';
+  // Exactly one of the two payload fields is populated, chosen by mode. See the
+  // note in CampaignDetail for why this is a switch and not a `??` chain.
+  const perPayload = async
+    ? formatBytes(campaign.payload?.bytes_per_contribution)
+    : formatBytes(campaign.payload?.bytes_per_site_per_round);
+  // Only a fixed-length run has a fraction to be partway through. An open
+  // campaign that runs for as long as people keep contributing has no
+  // denominator, and a bar drawn against an invented one would be the page
+  // asserting a finish line the campaign never set.
+  const fraction =
+    summary.mode === 'synchronous' && summary.round.current !== null && summary.round.total
+      ? Math.min(1, summary.round.current / summary.round.total)
       : null;
 
   return (
@@ -44,22 +54,42 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
 
       <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">Sites</dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">
+            {async ? 'Contributors' : 'Sites'}
+          </dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
             <Value>{formatCount(campaign.n_active_sites)}</Value>
           </dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">Round</dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">
+            {async ? 'Community model' : 'Round'}
+          </dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-            {campaign.round.current === null ? (
+            {summary.mode === 'asynchronous' ? (
+              <>
+                <Value>
+                  {summary.n_versions === null
+                    ? null
+                    : summary.n_versions === 1
+                    ? '1 version'
+                    : `${formatCount(summary.n_versions)} versions`}
+                </Value>
+                {summary.n_contributions !== null && (
+                  <span className="block text-xs font-normal text-gray-500">
+                    from {formatCount(summary.n_contributions)}{' '}
+                    {summary.n_contributions === 1 ? 'contribution' : 'contributions'}
+                  </span>
+                )}
+              </>
+            ) : summary.round.current === null ? (
               <Value>{null}</Value>
-            ) : campaign.round.total ? (
+            ) : summary.round.total ? (
               <span>
-                {campaign.round.current} of {campaign.round.total}
+                {summary.round.current} of {summary.round.total}
               </span>
             ) : (
-              <span>{campaign.round.current}</span>
+              <span>{summary.round.current}</span>
             )}
           </dd>
         </div>
@@ -67,9 +97,9 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
           <dt className="text-xs uppercase tracking-wide text-gray-500">What travels</dt>
           <dd className="mt-0.5 font-medium text-gray-800">
             <Value>{campaign.payload?.label ?? null}</Value>
-            {perRound && (
+            {perPayload && (
               <span className="block text-xs font-normal text-gray-500">
-                {perRound} per site, per round
+                {async ? `${perPayload} per contribution` : `${perPayload} per site, per round`}
               </span>
             )}
           </dd>
@@ -82,11 +112,11 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
         </div>
       </dl>
 
-      {progress !== null && (
+      {fraction !== null && (
         <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
           <div
             className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-[width] duration-500 ease-out"
-            style={{ width: `${Math.round(progress * 100)}%` }}
+            style={{ width: `${Math.round(fraction * 100)}%` }}
           />
         </div>
       )}
@@ -105,10 +135,21 @@ const CampaignList: React.FC = () => {
         <h1 className="bg-gradient-to-r from-blue-600 via-purple-600 to-cyan-600 bg-clip-text text-4xl font-bold tracking-tight text-transparent">
           Training campaigns
         </h1>
+        {/* The pitch is TOO MUCH DATA TO MOVE, and it is deliberately not a
+            privacy pitch. Privacy is a separate argument with separate
+            requirements, and leading with it would promise a guarantee this
+            platform does not make: weight averaging is not a confidentiality
+            mechanism. The reason to train this way is that a microscopy archive
+            is measured in terabytes and a model update is measured in
+            megabytes, which is true whether or not the images are sensitive.
+
+            This is also the claim the page can back with numbers, which is why
+            TransportHeadline sits above everything on both screens. */}
         <p className="mx-auto mt-3 max-w-2xl text-[1.05rem] text-gray-600">
-          Institutions train a shared model together without moving their images. Each campaign
-          publishes its roster, its per-round progress, and an audit of exactly what crossed the
-          network.
+          Some imaging datasets are too large to move. So the model goes to the data instead:
+          contributors fine-tune on their own images, and only the weights travel. Each campaign
+          publishes who took part, what came back, and an audit of exactly how many bytes crossed
+          the network.
         </p>
       </header>
 

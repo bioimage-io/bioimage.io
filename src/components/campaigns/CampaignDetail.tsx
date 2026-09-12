@@ -4,6 +4,7 @@ import { useCampaign } from '../../hooks/useCampaign';
 import { CampaignStatus } from '../../types/campaign';
 import { CampaignEmptyState, CampaignErrorState, CampaignLoading } from './CampaignStates';
 import JoinCampaignDialog from './JoinCampaignDialog';
+import ContributorRoster from './ContributorRoster';
 import PrototypeBanner from './PrototypeBanner';
 import SiteRoster from './SiteRoster';
 import TransportAudit from './TransportAudit';
@@ -67,7 +68,22 @@ const CampaignDetail: React.FC = () => {
     );
   }
 
-  const perRound = formatBytes(data.payload?.bytes_per_site_per_round);
+  const progress = data.progress;
+  // The two modes quote the payload figure against different denominators, and
+  // exactly one of the two fields is populated per mode. Reading the wrong one
+  // yields null, which renders as nothing, so a mode mix-up here would be
+  // invisible rather than loud. Hence the switch instead of a `??` chain.
+  const perPayload =
+    progress.mode === 'synchronous'
+      ? formatBytes(data.payload?.bytes_per_site_per_round)
+      : formatBytes(data.payload?.bytes_per_contribution);
+  const perPayloadUnit = progress.mode === 'synchronous' ? 'per round' : 'per contribution';
+  // A closed consortium has sites and an open community has contributors. The
+  // words are not interchangeable: "site" names an institutional deployment on
+  // a fixed roster, which is what the synchronous test was, and the async
+  // campaign is open to anyone with data and a GPU.
+  const participantNoun = progress.mode === 'synchronous' ? 'site' : 'contributor';
+  const startedAt = progress.mode === 'synchronous' ? progress.round.started_at : progress.started_at;
   const weightsOnly = data.transport?.only_weights_left_site === true;
   const canJoin = data.status === 'open' || data.status === 'running';
 
@@ -91,7 +107,7 @@ const CampaignDetail: React.FC = () => {
             <h1 className="text-3xl font-bold tracking-tight text-gray-900">{data.title}</h1>
             <p className="mt-1 text-sm text-gray-500">
               {STATUS_LABELS[data.status]}
-              {data.round.started_at && `, started ${formatDate(data.round.started_at)}`}
+              {startedAt && `, started ${formatDate(startedAt)}`}
             </p>
           </div>
           <div className="flex flex-shrink-0 gap-3">
@@ -131,27 +147,47 @@ const CampaignDetail: React.FC = () => {
               />
             </svg>
             {data.payload?.label
-              ? `${data.payload.label} is all that leaves each site`
-              : 'Only model weights leave each site'}
-            {perRound && `, ${perRound} per round`}
+              ? `${data.payload.label} is all that leaves each ${participantNoun}`
+              : `Only model weights leave each ${participantNoun}`}
+            {perPayload && `, ${perPayload} ${perPayloadUnit}`}
           </div>
         )}
       </header>
 
       {/* Above everything else, including the roster. A round counter is table
           stakes; a measured byte total is the thing this page exists to show. */}
-      <TransportHeadline transport={data.transport} payload={data.payload} />
+      <TransportHeadline
+        transport={data.transport}
+        payload={data.payload}
+        mode={data.progress.mode}
+      />
 
       <Section
         title="The transport audit"
         subtitle="The same figures with their workings, for anyone who wants to check them."
       >
-        <TransportAudit transport={data.transport} payload={data.payload} />
+        <TransportAudit
+          transport={data.transport}
+          payload={data.payload}
+          mode={data.progress.mode}
+        />
       </Section>
 
-      <Section title="Participating sites">
-        <SiteRoster sites={data.sites} rosterAttested={data.policy?.roster_attested} />
-      </Section>
+      {progress.mode === 'synchronous' ? (
+        <Section title="Participating sites">
+          <SiteRoster sites={progress.sites} rosterAttested={data.policy?.roster_attested} />
+        </Section>
+      ) : (
+        <Section
+          title="Contributors"
+          subtitle="Anyone with data and a GPU can join. Nobody waits for anybody else."
+        >
+          <ContributorRoster
+            contributors={progress.contributors}
+            rosterAttested={data.policy?.roster_attested}
+          />
+        </Section>
+      )}
 
       <Section title="At a glance">
         <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -189,21 +225,38 @@ const CampaignDetail: React.FC = () => {
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Aggregation</dt>
             <dd className="mt-0.5 font-medium text-gray-800">
-              {data.aggregation.method}, weighted by {data.aggregation.weighting}
+              {data.aggregation.method}, {data.aggregation.weighting} weighting
             </dd>
           </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Rounds</dt>
-            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              {data.round.current === null ? (
-                <Value>{null}</Value>
-              ) : data.round.total ? (
-                `${data.round.current} of ${data.round.total}`
-              ) : (
-                `${data.round.current}`
-              )}
-            </dd>
-          </div>
+          {/* Two different facts, not one fact with two spellings. A round
+              counter measures how far through a fixed plan a run is. An async
+              campaign has no plan to be partway through, so the comparable
+              figure is how much has accumulated, which has no denominator. */}
+          {progress.mode === 'synchronous' ? (
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-gray-500">Rounds</dt>
+              <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+                {progress.round.current === null ? (
+                  <Value>{null}</Value>
+                ) : progress.round.total ? (
+                  `${progress.round.current} of ${progress.round.total}`
+                ) : (
+                  `${progress.round.current}`
+                )}
+              </dd>
+            </div>
+          ) : (
+            <div>
+              <dt className="text-xs uppercase tracking-wide text-gray-500">Contributed so far</dt>
+              <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+                {progress.contributions.length}
+                {progress.contributions.length === 1 ? ' contribution' : ' contributions'}
+                {', '}
+                {progress.soups.length}
+                {progress.soups.length === 1 ? ' version' : ' versions'}
+              </dd>
+            </div>
+          )}
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Accepted data licences</dt>
             <dd className="mt-0.5 font-medium text-gray-800">

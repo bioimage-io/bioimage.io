@@ -1,33 +1,47 @@
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useCampaign } from '../../hooks/useCampaign';
-import { CampaignRecord } from '../../types/campaign';
+import { CampaignRecord, CampaignProgressRecord } from '../../types/campaign';
 import { CampaignEmptyState, CampaignErrorState, CampaignLoading } from './CampaignStates';
 import { aggregateDisposition } from './aggregateDisposition';
+import ContributionStream from './ContributionStream';
+import ContributorRoster from './ContributorRoster';
 import PrototypeBanner from './PrototypeBanner';
 import RoundChart from './RoundChart';
 import SiteRoster from './SiteRoster';
+import SoupLineage from './SoupLineage';
 import TransportAudit from './TransportAudit';
 import TransportHeadline from './TransportHeadline';
 import { outcomesReleased } from './disclosure';
-import { formatBytes, formatCount } from './format';
+import { formatBytes, formatCount, formatDate } from './format';
 import { Value } from './MissingValue';
 
 /**
- * Live progress for one campaign.
+ * Live progress for one campaign, in either mode.
  *
- * The round log is derived from the campaign's own round records rather than
- * being a separate narration, so there is no way for the log to describe
- * something the records do not contain.
+ * The two modes get different screens rather than one screen with nullable
+ * fields, because they are different processes and the page should not be able
+ * to render a state that cannot occur. A synchronous campaign has a current
+ * round out of a total and a lockstep progress bar. An asynchronous one has
+ * neither, and giving it an empty progress bar would say the campaign failed to
+ * report a number that does not exist for it.
  *
- * What is live here is PROCESS: the roster growing, bytes crossing the network,
- * rounds landing, the digests each site scored on. Accuracy is not, and is
- * withheld entirely until the campaign's primary-metric rules resolve. See
- * `disclosure.ts` for why that is a rule rather than a preference.
+ * What is live here is PROCESS in both modes: the roster growing, bytes
+ * crossing the network, merges landing, the digests each participant scored on.
+ * Accuracy is gated on `disclosure.ts` and released per campaign.
+ *
+ * One deliberate asymmetry in that gate. A soup's score is attached to an
+ * IMMUTABLE published checkpoint, so it is a model-card figure that the
+ * campaign continuing cannot revise, which is why an async campaign can release
+ * version scores while still running. Per-contributor curves stay withheld in
+ * both modes.
  */
 
-const RoundBar: React.FC<{ record: CampaignRecord }> = ({ record }) => {
-  const { current, total } = record.round;
+type SyncProgress = Extract<CampaignProgressRecord, { mode: 'synchronous' }>;
+type AsyncProgress = Extract<CampaignProgressRecord, { mode: 'asynchronous' }>;
+
+const RoundBar: React.FC<{ progress: SyncProgress }> = ({ progress }) => {
+  const { current, total } = progress.round;
   if (current === null || !total) {
     return (
       <p className="text-sm text-gray-500">
@@ -54,15 +68,16 @@ const RoundBar: React.FC<{ record: CampaignRecord }> = ({ record }) => {
   );
 };
 
-const RoundLog: React.FC<{ record: CampaignRecord; showMetric: boolean }> = ({
-  record,
-  showMetric,
-}) => {
-  const entries = [...record.rounds].sort((a, b) => b.round - a.round).slice(0, 12);
+const RoundLog: React.FC<{
+  record: CampaignRecord;
+  progress: SyncProgress;
+  showMetric: boolean;
+}> = ({ record, progress, showMetric }) => {
+  const entries = [...progress.rounds].sort((a, b) => b.round - a.round).slice(0, 12);
   if (entries.length === 0) {
     return <p className="text-sm text-gray-500">No rounds have been reported yet.</p>;
   }
-  const siteNames = new Map(record.sites.map((s) => [s.site_id, s.site_name]));
+  const siteNames = new Map(progress.sites.map((s) => [s.site_id, s.site_name]));
   return (
     <div>
       <ol className="space-y-3">
@@ -200,6 +215,216 @@ const Section: React.FC<{ title: string; subtitle?: string; children: React.Reac
   </section>
 );
 
+const SynchronousScreen: React.FC<{ record: CampaignRecord; progress: SyncProgress }> = ({
+  record,
+  progress,
+}) => (
+  <>
+    <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
+      <RoundBar progress={progress} />
+      {/* Three tiles, not four. "Weights out" moved into the headline above,
+          and repeating it here would make one measurement look like two. */}
+      <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Sites reporting</dt>
+          <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+            <Value>
+              {formatCount(progress.sites.filter((s) => s.activity !== 'pending_review').length)}
+            </Value>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Rounds recorded</dt>
+          <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+            <Value>{formatCount(progress.rounds.length)}</Value>
+          </dd>
+        </div>
+        <div>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Image data moved</dt>
+          <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+            <Value>{formatBytes(record.transport?.images_moved_bytes)}</Value>
+          </dd>
+        </div>
+      </dl>
+    </div>
+
+    <Section
+      title="The transport audit"
+      subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
+    >
+      <TransportAudit
+        transport={record.transport}
+        payload={record.payload}
+        mode="synchronous"
+      />
+    </Section>
+
+    <Section title="Scores by round">
+      {outcomesReleased(record) ? (
+        <RoundChart
+          rounds={progress.rounds}
+          sites={progress.sites}
+          minScoringSites={record.policy?.aggregate_min_scoring_sites ?? null}
+        />
+      ) : (
+        <p className="text-sm leading-relaxed text-gray-600">
+          No scores are published for this campaign yet. A score taken from a round still in flight
+          is a partial observation, and once it is next to another site&rsquo;s it reads as a
+          comparison between datasets rather than between methods. Scores appear here after this
+          campaign&rsquo;s primary-metric rules resolve. Everything above stays live in the
+          meantime.
+        </p>
+      )}
+    </Section>
+
+    <Section title="Round log">
+      <RoundLog record={record} progress={progress} showMetric={outcomesReleased(record)} />
+    </Section>
+
+    <Section title="Sites">
+      <SiteRoster sites={progress.sites} rosterAttested={record.policy?.roster_attested} />
+    </Section>
+  </>
+);
+
+const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProgress }> = ({
+  record,
+  progress,
+}) => {
+  const pending = progress.contributions.filter((c) => c.disposition === 'pending').length;
+  // A campaign-wide count, deliberately not a per-contributor one. The total
+  // tells a reader how selective the gate is, which is a property of the
+  // campaign. The same number broken out by contributor would be a ranking of
+  // whose work gets taken, which this page does not publish in any form.
+  const notTaken = progress.contributions.filter((c) => c.disposition === 'excluded').length;
+  const latest = progress.soups.reduce<typeof progress.soups[number] | null>(
+    (best, s) => (best === null || s.index > best.index ? s : best),
+    null
+  );
+  // Only a scheduled trigger can name a date. See ContributionStream for why a
+  // countdown under the other two kinds would be the page's guess.
+  const nextMerge =
+    progress.merge_trigger?.kind === 'scheduled' ? progress.merge_trigger.next_merge_at : null;
+
+  return (
+    <>
+      <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
+        {/* No progress bar. There is no total to be a fraction of: an open
+            campaign runs for as long as people keep contributing, so a bar
+            would have to invent a finish line. */}
+        <dl className="grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Contributors</dt>
+            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+              <Value>{formatCount(progress.contributors.length)}</Value>
+            </dd>
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Contributions</dt>
+            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+              <Value>{formatCount(progress.contributions.length)}</Value>
+            </dd>
+            {pending > 0 && (
+              <dd className="mt-0.5 text-xs text-gray-500">
+                {pending === 1
+                  ? '1 waiting for the next merge'
+                  : `${pending} waiting for the next merge`}
+              </dd>
+            )}
+            {notTaken > 0 && (
+              <dd className="mt-0.5 text-xs text-gray-500">
+                {notTaken === 1
+                  ? '1 assessed and not included'
+                  : `${notTaken} assessed and not included`}
+              </dd>
+            )}
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Community versions</dt>
+            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+              <Value>{formatCount(progress.soups.length)}</Value>
+            </dd>
+            {latest?.community_model?.version && (
+              <dd className="mt-0.5 text-xs text-gray-500">
+                Latest is {latest.community_model.version}
+              </dd>
+            )}
+          </div>
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Image data moved</dt>
+            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+              <Value>{formatBytes(record.transport?.images_moved_bytes)}</Value>
+            </dd>
+          </div>
+        </dl>
+        {nextMerge && (
+          <p className="mt-4 text-sm text-gray-600">
+            The next merge is scheduled for {formatDate(nextMerge)}. Anything that arrives before
+            then is assessed for it.
+          </p>
+        )}
+        {progress.merge_trigger?.kind === 'on_contributions' &&
+          progress.merge_trigger.contributions_per_merge !== null && (
+            <p className="mt-4 text-sm text-gray-600">
+              A merge runs every {formatCount(progress.merge_trigger.contributions_per_merge)}{' '}
+              contributions. When that happens depends on when contributors finish their runs, so
+              there is no date to give.
+            </p>
+          )}
+        {progress.merge_trigger?.kind === 'manual' && (
+          <p className="mt-4 text-sm text-gray-600">
+            Merges are run by the campaign stewards rather than on a schedule, so there is no next
+            date to show.
+          </p>
+        )}
+      </div>
+
+      <Section
+        title="Contributions and merges"
+        subtitle="Every contribution on the date it arrived, and every merge that ran, whether or not it published a version."
+      >
+        <ContributionStream
+          contributions={progress.contributions}
+          soups={progress.soups}
+          emptyMerges={progress.empty_merges}
+          contributors={progress.contributors}
+          mergeTrigger={progress.merge_trigger}
+          startedAt={progress.started_at}
+        />
+      </Section>
+
+      <Section
+        title="The community model"
+        subtitle="One immutable version per merge that published one, so an earlier community model stays available."
+      >
+        <SoupLineage
+          soups={progress.soups}
+          minScoringSites={record.policy?.aggregate_min_scoring_sites ?? null}
+          showMetric={outcomesReleased(record)}
+        />
+      </Section>
+
+      <Section
+        title="The transport audit"
+        subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
+      >
+        <TransportAudit
+          transport={record.transport}
+          payload={record.payload}
+          mode="asynchronous"
+        />
+      </Section>
+
+      <Section title="Contributors">
+        <ContributorRoster
+          contributors={progress.contributors}
+          rosterAttested={record.policy?.roster_attested}
+        />
+      </Section>
+    </>
+  );
+};
+
 const CampaignProgress: React.FC = () => {
   const { campaignId } = useParams<{ campaignId: string }>();
   const { data, loading, error, reload } = useCampaign(campaignId);
@@ -248,68 +473,17 @@ const CampaignProgress: React.FC = () => {
         <p className="mt-1 text-sm text-gray-500">Progress and transport audit</p>
       </header>
 
-      <TransportHeadline transport={data.transport} payload={data.payload} />
+      <TransportHeadline
+        transport={data.transport}
+        payload={data.payload}
+        mode={data.progress.mode}
+      />
 
-      <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
-        <RoundBar record={data} />
-        {/* Three tiles, not four. "Weights out" moved into the headline above,
-            and repeating it here would make one measurement look like two. */}
-        <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-3">
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Sites reporting</dt>
-            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              <Value>
-                {formatCount(data.sites.filter((s) => s.activity !== 'pending_review').length)}
-              </Value>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Rounds recorded</dt>
-            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              <Value>{formatCount(data.rounds.length)}</Value>
-            </dd>
-          </div>
-          <div>
-            <dt className="text-xs uppercase tracking-wide text-gray-500">Image data moved</dt>
-            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-              <Value>{formatBytes(data.transport?.images_moved_bytes)}</Value>
-            </dd>
-          </div>
-        </dl>
-      </div>
-
-      <Section
-        title="The transport audit"
-        subtitle="What the campaign's own transport log recorded, kept separate from what was worked out from it."
-      >
-        <TransportAudit transport={data.transport} payload={data.payload} />
-      </Section>
-
-      <Section title="Scores by round">
-        {outcomesReleased(data) ? (
-          <RoundChart
-            rounds={data.rounds}
-            sites={data.sites}
-            minScoringSites={data.policy?.aggregate_min_scoring_sites ?? null}
-          />
-        ) : (
-          <p className="text-sm leading-relaxed text-gray-600">
-            No scores are published for this campaign yet. A score taken from a round still in
-            flight is a partial observation, and once it is next to another site&rsquo;s it reads as
-            a comparison between datasets rather than between methods. Scores appear here after
-            this campaign&rsquo;s primary-metric rules resolve. Everything above stays live in the
-            meantime.
-          </p>
-        )}
-      </Section>
-
-      <Section title="Round log">
-        <RoundLog record={data} showMetric={outcomesReleased(data)} />
-      </Section>
-
-      <Section title="Sites">
-        <SiteRoster sites={data.sites} rosterAttested={data.policy?.roster_attested} />
-      </Section>
+      {data.progress.mode === 'synchronous' ? (
+        <SynchronousScreen record={data} progress={data.progress} />
+      ) : (
+        <AsynchronousScreen record={data} progress={data.progress} />
+      )}
     </div>
   );
 };

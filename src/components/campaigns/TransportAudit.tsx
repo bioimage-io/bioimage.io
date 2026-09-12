@@ -1,6 +1,7 @@
 import React from 'react';
 import { PayloadDescriptor, TransportSummary } from '../../types/campaign';
 import { formatBytes, formatCount } from './format';
+import { ParticipantMode, participantNouns } from './participants';
 import { Value } from './MissingValue';
 
 /**
@@ -93,6 +94,8 @@ interface TransportAuditProps {
   payload: PayloadDescriptor | null;
   /** Compact variant for the model page, which has less room. */
   compact?: boolean;
+  /** Chooses the noun for the people on the other end. See participants.ts. */
+  mode?: ParticipantMode;
 }
 
 const Figure: React.FC<{
@@ -112,7 +115,17 @@ const Figure: React.FC<{
   </div>
 );
 
-const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, compact }) => {
+const TransportAudit: React.FC<TransportAuditProps> = ({
+  transport,
+  payload,
+  compact,
+  mode = null,
+}) => {
+  const who = participantNouns(mode);
+  // The unit the campaign advances in. A synchronous run has rounds and an
+  // asynchronous one has merges, and there is no word that covers both without
+  // sounding like neither.
+  const step = mode === 'asynchronous' ? 'merge' : 'round';
   if (!transport) {
     return (
       <p className="text-sm text-gray-500">
@@ -150,8 +163,8 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
   const heldHint = !heldBytes
     ? 'This campaign records image counts, not sizes on disk'
     : heldImages
-      ? `${heldImages} images, and a size the sites declared`
-      : 'Declared by the sites, not measured by the platform';
+      ? `${heldImages} images, and a size the ${who.plural} declared`
+      : `Declared by the ${who.plural}, not measured by the platform`;
 
   // The payload label is whatever the campaign reported. The page never
   // assumes an adapter: a small network exchanging its whole state dict is a
@@ -167,7 +180,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
         <Figure
           label="What travels"
           value={payloadLabel}
-          hint={perRound ? `${perRound} per site, per round` : undefined}
+          hint={perRound ? `${perRound} per ${who.singular}, per round` : undefined}
         />
         <Figure
           label="Weights moved out"
@@ -208,13 +221,16 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
           out at the top of this file. The note says so, because a reader who
           notices the obvious comparison is missing deserves to know it was
           left out on purpose rather than forgotten. */}
+      {/* "round" is the wrong unit for an async campaign, which has merges and
+          no rounds at all. The crossover argument is identical in both modes, so
+          only the noun changes. */}
       <p className="mt-2 text-xs leading-relaxed text-gray-500">
         This panel does not divide one of these figures by the other. The amount moved grows with
-        every round while the amount held stays where it is, so any such comparison depends on the
+        every {step} while the amount held stays where it is, so any such comparison depends on the
         stretch of the campaign it is taken over, and for a campaign that exchanges whole models it
-        can point either way. The useful version of that comparison is the round at which the
-        total sent overtakes the total held, and it needs per-round coverage from the first round
-        onwards.
+        can point either way. The useful version of that comparison is the {step} at which the
+        total sent overtakes the total held, and it needs per-{step} coverage from the first{' '}
+        {step} onwards.
       </p>
 
       {observed && !observedValid && (
@@ -278,7 +294,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
       <div className="mt-4 rounded-xl border border-gray-200 bg-gray-50/70 p-4">
         {transport.only_weights_left_site === true && kinds && kinds.length > 0 ? (
           <p className="text-sm text-gray-800">
-            <span className="font-semibold">Only model weights left each site.</span>{' '}
+            <span className="font-semibold">Only model weights left each {who.singular}.</span>{' '}
             Every outbound transfer in the log is of kind {kinds.join(', ')}. This is a check over
             the campaign's own transport log, not a statement of intent, and it holds even where
             the totals do not: an incomplete log cannot invent a transfer that is not in it.
@@ -298,7 +314,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({ transport, payload, com
           </p>
         ) : (
           <p className="text-sm text-gray-600">
-            The campaign service did not report whether only model weights left each site, so this
+            The campaign service did not report whether only model weights left each {who.singular}, so this
             page makes no claim either way.
           </p>
         )}

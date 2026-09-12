@@ -1,0 +1,11 @@
+{
+  "digest": "sha256 over the sorted-key JSON in this directory",
+  "files": {
+    "cellpose-sam-community.json": "340c165495f3b2869ce7786d012d218c00c2edac6202da08d960e18d3ec522f5",
+    "index.json": "a56d371f3868d100e6f1e0e2d87208745ce9b5f9d816ce0646b6623899ddd544",
+    "unet-consortium.json": "873e460dfe3ae89edc4cd5839ebfc5038dfe37fc6a9dbb9fa57d0fe6cdb5d17b"
+  },
+  "regenerate": "node scripts/export-campaign-fixtures.js",
+  "schema_version": "0.10.0-draft",
+  "source": "src/services/__fixtures__/campaigns.ts"
+}

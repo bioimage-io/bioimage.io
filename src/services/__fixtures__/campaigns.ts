@@ -10,30 +10,75 @@
  * a campaign that does not exist.
  *
  * The two fixtures deliberately differ in shape, so the components are
- * exercised against both of the profiles the schema has to serve:
+ * exercised against both of the profiles the schema has to serve. Since
+ * 0.8.0-draft those profiles are the two campaign MODES, which is a deeper
+ * split than the payload-and-units differences they started as:
  *
- *  - `cellpose-sam-community` mirrors the design mockup: a LoRA adapter
- *    payload, a byte figure for data held, a roster that grows mid-campaign,
- *    and a transport log whose per-source windows agree.
- *  - `unet-consortium` mirrors the first real campaign: full state dicts, no
- *    byte figure at all for data held (only image counts), a metric named
- *    "validation Dice" rather than a generic score, and a transport log whose
- *    windows do NOT agree, so the observed total is withheld and only the
- *    computed figure is offered, labelled as such.
+ *  - `cellpose-sam-community` is the ASYNCHRONOUS model-soup flagship. An open
+ *    community fine-tunes Cellpose-SAM locally, at its own pace, and the
+ *    checkpoints are periodically averaged into a growing community model.
+ *    Two event streams, a wall-clock axis, a version lineage, a FULL-CHECKPOINT
+ *    payload, GREEDY selection so some contributions are assessed and not taken,
+ *    a witness metric distinct from the selection gate, and a transport log
+ *    whose per-source windows agree.
+ *  - `unet-consortium` is the SYNCHRONOUS initial test, and it is kept rather
+ *    than deleted for two reasons. It is the only fixture that exercises the
+ *    completed-and-reconciled path, which a permanently-open async campaign
+ *    structurally cannot reach. And it is the record of what was actually run
+ *    first: lockstep rounds, full state dicts, no byte figure for data held
+ *    (only image counts), a metric named "validation Dice" rather than a
+ *    generic score, and a transport log whose windows do NOT agree, so the
+ *    observed total is withheld and only the computed figure is offered.
  *
- * If a component renders the second one correctly, it cannot be hardcoding
- * "adapter", "TB", "score", or a summable transport log.
+ * If a component renders the second one correctly it cannot be hardcoding
+ * "adapter", "TB", "score", or a summable transport log. If it renders both it
+ * cannot be hardcoding a round axis either.
+ *
+ * THE EMPTY-MERGE CASE IS NOW EXERCISED, and the history is worth keeping
+ * because it is the shape of the mistake this file exists to avoid. Through
+ * 0.9.0-draft a merge that assessed candidates and admitted none of them was
+ * deliberately unreachable here: whether the backend recorded such a merge at
+ * all was undecided, a fixture that guessed would have been the website
+ * answering a question it does not own, and every component built against the
+ * guess would have hardened around it.
+ *
+ * The decision landed on 12 Sep 2026. A merge that admits nothing publishes no
+ * version and is recorded as an `EmptyMerge`, so `empty_merges` below carries
+ * both kinds: slots whose pool was empty, and slots that weighed a real pool and
+ * kept none of it. The second is the one components get wrong, because its
+ * contributions are 'excluded' and draw as grey dots, and a chart that took its
+ * merge markers from `soups` alone would leave them in a stretch of timeline
+ * with no merge in it under a legend saying a merge had assessed them.
  */
 
 import {
   CAMPAIGN_SCHEMA_VERSION,
   CampaignRecord,
   CampaignSummary,
+  ContributionRecord,
+  ContributorRecord,
+  EmptyMerge,
   RoundRecord,
   SiteRecord,
+  SoupRecord,
 } from '../../types/campaign';
 
-const ADAPTER_BYTES = 3_500_000;
+/**
+ * One Cellpose-SAM checkpoint, in bytes.
+ *
+ * The campaign soups FULL WEIGHTS rather than a low-rank adapter, which is the
+ * aggregation decision of 12 Sep 2026 and not a detail: it is roughly 370 times
+ * the adapter figure this fixture carried through 0.8.0-draft, and every
+ * transport number on the async screen moves with it.
+ *
+ * That is the point of changing it here rather than leaving a small number in
+ * place. The "too much data to move" argument has to survive the real payload,
+ * and with full weights the two figures it rests on are about 134 GB moved
+ * against 11.4 TB held, not 12 GB against 11.4 TB. Still two orders of
+ * magnitude apart, still no ratio drawn between them, and now the panel is
+ * showing the campaign that is actually being run.
+ */
+const CHECKPOINT_BYTES = 1_300_000_000;
 
 /**
  * A deterministic stand-in for a merged-weights digest. Not a real hash and not
@@ -50,158 +95,459 @@ function fixtureDigest(seedText: string): string {
   return `${block}${block}${block}${block}`;
 }
 
-function adapterSite(
-  site_id: string,
-  site_name: string,
-  country: string,
-  joined_round: number,
-  n_train_images: number,
-  dataset: { name: string; objects: string },
-  accelerator: string
-): SiteRecord {
+// Day 0 of the campaign. Every timestamp below is an offset from it, so the
+// fixture is deterministic and the wall-clock axis has real spacing on it
+// rather than evenly-spaced ticks pretending to be times.
+const CAMPAIGN_START_MS = Date.UTC(2026, 5, 15, 9, 0, 0);
+const DAY_MS = 86_400_000;
+
+/** The day the fixture is generated "as of". Contributions land up to here. */
+const TODAY = 89;
+
+/** Soups run every 7 days from day 7, which is what makes the trigger scheduled. */
+const SOUP_INTERVAL_DAYS = 7;
+
+function isoAt(day: number, hourOffset = 0): string {
+  return new Date(CAMPAIGN_START_MS + day * DAY_MS + hourOffset * 3_600_000).toISOString();
+}
+
+interface ContributorSeed {
+  id: string;
+  name: string;
+  country: string;
+  /** Day this contributor first contributed. */
+  joinDay: number;
+  /** Days between this contributor's runs. Varies, because nobody is in lockstep. */
+  cadence: number;
+  nTrainImages: number;
+  dataset: { name: string; objects: string };
+  accelerator: string;
+}
+
+// Nine contributors, joining over three months. The roster GROWS, which is the
+// shape an open campaign has and a fixed consortium does not.
+const CONTRIBUTOR_SEEDS: ContributorSeed[] = [
+  { id: 'northfield', name: 'Northfield Imaging Centre', country: 'Sweden', joinDay: 0, cadence: 17, nTrainImages: 41200,
+    dataset: { name: 'northfield-nuclei', objects: 'fluorescence nuclei' }, accelerator: 'NVIDIA A100' },
+  { id: 'rivermouth', name: 'Rivermouth Bioimaging Facility', country: 'Germany', joinDay: 0, cadence: 21, nTrainImages: 28400,
+    dataset: { name: 'rivermouth-cyto', objects: 'cytoplasm, brightfield' }, accelerator: 'NVIDIA A100' },
+  { id: 'kestrel', name: 'Kestrel Institute Microscopy Core', country: 'Netherlands', joinDay: 3, cadence: 26, nTrainImages: 19800,
+    dataset: { name: 'kestrel-organoids', objects: 'organoid cross-sections' }, accelerator: 'NVIDIA L40S' },
+  { id: 'saltmarsh', name: 'Saltmarsh Marine Station', country: 'Portugal', joinDay: 12, cadence: 19, nTrainImages: 12600,
+    dataset: { name: 'saltmarsh-plankton', objects: 'plankton, phase contrast' }, accelerator: 'NVIDIA A40' },
+  { id: 'highvale', name: 'Highvale Pathology Unit', country: 'Ireland', joinDay: 19, cadence: 23, nTrainImages: 22500,
+    dataset: { name: 'highvale-tissue', objects: 'H&E tissue sections' }, accelerator: 'NVIDIA A100' },
+  { id: 'thornbury', name: 'Thornbury Plant Phenotyping Lab', country: 'France', joinDay: 33, cadence: 16, nTrainImages: 31700,
+    dataset: { name: 'thornbury-roots', objects: 'root tips, brightfield' }, accelerator: 'NVIDIA L40S' },
+  { id: 'copperlake', name: 'Copperlake Neuroimaging Group', country: 'Canada', joinDay: 47, cadence: 24, nTrainImages: 17300,
+    dataset: { name: 'copperlake-neurons', objects: 'cultured neurons' }, accelerator: 'NVIDIA A40' },
+  { id: 'driftwood', name: 'Driftwood Coastal Ecology Unit', country: 'Australia', joinDay: 61, cadence: 20, nTrainImages: 9400,
+    dataset: { name: 'driftwood-diatoms', objects: 'diatoms, darkfield' }, accelerator: 'NVIDIA T4' },
+  { id: 'ashgrove', name: 'Ashgrove Developmental Biology Unit', country: 'Japan', joinDay: 75, cadence: 22, nTrainImages: 26100,
+    dataset: { name: 'ashgrove-embryos', objects: 'embryo cross-sections' }, accelerator: 'NVIDIA A100' },
+];
+
+/** Every scheduled merge slot. Not every one of these produces a version. */
+const SCHEDULED_SOUP_DAYS: number[] = [];
+for (let day = SOUP_INTERVAL_DAYS; day <= TODAY; day += SOUP_INTERVAL_DAYS) {
+  SCHEDULED_SOUP_DAYS.push(day);
+}
+
+/** One finished local run, before soup slots are resolved to versions. */
+interface RawContribution {
+  seed: ContributorSeed;
+  /** 0-based index of this run within its own contributor's stream. */
+  n: number;
+  /** Day the run finished and the weights were pushed. */
+  day: number;
+  /** Day the run started, which is what decides how stale its base version is. */
+  startDay: number;
+}
+
+/**
+ * The raw contribution stream.
+ *
+ * Generated per contributor from its own cadence and join day, so the stream is
+ * genuinely unordered across contributors: two arrive on day 51, none arrive on
+ * day 52, and nothing about the sequence is periodic. That is the property the
+ * wall-clock axis exists to show, and an evenly-spaced fixture would let a chart
+ * that silently treats the index as the axis look correct.
+ */
+const RAW: RawContribution[] = (() => {
+  const out: RawContribution[] = [];
+  CONTRIBUTOR_SEEDS.forEach((seed) => {
+    let n = 0;
+    for (let day = seed.joinDay; day <= TODAY; day += seed.cadence) {
+      out.push({ seed, n, day, startDay: n === 0 ? day : day - seed.cadence });
+      n += 1;
+    }
+  });
+  return out.sort((a, b) => a.day - b.day);
+})();
+
+/** A contribution's id, in one place, because four builders key off it. */
+const idOf = (r: RawContribution) => `${r.seed.id}-${r.n}`;
+
+/**
+ * Whether the greedy gate admitted one contribution.
+ *
+ * Deterministic and ARBITRARY, and the arbitrariness is the honest part. A real
+ * gate admits a checkpoint when adding it improves the pooled model on a
+ * held-out split, which depends on what else is already in the soup and on data
+ * nothing in this repository has. Any rule invented here that LOOKED principled
+ * would be a claim about why contributions get left out, and it would be read as
+ * one: a fixture where the stale bases or the small datasets are the ones
+ * dropped teaches a reader a pattern the real campaign never asserted.
+ *
+ * So this is a hash of the id and nothing else. No property of the data
+ * correlates with the outcome, and the only thing a component can learn from it
+ * is how to render the state.
+ *
+ * The salt and the modulus were then chosen, out of several that give a similar
+ * rate, for two properties a bare hash cannot guarantee at n=33.
+ *
+ * The refusals land on ALL NINE contributors and on at most two apiece. A hash
+ * that happened to grey out one contributor's entire lane would be read as a
+ * finding about that contributor, and "it was random, honestly" is not something
+ * a screenshot can say back.
+ *
+ * And two merge slots weigh a real pool and admit none of it, one of them a pool
+ * of three rather than of one. That case has to occur here or nothing renders
+ * it: the empty-merge marker, the caption that explains it, and the grey dots
+ * that would otherwise sit under no merge at all are only exercised when the
+ * gate declines a whole pool, and a pool of one declined is a weak version of
+ * the case. Picking the salt for that is the same kind of choice as picking it
+ * for the spread. It is a choice about what the fixture COVERS, not about which
+ * contributions get left out, which stays a hash of the id and nothing else.
+ */
+function admitted(r: RawContribution): boolean {
+  // Roughly one in three assessed, which is the order of selectivity a greedy
+  // soup actually shows once the pool stops being tiny.
+  return parseInt(fixtureDigest(`gate-a/${idOf(r)}`).slice(0, 4), 16) % 3 !== 0;
+}
+
+/**
+ * One scheduled merge, resolved: what it weighed and what it kept.
+ *
+ * The slot is the unit, not the soup, because a slot is what the schedule
+ * produces and a soup is only one of the two things a slot can end in. Deriving
+ * the soup list from the slot list rather than the other way round is what lets
+ * the empty case exist at all: a fixture built soup-first has nowhere to put a
+ * merge that published nothing, which is exactly how it went missing until the
+ * backend semantics landed on 12 Sep 2026.
+ */
+interface MergeSlot {
+  day: number;
+  /** Everything that had arrived since the previous slot. May be empty. */
+  pool: RawContribution[];
+  /** What the gate admitted. May be empty even when the pool is not. */
+  taken: RawContribution[];
+}
+
+const SLOTS: MergeSlot[] = SCHEDULED_SOUP_DAYS.map((day, i) => {
+  // Merges land at hour 2 and pushes at hour 3 or later, so a contribution
+  // recorded on the day of a merge missed it and waits for the next one.
+  const previous = i === 0 ? -1 : SCHEDULED_SOUP_DAYS[i - 1];
+  const pool = RAW.filter((r) => r.day >= previous && r.day < day);
+  // No fallback. An earlier revision of this fixture forced every slot to admit
+  // at least one candidate, because whether the backend even recorded a merge
+  // that admitted nothing was undecided and a fixture that guessed would have
+  // hardened every component around the guess. That decision has been taken, so
+  // the guard is gone and the gate is allowed to decline a whole pool.
+  return { day, pool, taken: pool.filter(admitted) };
+});
+
+/**
+ * The slots that published a version, in order, and the slots that did not.
+ *
+ * Two ways to publish nothing and the fixture carries both, because the page
+ * phrases them differently and only one of them is interesting. A slot with an
+ * empty pool is a quiet fortnight. A slot that weighed candidates and kept none
+ * is the community model being good enough that nothing on offer improved it.
+ */
+const PUBLISHED_SLOTS = SLOTS.filter((s) => s.taken.length > 0);
+const EMPTY_SLOTS = SLOTS.filter((s) => s.taken.length === 0);
+
+/**
+ * The days a version was published.
+ *
+ * A scheduled soup with nothing to fold does NOT publish a checkpoint. It would
+ * be byte-identical to the one before it, so the version number would move while
+ * the model did not, and the lineage would carry a release that changed nothing.
+ * The schedule triggers a merge attempt. A version is what comes out of a merge
+ * that had something to merge AND kept some of it.
+ *
+ * This is also why `SoupRecord.index` counts published merges rather than slots,
+ * and why nothing may derive a cadence by dividing elapsed time by version count.
+ */
+const SOUP_DAYS = PUBLISHED_SLOTS.map((s) => s.day);
+
+/** The published version current on a given day, or null before the first merge. */
+function versionAt(day: number): string | null {
+  const n = SOUP_DAYS.filter((d) => d <= day).length;
+  return n === 0 ? null : `v${n}`;
+}
+
+/** contribution_id -> the soup_id that folded it in. Absent means no merge took it. */
+const TAKEN_BY = new Map<string, string>();
+PUBLISHED_SLOTS.forEach((slot, soupIndex) => {
+  slot.taken.forEach((r) => TAKEN_BY.set(idOf(r), `soup-${soupIndex}`));
+});
+
+/**
+ * Every contribution that some merge weighed, taken or not.
+ *
+ * A SET and not a map to a soup_id, which it used to be. A contribution weighed
+ * by a merge that published nothing was still weighed, and there is no soup_id
+ * to name as the thing that weighed it. Keying on the outcome would have made
+ * those contributions look unassessed, which would have put them back in
+ * 'pending' forever: still waiting for a merge that has already happened.
+ */
+const ASSESSED = new Set<string>();
+SLOTS.forEach((slot) => slot.pool.forEach((r) => ASSESSED.add(idOf(r))));
+
+function buildContributions(): ContributionRecord[] {
+  // Sorted by received_at, because that is the ordering key the schema names.
+  // Two runs finishing the same day are ordered by their hour offset, not by
+  // which contributor happens to come first in the seed list.
+  return RAW.map((raw) => {
+    const { seed, day, startDay } = raw;
+    const id = idOf(raw);
+    const takenBy = TAKEN_BY.get(id) ?? null;
+    const assessed = ASSESSED.has(id);
+    return {
+      contribution_id: id,
+      contributor_id: seed.id,
+      // Offset by contributor so two runs finishing the same day do not land on
+      // an identical timestamp.
+      received_at: isoAt(day, 3 + (seed.cadence % 11)),
+      // Which community version existed when this run STARTED. Contributors
+      // begin from whatever was current, which may be several soups behind by
+      // the time they finish, and that staleness is a real property of async
+      // training rather than a defect to smooth over.
+      base_version: versionAt(startDay),
+      bytes_out: CHECKPOINT_BYTES,
+      n_train_images: seed.nTrainImages,
+      dataset_name: seed.dataset.name,
+      declared: ['n_train_images', 'dataset_name'],
+      // Three states, all of them reachable since the greedy ruling of
+      // 12 Sep 2026. 'excluded' means a merge assessed this checkpoint and the
+      // pooled model did not improve on the held-out split when it was added.
+      // It says nothing about the contributor and nothing about the data: the
+      // same checkpoint offered against a different soup could well go in, which
+      // is why the state is not terminal and why nothing downstream counts it.
+      disposition: !assessed ? 'pending' : takenBy !== null ? 'included' : 'excluded',
+      merged_into: takenBy,
+    };
+  }).sort((a, b) => a.received_at.localeCompare(b.received_at));
+}
+
+const CONTRIBUTIONS = buildContributions();
+
+/**
+ * The soup stream: one merge per scheduled interval that had something to fold,
+ * each writing an immutable community checkpoint version.
+ */
+function buildSoups(): SoupRecord[] {
+  return PUBLISHED_SLOTS.map((slot, index) => {
+    const day = slot.day;
+    const soupId = `soup-${index}`;
+    const folded = CONTRIBUTIONS.filter((c) => c.merged_into === soupId);
+    const poolIds = new Set(slot.pool.map(idOf));
+    const pool = CONTRIBUTIONS.filter((c) => poolIds.has(c.contribution_id));
+    // Included only. A contribution the gate assessed and did not take is not in
+    // the published checkpoint, so counting it here would overstate what the
+    // model was built from.
+    const cumulative = CONTRIBUTIONS.filter(
+      (c) => c.merged_into !== null && index >= Number(c.merged_into.split('-')[1])
+    ).length;
+    // Everyone who had contributed at least once by this merge evaluates the
+    // new version on their own held-out split, which is what the aggregate is a
+    // mean over and therefore what the scoring floor stands on.
+    const scoring = CONTRIBUTOR_SEEDS.filter((s) => s.joinDay < day).length;
+    const version = `v${index + 1}`;
+    const ceiling = 0.906;
+    const witness = Number((ceiling - (ceiling - 0.71) * Math.exp(-cumulative / 14)).toFixed(4));
+    // The gate's own number, and note what it does that the witness figure does
+    // not: it climbs on EVERY merge without exception, because a merge only
+    // publishes a version when the gate improved. That is the circularity in
+    // numeric form. It is carried here so the fixture exercises the field and
+    // the refusal that protects it, not so anything can draw it.
+    const gate = Number((0.612 + 0.0173 * (index + 1)).toFixed(4));
+    const digest = fixtureDigest(`cellpose-sam-community/${version}`);
+    return {
+      soup_id: soupId,
+      index,
+      merged_at: isoAt(day, 2),
+      contributions: folded.map((c) => c.contribution_id),
+      // Everything the gate looked at, which is a superset of what it took.
+      // Published so the page can say "folded in 3 of 7 assessed" rather than
+      // leaving a reader to infer that four contributions never arrived.
+      assessed: pool.map((c) => c.contribution_id),
+      // Uniform averaging over whatever the gate admitted, so there is no
+      // per-contribution weight to publish. Null here is inapplicable, NOT a
+      // withhold, and `aggregation.weighting` is what tells a reader which of
+      // the two they are looking at.
+      weights: null,
+      community_model: {
+        artifact_id: 'bioimage-io/cellpose-sam-community',
+        version,
+        url: `#/models/cellpose-sam-community?version=${version}`,
+        n_contributions_cumulative: cumulative,
+      },
+      witness_metric: {
+        role: 'witness' as const,
+        name: 'validation F1 (witness split)',
+        higher_is_better: true,
+        // Withheld by the standing disclosure rule. A per-contributor curve is
+        // a public leaderboard of whose data is hardest, and that is a worse
+        // hazard in an open community than in a closed consortium.
+        per_site: null,
+        per_site_basis: null,
+        aggregate: witness,
+        aggregate_basis:
+          'mean over the contributors that evaluated this version on a held-out split held back from selection',
+        n_sites_scored: scoring,
+        // No per-unit map at all, so no key space to count in.
+        n_datasets_scored: null,
+        aggregate_withheld: null,
+      },
+      selection_metric: {
+        role: 'selection' as const,
+        name: 'pooled AP50 on the selection split',
+        higher_is_better: true,
+        per_site: null,
+        per_site_basis: null,
+        aggregate: gate,
+        aggregate_basis: 'the score the greedy gate admitted contributions against, on the split it selects on',
+        n_sites_scored: scoring,
+        n_datasets_scored: null,
+        aggregate_withheld: null,
+      },
+      global_sha256: digest,
+      transport: {
+        // The merge distributes the new version to everyone who pulls it.
+        bytes_out: CHECKPOINT_BYTES * scoring,
+        // Every ASSESSED checkpoint crossed the network, including the ones the
+        // gate declined. Billing this to the taken set would be the audit
+        // quietly undercounting itself.
+        bytes_in: CHECKPOINT_BYTES * pool.length,
+        n_transfers: scoring + pool.length,
+        sources_complete: true,
+      },
+    };
+  });
+}
+
+const SOUPS = buildSoups();
+
+/**
+ * The merges that ran and published nothing.
+ *
+ * Both kinds, and the fixture needs both because the page says different things
+ * about them. `assessed` empty is a slot whose fortnight brought nothing in.
+ * `assessed` non-empty is a slot that weighed what arrived and kept none of it,
+ * which is the case the backend and this schema spent a round trip on, and the
+ * one a component is most likely to get wrong: the contributions in it are
+ * 'excluded', so they draw as grey dots, and without a marker here they would sit
+ * in a stretch of timeline with no merge in it at all.
+ *
+ * No index and no version, because there is nothing to number. The transport is
+ * inbound only: the candidates were pulled and scored, and nothing went back out
+ * because there was no new version to send.
+ */
+function buildEmptyMerges(): EmptyMerge[] {
+  return EMPTY_SLOTS.map((slot) => ({
+    merged_at: isoAt(slot.day, 2),
+    assessed: slot.pool.map(idOf),
+    transport: {
+      // Nothing published, so nothing distributed. Zero here is a MEASUREMENT,
+      // not a missing value: the merge really did send no bytes out.
+      bytes_out: 0,
+      bytes_in: CHECKPOINT_BYTES * slot.pool.length,
+      n_transfers: slot.pool.length,
+      sources_complete: true,
+    },
+  }));
+}
+
+const EMPTY_MERGES = buildEmptyMerges();
+
+function toContributor(seed: ContributorSeed): ContributorRecord {
+  const mine = CONTRIBUTIONS.filter((c) => c.contributor_id === seed.id);
   return {
-    site_id,
-    site_name,
-    country,
-    role: joined_round === 0 ? 'founding' : 'joined',
-    joined_round,
-    left_round: null,
-    accelerator,
+    contributor_id: seed.id,
+    contributor_name: seed.name,
+    country: seed.country,
+    joined_at: isoAt(seed.joinDay),
+    latest_contribution_at: mine.length ? mine[mine.length - 1].received_at : null,
+    n_contributions: mine.length,
+    accelerator: seed.accelerator,
     datasets: [
       {
-        name: dataset.name,
-        objects: dataset.objects,
-        n_train: n_train_images,
-        n_val: Math.round(n_train_images * 0.12),
-        n_test: Math.round(n_train_images * 0.1),
+        name: seed.dataset.name,
+        objects: seed.dataset.objects,
+        n_train: seed.nTrainImages,
+        n_val: Math.round(seed.nTrainImages * 0.12),
+        n_test: Math.round(seed.nTrainImages * 0.1),
         source: 'Local facility archive',
         licence: 'CC-BY-4.0',
-        citation: null,
         // Private facility archives, so a fingerprint would act as a
         // membership oracle over data nobody else can see.
         split_fingerprint: null,
       },
     ],
-    n_train_images,
-    activity: 'reported',
+    n_train_images: seed.nTrainImages,
     bioengine_version: '0.7.2',
-    // Everything a site typed into its join form. The platform measured none
-    // of it, and the roster marks each one so a reader can tell.
+    // Everything a contributor typed into its join form. The platform measured
+    // none of it, and the roster marks each one so a reader can tell.
     declared: ['site_name', 'country', 'datasets', 'n_train_images'],
   };
 }
 
-const ADAPTER_SITES: SiteRecord[] = [
-  adapterSite('northfield', 'Northfield Imaging Centre', 'Sweden', 0, 41200,
-    { name: 'northfield-nuclei', objects: 'fluorescence nuclei' }, 'NVIDIA A100'),
-  adapterSite('rivermouth', 'Rivermouth Bioimaging Facility', 'Germany', 0, 28400,
-    { name: 'rivermouth-cyto', objects: 'cytoplasm, brightfield' }, 'NVIDIA A100'),
-  adapterSite('kestrel', 'Kestrel Institute Microscopy Core', 'Netherlands', 20, 19800,
-    { name: 'kestrel-organoids', objects: 'organoid cross-sections' }, 'NVIDIA L40S'),
-  adapterSite('saltmarsh', 'Saltmarsh Marine Station', 'Portugal', 20, 12600,
-    { name: 'saltmarsh-plankton', objects: 'plankton, phase contrast' }, 'NVIDIA A40'),
-  adapterSite('highvale', 'Highvale Pathology Unit', 'Ireland', 40, 22500,
-    { name: 'highvale-tissue', objects: 'H&E tissue sections' }, 'NVIDIA A100'),
-];
+const CONTRIBUTORS = CONTRIBUTOR_SEEDS.map(toContributor);
 
-function rosterAtRound(round: number): SiteRecord[] {
-  return ADAPTER_SITES.filter((s) => (s.joined_round ?? 0) <= round);
-}
-
-function adapterRounds(total: number): RoundRecord[] {
-  const rounds: RoundRecord[] = [];
-  for (let round = 0; round < total; round += 1) {
-    const roster = rosterAtRound(round);
-    const participants = roster.map((s) => s.site_id);
-    const merge_weights: Record<string, number> = {};
-    const per_site: Record<string, number> = {};
-    roster.forEach((site, i) => {
-      merge_weights[site.site_id] = site.n_train_images ?? 0;
-      // A plausible learning curve, offset per site so the lines are legible.
-      const ceiling = 0.93 - i * 0.015;
-      per_site[site.site_id] = Number(
-        (ceiling - (ceiling - 0.62) * Math.exp(-round / 11)).toFixed(4)
-      );
-    });
-    const values = Object.values(per_site);
-    const digest = fixtureDigest(`cellpose-sam-community/${round}`);
-    const scored_with: Record<string, string> = {};
-    roster.forEach((site) => {
-      scored_with[site.site_id] = digest;
-    });
-    rounds.push({
-      round,
-      participants,
-      // Everyone on the roster at this round both trains and evaluates, so the
-      // union term equals the participant count and the multiplier lands on
-      // 3N+1. That is this campaign's shape, not the formula: a fold that
-      // trains a subset would read differently, which is why the sets are
-      // carried per round rather than a site count being carried once.
-      eval_on: participants,
-      merge_weights,
-      metric: {
-        name: 'validation F1',
-        higher_is_better: true,
-        // Withheld on purpose, and this is the DEFAULT disclosure for a
-        // running campaign: a live per-site curve is a public leaderboard of
-        // whose data is hardest. Only the aggregate is published.
-        per_site: null,
-        per_site_basis: null,
-        aggregate: Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4)),
-        aggregate_basis: 'merge-weighted mean over the per-site validation F1',
-        n_sites_scored: roster.length,
-        // Null, and not because the count is unknown. There is no per-unit map
-        // at all here, so no key space to count in, and 0.7.0 specifies the
-        // field as present only on a dataset-keyed round. A number here would
-        // be a count of something this record never claims to have measured.
-        n_datasets_scored: null,
-        // An aggregate is present, so nothing was withheld and there is no
-        // cause to state. Null here is the absence of a decision, not a
-        // decision to say nothing.
-        aggregate_withheld: null,
-      },
-      global_sha256: digest,
-      scored_with,
-      scored_with_basis: 'site' as const,
-      transport: {
-        bytes_out: ADAPTER_BYTES * roster.length,
-        bytes_in: ADAPTER_BYTES * roster.length,
-        n_transfers: roster.length * 2,
-        sources_complete: true,
-      },
-    });
-  }
-  return rounds;
-}
-
-const ADAPTER_ROUNDS = adapterRounds(35);
-
-const ADAPTER_TRANSFERS = ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.n_transfers ?? 0), 0);
+const ASYNC_TRANSFERS =
+  CONTRIBUTIONS.length + SOUPS.reduce((a, s) => a + (s.transport?.n_transfers ?? 0), 0);
 
 const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   schema_version: CAMPAIGN_SCHEMA_VERSION,
   campaign_id: 'cellpose-sam-community',
   title: 'Community Cellpose-SAM fine-tuning',
   description:
-    'Five imaging facilities fine-tune a shared segmentation foundation model on their own '
-    + 'microscopy archives. The base model is frozen and only a low-rank adapter is trained, '
-    + 'so what travels each round is a few megabytes of weights rather than the images.',
-  status: 'running',
-  experiment: { arm: 'fedavg', seed: 0, run_id: 'cellpose-sam-community-2026-08' },
+    'An open community fine-tunes Cellpose-SAM on microscopy archives that are too large to move. '
+    + 'Each contributor trains locally, whenever it suits them, and the checkpoints that come back '
+    + 'are periodically averaged into a community model that everyone can use. Each merge tries the '
+    + 'checkpoints it has received one at a time and keeps the ones that improve the pooled model.',
+  // Open AND accumulating. For an async campaign these are the same state, not
+  // two: it is permanently joinable and it has been training since June. A
+  // status of 'running' would read as closed to new contributors, which is the
+  // opposite of what this campaign is.
+  status: 'open',
+  // Not a slice of a larger experiment. There is no arm and no seed to pin,
+  // because there is no round number for them to disambiguate.
+  experiment: null,
   policy: {
     // Private facility archives throughout, which is why the fingerprints
     // above are null.
     public_data_campaign: false,
     // No per-deployment credential exists yet, so the roster is a list of
-    // self-declared names and the page says so.
+    // self-declared names and the page says so. This matters MORE in an open
+    // campaign: the roster is no longer a short list of known institutions a
+    // reader could sanity-check by eye.
     roster_attested: false,
-    // Still running, so no accuracy is published: the whole outcome axis is
-    // withheld until the primary-metric rules resolve. This fixture exists to
-    // exercise that path, which is the one every live campaign will be on.
-    outcomes_released: false,
-    // Four sites on the roster, so a floor of three still admits a pooled
-    // figure while ruling out the case where the pooled figure is one site's
-    // own result under a shared label.
+    // True here, and the reasoning differs from the synchronous case rather
+    // than contradicting it. What that flag protects against is a partial
+    // observation being read as a result, and a mid-experiment comparison
+    // between sites. A soup's figure is neither: it evaluates an immutable,
+    // published checkpoint that people can download and use, so its score is a
+    // model-card number rather than a peek at a running experiment. The
+    // per-contributor curves stay withheld, which is the half of the disclosure
+    // that was ever about comparison.
+    outcomes_released: true,
+    // The floor still stands on contributors, however the campaign aggregates.
+    // Three rules out the case where the pooled figure is one contributor's own
+    // result wearing a community label.
     aggregate_min_scoring_sites: 3,
   },
   base_model: {
@@ -209,17 +555,44 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     name: 'Cellpose-SAM',
     url: '#/models/cellpose-sam',
   },
-  aggregation: { method: 'FedAvg', weighting: 'sample count' },
+  // Greedy souping. A merge walks the checkpoints it has received, adds each to
+  // the pool in turn, and keeps it only if the pooled model improves on the
+  // selection split. Whatever survives is averaged with equal weight, which is
+  // why SoupRecord.weights stays null as inapplicable rather than as a withhold:
+  // the selection is where the decision lives, not the weighting.
+  aggregation: { method: 'greedy soup', weighting: 'uniform' },
   licence_policy: {
     accepted_data_licences: ['CC0-1.0', 'CC-BY-4.0'],
     model_licence: 'CC-BY-4.0',
   },
-  round: { current: 34, total: 60, started_at: '2026-08-04T09:12:00Z' },
-  sites: ADAPTER_SITES,
-  rounds: ADAPTER_ROUNDS,
+  progress: {
+    mode: 'asynchronous',
+    started_at: isoAt(0),
+    contributions: CONTRIBUTIONS,
+    soups: SOUPS,
+    // Every scheduled slot that published no version, which is what makes the
+    // merge markers on the stream complete. Without these the chart would show
+    // eleven merges for a campaign that ran more than eleven.
+    empty_merges: EMPTY_MERGES,
+    contributors: CONTRIBUTORS,
+    // Weekly, so the page may render a next merge. Under 'manual' there would
+    // be nothing to predict, and under 'on_contributions' a countdown would
+    // depend on when volunteers finish runs on hardware nobody here controls.
+    merge_trigger: {
+      kind: 'scheduled',
+      // Off the schedule, not off the last published version. A slot that
+      // published nothing still consumed its turn, so counting forward from the
+      // newest version would predict a merge that has already gone by.
+      next_merge_at: isoAt(
+        SCHEDULED_SOUP_DAYS[SCHEDULED_SOUP_DAYS.length - 1] + SOUP_INTERVAL_DAYS,
+        2
+      ),
+      contributions_per_merge: null,
+    },
+  },
   reporting: { dropped_reports: 0, reconciled: false, reconciled_at: null },
   transport: {
-    // The clean case: one driver process for the whole campaign, so its log
+    // The clean case: one service process for the whole campaign, so its log
     // covers every transfer and the total means what it says.
     observed: {
       valid: true,
@@ -227,16 +600,20 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
       per_site: null,
       per_site_basis: null,
       driver: {
-        bytes_out: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_out ?? 0), 0),
-        bytes_in: ADAPTER_ROUNDS.reduce((a, r) => a + (r.transport?.bytes_in ?? 0), 0),
-        n_transfers: ADAPTER_TRANSFERS,
+        bytes_out:
+          CHECKPOINT_BYTES * CONTRIBUTIONS.length
+          + SOUPS.reduce((a, s) => a + (s.transport?.bytes_out ?? 0), 0),
+        bytes_in:
+          CHECKPOINT_BYTES * CONTRIBUTIONS.length
+          + SOUPS.reduce((a, s) => a + (s.transport?.bytes_in ?? 0), 0),
+        n_transfers: ASYNC_TRANSFERS,
       },
       windows: [
         {
           source: 'driver',
           first_seq: 0,
-          last_seq: ADAPTER_TRANSFERS - 1,
-          n_transfers: ADAPTER_TRANSFERS,
+          last_seq: ASYNC_TRANSFERS - 1,
+          n_transfers: ASYNC_TRANSFERS,
         },
       ],
     },
@@ -251,13 +628,22 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     declared_data_bytes: 11_400_000_000_000,
   },
   payload: {
-    kind: 'lora_adapter',
-    label: 'LoRA adapter (r=8, qkv and head)',
-    bytes_per_site_per_round: ADAPTER_BYTES,
+    kind: 'full_state_dict',
+    label: 'Full Cellpose-SAM checkpoint',
+    // Null: this campaign has no rounds, so a per-round-per-site figure would
+    // be a number about a schedule it does not have.
+    bytes_per_site_per_round: null,
+    bytes_per_contribution: CHECKPOINT_BYTES,
   },
   stewards: [{ name: 'Campaign steward', workspace: 'bioimage-io' }],
-  published_model: null,
-  generated_at: '2026-09-06T00:00:00Z',
+  // The latest soup's checkpoint. The lineage lives on the soup series rather
+  // than being duplicated here: two lists that must stay in step is how they
+  // drift, and this field is the pointer to the current head of that series.
+  published_model: {
+    artifact_id: 'bioimage-io/cellpose-sam-community',
+    version: `v${SOUPS.length}`,
+  },
+  generated_at: isoAt(TODAY, 6),
 };
 
 const UNET_SITES: SiteRecord[] = [
@@ -422,9 +808,12 @@ const UNET_CAMPAIGN: CampaignRecord = {
     accepted_data_licences: ['CC0-1.0', 'CC-BY-4.0'],
     model_licence: 'MIT',
   },
-  round: { current: 12, total: 12, started_at: '2026-07-19T14:03:00Z' },
-  sites: UNET_SITES,
-  rounds: UNET_ROUNDS,
+  progress: {
+    mode: 'synchronous',
+    round: { current: 12, total: 12, started_at: '2026-07-19T14:03:00Z' },
+    rounds: UNET_ROUNDS,
+    sites: UNET_SITES,
+  },
   reporting: {
     dropped_reports: UNET_DROPPED_ROUNDS.length,
     reconciled: true,
@@ -468,6 +857,8 @@ const UNET_CAMPAIGN: CampaignRecord = {
     kind: 'full_state_dict',
     label: 'Full state dict',
     bytes_per_site_per_round: UNET_STATE_DICT_BYTES,
+    // Null: a synchronous campaign has no contributions to measure per.
+    bytes_per_contribution: null,
   },
   stewards: [{ name: 'Campaign steward', workspace: 'bioimage-io' }],
   published_model: null,
@@ -480,18 +871,38 @@ export const FIXTURE_CAMPAIGNS: Record<string, CampaignRecord> = {
 };
 
 function toSummary(record: CampaignRecord): CampaignSummary {
-  return {
+  const p = record.progress;
+  const shared = {
     campaign_id: record.campaign_id,
     title: record.title,
     description: record.description,
     status: record.status,
     base_model: record.base_model,
-    round: { current: record.round.current, total: record.round.total },
-    n_active_sites: record.sites.filter((s) => s.role !== 'withdrawn' && s.role !== 'pending_review')
-      .length,
     payload: record.payload,
     model_licence: record.licence_policy.model_licence,
-    started_at: record.round.started_at,
+  };
+  if (p.mode === 'synchronous') {
+    return {
+      ...shared,
+      progress: { mode: 'synchronous', round: { current: p.round.current, total: p.round.total } },
+      n_active_sites: p.sites.filter((s) => s.role !== 'withdrawn' && s.role !== 'pending_review')
+        .length,
+      started_at: p.round.started_at,
+    };
+  }
+  return {
+    ...shared,
+    progress: {
+      mode: 'asynchronous',
+      n_contributions: p.contributions.length,
+      n_versions: p.soups.length,
+    },
+    // Everyone on the roster of an open campaign is active. There is no
+    // withdrawn state to filter on, because a contributor that stops
+    // contributing has not left, it has simply not contributed lately, and
+    // `latest_contribution_at` is where a reader sees that.
+    n_active_sites: p.contributors.length,
+    started_at: p.started_at,
   };
 }
 

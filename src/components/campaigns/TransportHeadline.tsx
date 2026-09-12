@@ -2,6 +2,7 @@ import React from 'react';
 import { PayloadDescriptor, TransportSummary } from '../../types/campaign';
 import { formatBytes, formatCount } from './format';
 import MissingValue from './MissingValue';
+import { ParticipantMode, participantNouns } from './participants';
 
 /**
  * The headline: how many bytes have crossed the network, against how much data
@@ -57,9 +58,16 @@ import MissingValue from './MissingValue';
 interface TransportHeadlineProps {
   transport: TransportSummary | null;
   payload: PayloadDescriptor | null;
+  /** Chooses the noun for the people on the other end. See participants.ts. */
+  mode?: ParticipantMode;
 }
 
-const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payload }) => {
+const TransportHeadline: React.FC<TransportHeadlineProps> = ({
+  transport,
+  payload,
+  mode = null,
+}) => {
+  const who = participantNouns(mode);
   const observed = transport?.observed;
   const computed = transport?.computed;
 
@@ -123,7 +131,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
               to "LoRA adapter (r=8, qkv and head)", so it goes in the sentence
               below where a capitalised noun phrase reads correctly, rather than
               being case-folded into a caption and mangled. */}
-          <div className="mt-1.5 text-sm text-gray-600">left the participating sites</div>
+          <div className="mt-1.5 text-sm text-gray-600">left the participating {who.plural}</div>
         </div>
 
         <div className="hidden h-14 w-px self-center bg-gray-200 sm:block" aria-hidden="true" />
@@ -140,7 +148,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
           )}
           <div className="mt-1.5 text-sm text-gray-600">
             stayed where they were
-            {heldBytes ? ', by the sites’ own account' : ''}
+            {heldBytes ? `, by the ${who.possessivePlural} own account` : ''}
           </div>
         </div>
       </div>
@@ -151,7 +159,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({ transport, payloa
             Counted on the campaign&rsquo;s own transport log as the campaign ran, not asserted
             afterwards.
             {payloadLabel
-              ? ` What travels is ${payloadLabel}${perRound ? `, about ${perRound} per site per round` : ''}.`
+              ? ` What travels is ${payloadLabel}${perRound ? `, about ${perRound} per ${who.singular} per round` : ''}.`
               : ''}
           </>
         ) : movedIsComputed ? (

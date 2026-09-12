@@ -1,4 +1,4 @@
-import { AggregateWithholdCause, RoundRecord } from '../../types/campaign';
+import { AggregateWithholdCause, WitnessMetric } from '../../types/campaign';
 
 /**
  * Whether a round's pooled score may be plotted, and if not, who decided so.
@@ -70,7 +70,29 @@ export type PageRefusal =
   /** Fewer SCORING sites than the campaign's own floor. */
   | 'below_scoring_floor'
   /** No floor stated, so it cannot be shown to have been met. */
-  | 'floor_unstated';
+  | 'floor_unstated'
+  /**
+   * A metric declaring `role: 'selection'` arrived in a slot the page plots as
+   * improvement.
+   *
+   * The type of `ScoredEvent.metric` stops this at every call site in this
+   * repository, so nothing here can produce it. The wire can: the record is JSON
+   * off an RPC boundary, and a producer that puts its gate score in
+   * `witness_metric` breaks the one obligation the `role` field exists to carry.
+   *
+   * A refusal rather than a panel limit, and the membership test is satisfied
+   * cleanly: the field is declared as carrying a witness, so a selection metric
+   * in it is the record contradicting its own declaration.
+   *
+   * This one is worth the belt and braces that the other causes are not. Every
+   * other refusal here withholds a number that would merely be unsupported. This
+   * one withholds a curve that would be WRONG IN A DIRECTION: a series of gate
+   * scores rises because rising is the admission criterion, so a circular curve
+   * is indistinguishable from a real improvement by inspection, and it is
+   * flattering. A defect that looks like success and cannot be seen is the one
+   * that survives review.
+   */
+  | 'gate_metric_as_witness';
 
 /**
  * Why this panel cannot check an aggregate whose record is entirely correct.
@@ -177,6 +199,8 @@ export const REFUSAL_OBLIGATION: Record<PageRefusal, string> = {
     'The service withholds the aggregate when fewer sites scored than the campaign\'s own floor.',
   floor_unstated:
     'A campaign publishing aggregates states its floor, or the floor cannot be shown to have been met.',
+  gate_metric_as_witness:
+    'A metric in a plotted slot declares `role: witness`. A score contributions were selected on is not one, and a series of it rises by construction.',
 };
 
 /**
@@ -219,9 +243,33 @@ export type AggregateDisposition =
  * rest are not enumerated. One round produces one reason, because the note
  * under the chart counts rounds and a round counted twice overstates how much
  * is missing.
+ *
+ * The parameter is STRUCTURAL rather than `RoundRecord`, because a soup merge
+ * publishes a pooled figure under exactly these rules and is not a round. Only
+ * two fields are read, and widening to the pair states that: everything here is
+ * a property of the metric, apart from the one contradiction check that needs
+ * the set the campaign asked to evaluate.
+ *
+ * A soup has no such set in the schema, so callers pass `eval_on: null` and the
+ * contradiction check alone goes quiet. The floor and the completeness gate
+ * still apply, which is the point. Making this take a SoupRecord too by adding
+ * a second entry point would have let the two drift, and the disclosure rule
+ * these gates enforce is the same rule in both campaign modes.
  */
+export interface ScoredEvent {
+  /**
+   * Declared as a witness, which is the first of the two guards against a
+   * circular improvement curve. A `SelectionMetric` is not assignable here, so
+   * `soup.selection_metric` cannot reach this function by accident. The second
+   * guard is the role check in the body, which covers the wire.
+   */
+  metric: WitnessMetric | null;
+  /** The set asked to evaluate, where the campaign mode records one. */
+  eval_on: string[] | null;
+}
+
 export function aggregateDisposition(
-  round: RoundRecord,
+  round: ScoredEvent,
   minScoringSites: number | null
 ): AggregateDisposition {
   const metric = round.metric;
@@ -239,6 +287,58 @@ export function aggregateDisposition(
 
   if (metric.aggregate_withheld !== null) {
     return { plot: false, by: 'page', cause: 'contradictory_withhold' };
+  }
+
+  // Before every completeness and floor check below, and after the two absence
+  // arms above. Both halves of that placement are deliberate.
+  //
+  // Before, because those checks ask whether the number is well supported and
+  // none of them is meaningful for a number that must not be on this axis at all
+  // however well supported it is. A campaign can gate its scores and still
+  // publish a complete per-site map, a stated basis and a healthy denominator,
+  // so running this last would let a perfectly well-formed circular curve
+  // through on every record that happens to be tidy.
+  //
+  // After, because a refusal is reported to the reader as a figure the campaign
+  // published that this page declined to draw, and with no aggregate present
+  // there is no such figure. Firing here on an absence would put a sentence
+  // under the chart describing a value that was never in the record.
+  //
+  // The cast is what makes the check possible: this arm exists precisely for
+  // values the type says cannot occur. TypeScript has narrowed `role` to the
+  // literal 'witness' and it is right about every call site in this repository.
+  // It is not right about the wire, which is JSON off an RPC boundary, and this
+  // function is where the wire is first trusted.
+  //
+  // DOCUMENTED ASSUMPTION, and the limit of what this guard can do.
+  //
+  // The check is one-directional. It catches a producer that labels its gate
+  // score honestly and puts it in the wrong slot, which is the careless
+  // mistake. It cannot catch a producer that emits the GATE METRIC UNDER
+  // `role: 'witness'`, because at that point the only evidence the page has
+  // that a score gates nothing is the score's own claim that it gates nothing.
+  // The guard trusts exactly the label that would be wrong.
+  //
+  // That failure is worse than the one above, not milder. The page renders a
+  // curve, the curve rises, and it rises because rising is the admission
+  // criterion. Nothing about it looks wrong, and the reader it misleads is the
+  // one the whole page was built for.
+  //
+  // The fix is not on this side. `role` has to be pinned end to end:
+  //   1. a single shared fixture corpus, carrying DISTINCT known witness and
+  //      gate values so a swap is detectable from either side, and
+  //   2. a backend contract test that FAILS if the aggregation or publish path
+  //      ever emits the gate metric under `role: 'witness'`.
+  // Both are open with live-kudu as of 12 Sep 2026, driven by cool-ruff.
+  //
+  // Until those land, the direction is UNVERIFIED and this comment is the only
+  // thing saying so. Keep it until the contract test exists, and delete it in
+  // the same change that makes it untrue. The definition being assumed is
+  // cool-ruff's and it is fixed: witness is split B, gates nothing, and is the
+  // only thing plotted or reported; selection is split A, the greedy gate,
+  // internal, never plotted.
+  if ((metric.role as string) !== 'witness') {
+    return { plot: false, by: 'page', cause: 'gate_metric_as_witness' };
   }
 
   // Normalised, and this is load-bearing rather than defensive tidiness. Every
@@ -386,6 +486,7 @@ export function emptyTally(): DispositionTally {
       scoring_exceeds_eval_set: 0,
       below_scoring_floor: 0,
       floor_unstated: 0,
+      gate_metric_as_witness: 0,
     },
     unrenderable: {
       per_site_not_site_keyed: 0,

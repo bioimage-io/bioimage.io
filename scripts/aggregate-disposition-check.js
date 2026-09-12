@@ -75,6 +75,10 @@ try {
     participants: ['a', 'b', 'c'],
     eval_on: ['a', 'b', 'c'],
     metric: {
+      // Required since 0.9.0-draft. Every case in this file that is meant to
+      // reach a gate below the role check has to carry it, so it lives in the
+      // shared fixture rather than being sprinkled per case.
+      role: 'witness',
       name: 'validation Dice',
       higher_is_better: true,
       per_site: { a: 0.8, b: 0.81, c: 0.79 },
@@ -268,6 +272,7 @@ try {
     participants: ['a', 'b', 'c'],
     eval_on: ['a', 'b', 'c'],
     metric: {
+      role: 'witness',
       name: 'validation Dice',
       higher_is_better: true,
       per_site: { a: 0.8, b: 0.81, c: 0.79 },
@@ -345,6 +350,51 @@ try {
     aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3),
     { plot: false, by: 'page', cause: 'contradictory_withhold' });
 
+  // 0.9.0-draft. The greedy fork made the campaign select contributions on a
+  // held-out score, so a series of THAT score across versions rises because
+  // rising is the admission criterion. The type of `ScoredEvent.metric` stops
+  // every call site in the repo from passing one. These cases are about the
+  // wire, which is JSON and obeys no type.
+  //
+  // This is the one refusal in the file whose absence would produce a chart that
+  // looks right. Every other cause withholds a figure that would merely be
+  // unsupported; this one withholds a curve that would be wrong in a flattering
+  // direction and indistinguishable from a real improvement by inspection.
+  eq('a gate score in the plotted slot refuses',
+    aggregateDisposition(ok({ metric: { role: 'selection' } }), 3),
+    { plot: false, by: 'page', cause: 'gate_metric_as_witness' });
+  // Ordering, first half. A gated record can be immaculate in every other
+  // respect, so a role check placed after the completeness and floor gates would
+  // pass a well-formed circular curve straight through. The fixture here is the
+  // one that plots, with nothing changed but the role.
+  eq('a well-formed record is still refused on its role alone',
+    aggregateDisposition(ok({ metric: { role: 'selection' } }), 3).plot, false);
+  // Ordering, second half. A page refusal is rendered as a figure the campaign
+  // published and this page declined to draw. With no aggregate present there is
+  // no such figure, so firing here would put a sentence under the chart about a
+  // value that was never in the record. Absence wins, and the role check sits
+  // below both absence arms for exactly this case.
+  eq('a gate-roled metric with no aggregate is an absence, not an accusation',
+    aggregateDisposition(ok({ metric: { role: 'selection', aggregate: null, aggregate_withheld: null } }), 3),
+    { plot: false, by: 'absent' });
+  eq('a gate-roled metric the service withheld is still the service\'s withhold',
+    aggregateDisposition(ok({ metric: { role: 'selection', aggregate: null, aggregate_withheld: 'below_scoring_floor' } }), 3),
+    { plot: false, by: 'service', cause: 'below_scoring_floor' });
+  // The control. Without it the four cases above would also pass if the gate
+  // refused every metric regardless of role, which would empty every curve on
+  // the site.
+  eq('a witness-roled metric is unaffected',
+    aggregateDisposition(ok({ metric: { role: 'witness' } }), 3), { plot: true, value: 0.8 });
+  // The failure direction that matters, spelled out as its own case. An unknown
+  // or missing role must NOT fall through to plotting: a producer that has not
+  // said whether its score gates anything has not earned the benefit of the
+  // doubt, and the benefit of the doubt here is the circular curve.
+  eq('an unstated role does not fall through to witness',
+    aggregateDisposition(ok({ metric: { role: undefined } }), 3).plot, false);
+  eq('an unrecognised role does not fall through to witness',
+    aggregateDisposition(ok({ metric: { role: 'something_new' } }), 3).cause,
+    'gate_metric_as_witness');
+
   // The failure direction that matters. A null floor must not be read as met,
   // and the page must not supply 3 of its own: the threshold is one
   // consortium's judgement and a page that invented one would present it as a
@@ -404,6 +454,7 @@ try {
     aggregateDisposition(ok(), null),
     aggregateDisposition(ok(pooledArm), 1),
     aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
+    aggregateDisposition(ok({ metric: { role: 'selection' } }), 3),
   ];
   eq('every registered cause is reachable from some record',
     Array.from(new Set(reached.filter((d) => d.by === 'page' || d.by === 'unrenderable').map((d) => d.cause))).sort(),

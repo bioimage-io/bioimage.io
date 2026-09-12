@@ -81,6 +81,103 @@
  * or any quotient of bytes moved by data held, in any form. See
  * TransportAudit.tsx for the full note.
  *
+ * That rule now binds the paper as well as the page, confirmed by the paper
+ * orchestrator on 2026-09-12. It is recorded here because the argument for it is
+ * a property of the schema rather than of either surface, and the next person to
+ * want a headline multiplier will look for the reason in this file.
+ *
+ * ## Two campaign modes, and why they are a union rather than a superset
+ *
+ * A synchronous campaign advances in lockstep rounds: every site trains the same
+ * round, the driver merges, everyone pulls the aggregate, repeat. That is the
+ * U-Net consortium, and it is what every field above was written for.
+ *
+ * An asynchronous model-soup campaign has no rounds at all. Contributors
+ * fine-tune on their own data at their own pace and push a checkpoint whenever
+ * they finish. Periodically those checkpoints are averaged into a new community
+ * model that everyone can pull. The two are not a fast and a slow version of one
+ * process, they are two processes, and the difference the record has to carry is
+ * that ASYNC HAS TWO EVENT STREAMS WHERE SYNC HAS ONE:
+ *
+ *   CONTRIBUTIONS  continuous, unordered, one per contributor per finished run,
+ *                  arriving at arbitrary wall-clock times.
+ *   SOUP MERGES    discrete, ordered, each one producing an immutable community
+ *                  checkpoint version.
+ *
+ * In a synchronous campaign these coincide. Round r IS both "everyone trained"
+ * and "the driver merged", which is exactly why one `RoundRecord` can carry
+ * participants, merge weights and a metric at once. Asynchronously they come
+ * apart: a contribution and the merge that folds it in happen days apart, and
+ * between them sit other contributors' runs that will land in the same merge or
+ * the next one.
+ *
+ * So `progress` is a DISCRIMINATED UNION on `mode` and not a bag of nullable
+ * fields. A record carrying both `rounds` and `contributions` would be
+ * describing a campaign that does not exist, and the rest of this file is built
+ * on the principle that the record should not be able to express a thing that
+ * cannot happen. The cost is that every consumer must switch on `mode`; that is
+ * the intended cost, because a consumer that forgets is one the compiler stops.
+ *
+ * Three fields that look shared are deliberately NOT:
+ *
+ *  1. `SiteRecord.joined_round` has no async counterpart. A contributor does not
+ *     join at a round, it joins at a time, and it is characterised by when and
+ *     how often it contributed rather than by which rounds it was present for.
+ *     Hence `ContributorRecord` with `joined_at`, not a nullable round on a
+ *     shared type.
+ *  2. `PayloadDescriptor.bytes_per_site_per_round` is a per-round-per-site
+ *     quantity. The async analogue is per CONTRIBUTION, and one contributor
+ *     contributing twice in the time another contributes once makes these
+ *     genuinely different numbers rather than the same number renamed. Two
+ *     fields, exactly one populated per mode.
+ *  3. The transport formula. Sync is `2|participants| + 1 + |participants union
+ *     eval_on|` transfers per round. Async has no round to multiply by: it is
+ *     one upload per contribution plus one download per contributor that pulls
+ *     each new community version. `ComputedTransport.basis` is rendered verbatim
+ *     precisely so a mode change is a different string rather than a code change,
+ *     and that property is now load-bearing rather than incidental.
+ *
+ * ## Inclusion is a decision, and as of 0.9.0-draft the campaign makes it
+ *
+ * Under uniform or sample-weighted averaging, every contribution that arrives is
+ * in the soup by construction, exactly as every site that reported is in a FedAvg
+ * aggregate. Under GREEDY souping it is not: checkpoints are admitted against a
+ * held-out set and a contributor can do everything right and not be in the model.
+ *
+ * The fork was ruled greedy on 12 Sep 2026, and the hold that stood here through
+ * 0.8.0-draft is lifted. `ContributionDisposition.excluded` is now a reachable
+ * value and pages render it. Two constraints replace the hold, and they are
+ * binding rather than stylistic:
+ *
+ *  1. An excluded contribution is a NEUTRAL LINEAGE FACT. It is not a failure, a
+ *     rejection, or a quality judgement of the contributor or their data. The
+ *     wording everywhere is that the contribution was assessed and this merge did
+ *     not take it. Nothing may be worded as the contributor having done badly,
+ *     because they did not: a greedy soup leaves out checkpoints that are
+ *     individually fine and simply do not improve the pooled model on the day.
+ *  2. NO PER-CONTRIBUTOR ACCURACY LEADERBOARD, and no per-contributor exclusion
+ *     count either. A column tallying whose contributions get left out is a
+ *     leaderboard with the ranking implied instead of stated, which is worse
+ *     rather than better. Selection outcomes are published PER MERGE, where they
+ *     describe the merge, and never aggregated per contributor. This is the same
+ *     rule that keeps `RoundMetric.per_site` withheld, arriving by a new route.
+ *
+ * ## A selection gate makes its own metric unusable as an improvement curve
+ *
+ * The consequence of greedy that the schema has to carry. Contributions are
+ * SELECTED on a held-out score, so plotting that same score across versions shows
+ * improvement on the very set inclusion was optimised against. The curve would go
+ * up whether or not the model got better, because going up on that set is the
+ * admission criterion. It is circular and it is not detectable by looking at it.
+ *
+ * So the campaign publishes two scores per merge and the schema names them by
+ * ROLE rather than by which one is more interesting. See `MetricRole`,
+ * `SoupRecord.witness_metric`, and `SoupRecord.selection_metric`. Only the
+ * witness is plottable, and that is enforced by the type of `ScoredEvent.metric`
+ * and again at runtime in `aggregateDisposition`, because the wire arrives as
+ * JSON and a type alone cannot stop a producer putting the gate score in the
+ * witness slot.
+ *
  * ## Disclosure rules (binding, from the driver owner)
  *
  * Some fields are deliberately withholdable, and the page must render fine
@@ -275,8 +372,75 @@
  * both. Reading their co-occurrence as the contradiction would reopen 0.6.0's
  * leak in a second key space. The contradiction is a dataset count on a
  * site-keyed round, which is a record that has not decided what it counts.
+ *
+ * 0.8.0-draft: MINOR, and the largest change in the list. `progress` becomes a
+ * discriminated union on `mode`, so `rounds` and `round` move inside the
+ * synchronous arm and every consumer must switch before it can read either.
+ * Adds the asynchronous arm: `ContributionRecord`, `SoupRecord`,
+ * `ContributorRecord`, `MergeTrigger`, `CommunityCheckpoint`.
+ *
+ * It would have been half the diff to add `contributions` and `soups` as
+ * nullable siblings of `rounds` and let each page check which is populated. That
+ * is the version of this change that encodes a campaign shape that cannot exist,
+ * and it fails in the direction this file cares about: a reader with both fields
+ * in scope and no discriminant has to decide which one wins, and every such
+ * decision is a page inventing a semantics the producer never stated. The same
+ * argument as `per_site_basis`, one level up again. A union costs every consumer
+ * a switch. A nullable pair costs the first careless consumer a wrong page.
+ *
+ * `disposition` on a contribution is the one field here added for a decision
+ * that has NOT been taken. That is normally the mistake this file warns about,
+ * and it is done deliberately and narrowly: the aggregation fork (uniform, which
+ * the backend implements today, versus greedy, which would make exclusion real)
+ * is live, and a field added later would mean re-cutting the shared fixture
+ * corpus the backend is being built against. The hold is on the RENDERING,
+ * documented at the type, so nothing on screen claims a mechanism the backend
+ * cannot exercise.
+ *
+ * 0.9.0-draft: MAJOR in effect if not in number, and it is the fork landing. The
+ * aggregation decision came back greedy with full-weight souping, which changes
+ * three things here.
+ *
+ * `SoupRecord.metric` is GONE and is not renamed in place, which is the point of
+ * doing it this way. It splits into `witness_metric` and `selection_metric`, and
+ * `RoundMetric` grows a required `role` so the two are distinguishable as values
+ * and not only as field names. A consumer that was reading `.metric` gets a
+ * compile error and has to choose, rather than silently continuing to read
+ * whichever score now lives at the old name. Under a gate, the wrong choice draws
+ * a curve that rises because rising is the admission criterion, so this is
+ * precisely the case where a quiet migration is worse than a loud one.
+ *
+ * `SoupRecord.assessed` records the candidate pool a merge considered, which
+ * under uniform souping was the same set as `contributions` and under greedy is
+ * not. Without it "folded in 3" is unreadable: three out of three and three out
+ * of eleven are different facts about the merge and the record could not tell
+ * them apart.
+ *
+ * The 0.8.0 hold on `disposition: 'excluded'` is lifted, under the two
+ * constraints in the inclusion section of this header. The field itself is
+ * unchanged, which is what it was added early for.
+ *
+ * 0.10.0-draft: MINOR and additive. `EmptyMerge` and `empty_merges`, for a merge
+ * that ran and admitted nothing. Greedy souping makes that a real event, and the
+ * backend records it with no soup and no published version, which was correct on
+ * the wire and a hole on the page: the contribution stream draws its merge
+ * markers from `soups`, so a declined merge drew no marker and its excluded
+ * contributions sat under a legend that said they had been assessed by one.
+ *
+ * Reusing `SoupRecord` with a null `community_model` was the cheaper change and
+ * the wrong one. That null already means a lost record, and one field cannot
+ * carry both "we never heard what this merge produced" and "this merge decided
+ * to produce nothing" without the page having to guess which campaign it is
+ * looking at. The same argument as the union one version up: a nullable field
+ * doing two jobs costs the first careless consumer a wrong page.
+ *
+ * The other half is transport. A declined checkpoint still crossed the network,
+ * and per-merge transport lived only on `SoupRecord`, so those bytes were in the
+ * campaign total with no per-merge home and the breakdown could not reconcile
+ * with the headline. `EmptyMerge.transport` closes that, and the backend is
+ * putting a transport block on every merge record it stores, published or not.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.7.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.10.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -315,6 +479,21 @@ export interface PayloadDescriptor {
    * observed, so it belongs in `ComputedTransport` where it can be labelled.
    */
   bytes_per_site_per_round: number | null;
+  /**
+   * The asynchronous analogue: measured bytes for one contribution's upload.
+   *
+   * A sibling field rather than a rename, because these are different
+   * quantities and not one quantity under two names. A per-round-per-site figure
+   * is multiplied by rounds and sites to reach a campaign total; a
+   * per-contribution figure is multiplied by however many contributions happened
+   * to arrive, which no schedule fixes. Collapsing them would let a reader carry
+   * a sync intuition onto an async number, which is the whole class of error the
+   * basis fields in this file exist to stop.
+   *
+   * Exactly one of the two is populated for any campaign, decided by
+   * `progress.mode`. Both null is an ordinary unreported state.
+   */
+  bytes_per_contribution: number | null;
 }
 
 /**
@@ -470,8 +649,52 @@ export type AggregateWithholdCause =
   | 'below_scoring_floor'
   | 'floor_unknown';
 
+/**
+ * What a score is FOR, which decides whether it may be drawn as improvement.
+ *
+ * Not a description of how the score was computed. Both roles are ordinary
+ * metrics on ordinary held-out splits and may even be the same metric function.
+ * The difference is entirely in what the campaign does with the number, and that
+ * is a fact only the campaign knows, which is why it is declared rather than
+ * inferred.
+ *
+ *  - 'witness': scored on a split that GATES NOTHING. No contribution was ever
+ *    admitted or refused on the strength of it, so a series of these across
+ *    versions is an honest improvement curve.
+ *  - 'selection': the score the greedy gate admitted contributions against.
+ *    Real, useful, and unplottable as improvement, because the series can only
+ *    go up: going up on that split is the admission criterion. Plotting it would
+ *    show the selection rule working and would be read as the model improving.
+ *
+ * There is no third value and no null. An unroled metric would be one a reader
+ * cannot classify, and the safe reading of "unknown role" is 'selection', which
+ * means the page would withhold it anyway. Requiring the field makes the producer
+ * state which it is instead of the page guessing conservatively and quietly
+ * dropping curves the campaign was entitled to show.
+ *
+ * A synchronous FedAvg campaign selects nothing, so every metric it publishes is
+ * a witness by construction. It still declares the role, because "by
+ * construction" is an argument about the campaign and not a property of the
+ * record, and the next mode added to this schema may not have it.
+ *
+ * NOTE TO PRODUCERS. The page enforces this field in one direction only. It
+ * refuses a metric declaring 'selection' in a slot it plots, and it cannot
+ * detect a gate score declared 'witness', because the declaration is the only
+ * evidence it has. Emitting the gate metric as a witness produces a curve that
+ * rises by construction and looks exactly like a real result. Make the witness
+ * split structurally unreachable from the selection code path rather than
+ * relying on this field being filled carefully. See the trust point and its
+ * documented assumption in `aggregateDisposition.ts`.
+ */
+export type MetricRole = 'witness' | 'selection';
+
 /** The scoring for one round. `name` is campaign-specific and rendered as given. */
 export interface RoundMetric {
+  /**
+   * Whether this score gates anything. See `MetricRole`. Required, and the one
+   * field here that is about the campaign's process rather than its numbers.
+   */
+  role: MetricRole;
   /** e.g. "validation Dice". Never abbreviated to "score" by the page. */
   name: string;
   higher_is_better: boolean;
@@ -605,6 +828,34 @@ export interface RoundMetric {
 }
 
 /**
+ * A metric that gates nothing, and therefore the only kind that may be plotted
+ * as improvement.
+ *
+ * The alias exists so the restriction lives in a TYPE rather than in a comment
+ * asking the next author to read the right field. `ScoredEvent.metric` is
+ * declared as this, so handing it a `SelectionMetric` fails to compile, and the
+ * mistake it prevents is one that produces a chart that looks correct. Every
+ * other rule in this file that could be stated as a type is, for the same
+ * reason: `per_site_basis` exists because a key space asserted in prose is a
+ * claim nobody can check.
+ */
+export type WitnessMetric = RoundMetric & { role: 'witness' };
+
+/**
+ * The score a greedy soup admitted contributions against.
+ *
+ * Carried in the record because withholding it would make the selection
+ * unauditable: a reader is entitled to see what the gate was and what it said.
+ * It is simply never the improvement curve. See `MetricRole`.
+ *
+ * A page may render one of these as a stated gate figure beside the merge that
+ * used it. What no page may do is put a series of them on an axis against time
+ * or version, which is the shape the type prevents by not being assignable to
+ * `ScoredEvent.metric`.
+ */
+export type SelectionMetric = RoundMetric & { role: 'selection' };
+
+/**
  * Bytes moved in one round.
  *
  * Transport entries carry no round field, but their paths are
@@ -686,8 +937,15 @@ export interface RoundRecord {
   /**
    * Null while a campaign is running and reporting process axes only. Accuracy
    * is an outcome axis and may be published post-hoc.
+   *
+   * Typed as a witness rather than a bare `RoundMetric` since 0.9.0-draft.
+   * Synchronous FedAvg admits every site that reported, so nothing here was ever
+   * selected on and the round metric has always been a witness. Stating it costs
+   * a producer one literal and buys the guarantee that the sync and async curves
+   * are drawn under the same rule. A sync-only `RoundMetric` would be one more
+   * place a future selecting mode could quietly land.
    */
-  metric: RoundMetric | null;
+  metric: WitnessMetric | null;
   /** Digest of the merged weights, so a curve can be tied to the exact aggregate. */
   global_sha256: string | null;
   /**
@@ -720,6 +978,485 @@ export interface RoundRecord {
   scored_with_basis: KeySpace | null;
   transport: RoundTransport | null;
 }
+
+/**
+ * Whether a contribution ended up in a soup.
+ *
+ * All three values are reachable as of 0.9.0-draft. The campaign souths greedily
+ * and admits contributions against a held-out split, so a contribution can be
+ * assessed and left out.
+ *
+ *  - 'pending': arrived, and no merge has considered it yet.
+ *  - 'included': a merge folded it into a published community version.
+ *  - 'excluded': a merge assessed it and did not take it.
+ *
+ * 'excluded' IS NOT A VERDICT ON THE CONTRIBUTOR and pages must not word it as
+ * one. A greedy soup leaves out checkpoints that are individually fine: the gate
+ * asks whether adding this one improves the POOLED model on the day, which
+ * depends on what else is in the pool, and a contribution that adds nothing to a
+ * soup that already covers its imaging modality is the ordinary case rather than
+ * a bad one. The only defensible rendering is the one that says what happened:
+ * assessed, not taken.
+ *
+ * Nor is it terminal. This field is the state as of the most recent merge that
+ * considered the contribution, and a campaign is free to reconsider it later.
+ * Nothing here licenses a page to say a contribution "will not" be used.
+ *
+ * Null is the fourth state and means the service did not say, which is not
+ * 'pending'. A contribution whose disposition is unknown and one the service
+ * knows has not been merged yet are different facts, and the difference is
+ * exactly whether a soup has run since it landed.
+ */
+export type ContributionDisposition = 'pending' | 'included' | 'excluded';
+
+/** Names of `ContributionRecord` fields the contributor typed rather than the platform measuring. */
+export type DeclaredContributionField = 'n_train_images' | 'dataset_name';
+
+/**
+ * One finished local fine-tune, pushed by one contributor.
+ *
+ * The continuous stream. There is no round number here and there must not be
+ * one: contributions arrive at arbitrary wall-clock times and any integer index
+ * the page assigned would be a position in the service's reporting order rather
+ * than a property of the campaign. `received_at` is the ordering key, and it is
+ * the x-axis of every async view.
+ *
+ * `base_version` is the field with no synchronous counterpart at all, and it is
+ * the one that makes an async record checkable. In lockstep every site trains
+ * from the same aggregate by construction, so "which weights did this start
+ * from" is answered by the round number. Asynchronously contributors start from
+ * whatever community version was current when they began, which may be several
+ * soups behind by the time they finish. A contribution built on a stale base is
+ * not invalid and is not hidden; it is a real property of async training that
+ * the record carries so a reader can see it rather than assuming freshness.
+ */
+export interface ContributionRecord {
+  contribution_id: string;
+  /** FK to `ContributorRecord.contributor_id`. */
+  contributor_id: string;
+  /** ISO 8601. When the service recorded the push. The ordering key, and the x-axis. */
+  received_at: string;
+  /**
+   * The `CommunityCheckpoint.version` this fine-tune started from. Null when the
+   * contributor trained from the campaign's base model rather than from a soup,
+   * which is the correct value for every contribution before the first merge,
+   * and null also when the service did not record it. Those two are not
+   * distinguished here, which is a known weakness of this field: the first case
+   * is derivable from `received_at` preceding the first `SoupRecord.merged_at`
+   * and the second is not derivable at all. Named so the next reader does not
+   * mistake the ambiguity for a statement.
+   */
+  base_version: string | null;
+  /**
+   * Bytes this contribution put on the network, MEASURED off the transport log.
+   * Null when the log does not cover it, and NEVER estimated from a parameter
+   * count or copied from `PayloadDescriptor.bytes_per_contribution`, which is a
+   * campaign-level typical figure and not this contribution's.
+   */
+  bytes_out: number | null;
+  /**
+   * The contributor's training-set size for this run. Opt-in, and governed by
+   * the SAME flag as the synchronous `merge_weights`, because it is the same
+   * protected quantity: under sample-count weighting this is literally the
+   * weight this contribution carried into the soup.
+   */
+  n_train_images: number | null;
+  /** What the contributor trained on, as declared. Null when not declared. */
+  dataset_name: string | null;
+  /**
+   * Which of this contribution's own fields are self-declared. Same contract and
+   * same rendering rule as `SiteRecord.declared`, including that an empty array
+   * is a positive statement and is not null.
+   */
+  declared: DeclaredContributionField[] | null;
+  /**
+   * Whether this contribution is in a soup. All values render as of 0.9.0-draft.
+   * See ContributionDisposition for the wording constraints on 'excluded', which
+   * are binding rather than advisory.
+   */
+  disposition: ContributionDisposition | null;
+  /**
+   * The `SoupRecord.soup_id` that folded this in. Null when none has, which is
+   * the ordinary state for any contribution that arrived since the last merge.
+   *
+   * Redundant with `disposition` on a uniform campaign and NOT redundant on a
+   * greedy one, where a contribution can be evaluated and left out: excluded with
+   * a null soup_id says it was considered and not taken, and 'pending' with a
+   * null soup_id says no soup has run. Keeping both is what lets those stay
+   * distinguishable if the greedy fork is chosen, without a schema change at the
+   * point the distinction first matters.
+   */
+  merged_into: string | null;
+}
+
+/**
+ * One soup merge: the discrete, ordered stream.
+ *
+ * Each one averages some set of contributions into a new IMMUTABLE community
+ * checkpoint. Immutability is what makes the soup series a lineage rather than a
+ * history of edits to one model, and it is why `CommunityCheckpoint` hangs off
+ * this record rather than there being a separate versions array. Two lists that
+ * must stay in step is how they drift, and the soup sequence already is the
+ * lineage.
+ *
+ * `index` is an ordinal over merges within the campaign and is genuinely
+ * sequential, unlike anything in the contribution stream. It is safe to use as
+ * an axis. It is NOT a round number: it counts merges, not training cycles, and
+ * the count of contributions behind merge N is not fixed.
+ */
+export interface SoupRecord {
+  soup_id: string;
+  /** 0-based ordinal over merges in this campaign. Sequential, unlike contributions. */
+  index: number;
+  /** ISO 8601. */
+  merged_at: string;
+  /**
+   * The contribution ids folded into this soup.
+   *
+   * Publishing the SET is a process fact and is not gated. Publishing how much
+   * each one counted is the protected quantity, and it lives in `weights` under
+   * the training-set-size flag. Same split as the synchronous case, where
+   * membership is derived from the merge_weights keys while the values are
+   * withheld: presence and weight are different quantities and only the weight
+   * is protected.
+   *
+   * Under greedy souping this is the set the gate ADMITTED, which is a subset of
+   * `assessed` rather than equal to it.
+   */
+  contributions: string[];
+  /**
+   * The contribution ids this merge CONSIDERED, admitted or not.
+   *
+   * A superset of `contributions`, and the field that makes "folded in 3"
+   * readable: three of three and three of eleven describe very different merges
+   * and the record could not tell them apart without this.
+   *
+   * Null means the service did not publish the candidate pool, which is NOT the
+   * same as the pool having been equal to `contributions`. A page that defaulted
+   * it that way would report every unreported greedy merge as having taken
+   * everything it looked at, which is the flattering reading and the wrong one.
+   * With null the page says how many were folded in and does not imply a
+   * denominator.
+   *
+   * On a uniform campaign the two sets genuinely coincide, and such a campaign
+   * should publish them both rather than sending null, because "we considered
+   * these and took all of them" is a real statement about how the campaign works
+   * and is worth being able to make.
+   *
+   * This is per MERGE on purpose. The same information aggregated per
+   * contributor would be a rejection tally with the ranking left for the reader
+   * to do, which the inclusion section of the file header rules out.
+   */
+  assessed: string[] | null;
+  /**
+   * Per-contribution merge weights, keyed by `contribution_id`. Opt-in under the
+   * same flag as `ContributionRecord.n_train_images`, because under sample-count
+   * weighting these ARE the training-set sizes.
+   *
+   * Null on a uniform campaign is not a withhold. Uniform weighting has no
+   * per-contribution weight to publish, and `aggregation.weighting` is what says
+   * which case a reader is in.
+   */
+  weights: Record<string, number> | null;
+  /**
+   * The community checkpoint this merge produced. Null when the service has not
+   * recorded one, i.e. a REPORTING GAP, and the page says so in those words
+   * rather than showing a merge with no output.
+   *
+   * A null here never means "the merge admitted nothing and so published
+   * nothing". Under greedy souping a merge that admits nothing produces no
+   * SoupRecord at all; it is an `EmptyMerge` instead (backend semantics fixed by
+   * live-kudu, 12 Sep 2026). That separation is deliberate. If both cases landed
+   * on this one null, the page could not tell a lost record from a merge that
+   * declined its whole candidate pool, and those are opposite facts: the first
+   * is a hole in the reporting, the second is the community model being good
+   * enough that nothing on offer improved it.
+   *
+   * So: every SoupRecord published a version. `soups.length` is the number of
+   * community versions, `index` is an ordinal over them, and neither counts
+   * merges that ran and published nothing.
+   */
+  community_model: CommunityCheckpoint | null;
+  /**
+   * Evaluation of THIS soup's checkpoint on a split that gates nothing.
+   *
+   * THE ONLY FIELD IN THIS RECORD THAT MAY BE PLOTTED AS IMPROVEMENT. See
+   * `MetricRole`. Named `witness_metric` rather than keeping the old `metric`
+   * name so that reading the plottable score is a positive act: with a field
+   * called `metric` sitting next to a field called `selection_metric`, the
+   * shorter name reads as the default and the default would be the circular one
+   * on any campaign that publishes both.
+   *
+   * Gated on `policy.outcomes_released` exactly as `RoundRecord.metric` is, and
+   * for the same reason: it is the outcome axis, and a metric published
+   * mid-campaign reads as a result when it is a partial observation.
+   *
+   * Reusing `RoundMetric` rather than defining a parallel type is deliberate.
+   * Every rule that type carries (the key-space basis, the scoring floor, the
+   * withhold causes, the required denominator) applies unchanged to a soup: a
+   * pooled figure over too few contributors is the same disclosure hazard as one
+   * over too few sites. A parallel type would be the same rules re-derived, and
+   * the ones that got re-derived loosely are what versions 0.4.0 through 0.7.0 of
+   * this schema were spent fixing.
+   */
+  witness_metric: WitnessMetric | null;
+  /**
+   * The score the greedy gate admitted this merge's contributions against.
+   *
+   * Published so the selection is auditable: a reader who is told some
+   * contributions were not taken is entitled to see what the criterion was.
+   * Null on a campaign that selects nothing, where there is no gate to report
+   * and its absence is inapplicability rather than a withhold.
+   *
+   * Never a series and never an axis. `ScoredEvent.metric` will not accept it,
+   * which is the mechanical half of that rule.
+   */
+  selection_metric: SelectionMetric | null;
+  /** Digest of the merged weights, so a point on the eval curve ties to an exact checkpoint. */
+  global_sha256: string | null;
+  /** Bytes moved by this merge: the distribution of the new checkpoint to contributors. */
+  transport: RoundTransport | null;
+}
+
+/**
+ * One immutable version of the growing community model.
+ *
+ * The payoff of the whole campaign, and the thing a visitor is most likely to
+ * want: not the process, but the model they can go and use. It carries a zoo
+ * link because a community checkpoint that cannot be opened is a claim rather
+ * than a deliverable.
+ */
+export interface CommunityCheckpoint {
+  /** Fully qualified, e.g. "bioimage-io/collaborative-narwhal". Null before publication. */
+  artifact_id: string | null;
+  /** The immutable version this soup wrote, e.g. "v4". */
+  version: string;
+  /** Zoo URL, when the checkpoint is published and browsable. */
+  url: string | null;
+  /**
+   * How many contributions stand behind this version CUMULATIVELY, across every
+   * soup up to and including the one that produced it.
+   *
+   * Stated by the service rather than summed by the page from `contributions`
+   * lengths. The contribution stream may have gaps for the same fire-and-forget
+   * reason the round series may, so a page-side sum would silently report the
+   * reporting coverage as the campaign's size, and it would do it on the single
+   * number most likely to be quoted.
+   */
+  n_contributions_cumulative: number | null;
+}
+
+/**
+ * A merge that RAN and published no new community version.
+ *
+ * Under greedy souping the gate can decline every candidate it was offered. The
+ * backend records that as a merge event with no soup and no checkpoint, which is
+ * correct on the wire and would have been a hole on the page: the contribution
+ * stream draws its merge markers from `soups`, so a declined merge would have
+ * drawn no marker, and its excluded contributions would have sat in a stretch of
+ * timeline with no merge in it under a legend reading "assessed by a merge, not
+ * included in it". The chart would have contradicted its own key, and a reader
+ * resolving that by attributing those contributions to the next VISIBLE merge
+ * would have been wrong with nothing on screen to correct them.
+ *
+ * A merge that declines everything is also not nothing happening. It is the
+ * community model being good enough that nothing on offer improved it, which is
+ * one of the more interesting things an async campaign can show, and it would
+ * otherwise have rendered as a quiet week.
+ *
+ * This is a SEPARATE type rather than a `SoupRecord` with a null
+ * `community_model`, and the distinction is load-bearing in both directions.
+ * A null `community_model` means a lost record. An `EmptyMerge` means a merge
+ * that admitted nothing. Folding them together would have put a version-less row
+ * in the table of versions and re-muddled the reporting-gap contract on the one
+ * field that exists to keep it clean.
+ *
+ * It carries no `index`, no version and no witness metric on purpose. There is
+ * no published checkpoint to number, name or score, so there is nothing for it to
+ * contribute to the improvement curve and it does not appear there. It appears
+ * on the stream, where the question is what happened and when, and in the
+ * transport totals, because a declined checkpoint still crossed the network.
+ */
+export interface EmptyMerge {
+  /** ISO 8601. */
+  merged_at: string;
+  /**
+   * The contribution ids this merge CONSIDERED and did not admit.
+   *
+   * Empty and null mean different things and the page phrases them differently.
+   * An empty array is a merge that ran with nothing to consider, i.e. the trigger
+   * fired and no contribution had arrived. A non-empty array is a merge that
+   * considered these and declined them. Null is the service not having published
+   * the candidate pool, exactly as in `SoupRecord.assessed`, and the page then
+   * says a merge ran without saying what it looked at.
+   *
+   * Per MERGE, never aggregated per contributor, under the same rule as
+   * `SoupRecord.assessed`: the per-contributor version of this is a rejection
+   * tally with the ranking left for the reader to do.
+   */
+  assessed: string[] | null;
+  /**
+   * Bytes moved by this merge.
+   *
+   * Inbound only in the usual case: the candidate checkpoints arrived and nothing
+   * was distributed back, because there was no new version to distribute. Those
+   * bytes are real and belong in the campaign total, and without a per-merge home
+   * here the per-merge breakdown would have omitted them while the campaign-wide
+   * figure included them, leaving the two disagreeing with no way to explain why.
+   *
+   * The page does not currently render this, and that is not an oversight. It
+   * never sums per-merge transport into anything: the campaign total comes from
+   * `CampaignTransport`, stated by the service, and `SoupRecord.transport` is
+   * only ever shown per row. Summing across merges would be the same
+   * unsynchronised-window mistake the transport audit exists to refuse. The field
+   * is here so the two figures CAN be reconciled by whoever holds both, and so
+   * that the reconciliation does not require the campaign total and the sum of
+   * published merges to be silently different numbers.
+   */
+  transport: RoundTransport | null;
+}
+
+/**
+ * What causes the next soup to run.
+ *
+ * Campaign-level and steward-chosen, per the backend design: manual, on a
+ * schedule, or once N contributions have accumulated.
+ *
+ * The page renders a NEXT merge ONLY for 'scheduled' with a non-null
+ * `next_merge_at`. Under 'manual' there is nothing to predict. Under
+ * 'on_contributions' a countdown looks predictive and is not, because it depends
+ * on when volunteers finish runs on hardware nobody here controls, so the page
+ * shows the threshold and the count against it and stops short of a time. A
+ * predicted merge time that slips is worse than no prediction on a page whose
+ * entire claim is that its numbers are observations.
+ */
+export interface MergeTrigger {
+  kind: 'manual' | 'scheduled' | 'on_contributions' | null;
+  /** ISO 8601. Only meaningful for 'scheduled'. Null under every other kind, and null when unknown. */
+  next_merge_at: string | null;
+  /** The N for 'on_contributions'. Null under every other kind. */
+  contributions_per_merge: number | null;
+}
+
+/**
+ * One participant in an ASYNCHRONOUS campaign.
+ *
+ * Not a `SiteRecord`, and the difference is not cosmetic. A site in a lockstep
+ * consortium is characterised by the rounds it was present for, which is what
+ * `joined_round` and `left_round` encode. A contributor in an open async
+ * campaign is characterised by when it first contributed and how often it has
+ * since, and there is no round for it to have joined at. Giving the shared type
+ * a nullable `joined_round` would have produced a field that is structurally
+ * always null for half the campaigns, which is how a reader learns to ignore it.
+ *
+ * `contributor_name` is SELF-DECLARED, under exactly the same rule as
+ * `SiteRecord.site_name`: the platform does not verify that a deployment belongs
+ * to the institution or person it names. In an OPEN campaign this matters more
+ * rather than less, because the roster is no longer a short list of known
+ * institutions that a reader could sanity-check by eye.
+ */
+export interface ContributorRecord {
+  contributor_id: string;
+  /** Self-declared. Not verified against any institutional identity. */
+  contributor_name: string;
+  /** ISO 3166 country name or null if not declared. */
+  country: string | null;
+  /** ISO 8601. When this contributor's first contribution was recorded. */
+  joined_at: string | null;
+  /** ISO 8601. Null for a contributor that has never contributed. */
+  latest_contribution_at: string | null;
+  /**
+   * How many contributions this contributor has made. Stated by the service, not
+   * counted page-side from the stream, for the same coverage reason as
+   * `CommunityCheckpoint.n_contributions_cumulative`.
+   */
+  n_contributions: number | null;
+  /** Snapshot of `get_status().torch.cuda_device`. Null on CPU-only or undisclosed. */
+  accelerator: string | null;
+  datasets: SiteDataset[];
+  /**
+   * Summed training-set size across this contributor's datasets. Opt-in under
+   * the same flag as everywhere else this quantity appears.
+   */
+  n_train_images: number | null;
+  /** Snapshot of `get_status()`. Null when not reported. */
+  bioengine_version: string | null;
+  /**
+   * Which of this contributor's fields are self-declared. Empty array is a
+   * positive statement and is not null. Same contract as `SiteRecord.declared`.
+   */
+  declared: DeclaredSiteField[] | null;
+}
+
+/**
+ * The progress model, discriminated on `mode`.
+ *
+ * See the two-modes note in the file header for why this is a union and not a
+ * superset with nullable halves. Every consumer switches; that is the point.
+ */
+export type CampaignProgressRecord =
+  | {
+      mode: 'synchronous';
+      round: {
+        current: number | null;
+        total: number | null;
+        /** ISO 8601. */
+        started_at: string | null;
+      };
+      /**
+       * May have gaps. Reporting from the driver into the campaign service is
+       * fire-and-forget and is never awaited on the training critical path, so a
+       * service outage costs round records and not the run. Views must render a
+       * discontinuous series rather than assuming `rounds[i].round === i`.
+       *
+       * A gap is a LOST RECORD, not a round that did not happen, and the pages
+       * must say so in those words. Read with `reporting` to tell the two apart.
+       */
+      rounds: RoundRecord[];
+      sites: SiteRecord[];
+    }
+  | {
+      mode: 'asynchronous';
+      /** ISO 8601. When the campaign opened for contributions. */
+      started_at: string | null;
+      /**
+       * The continuous stream, ordered by `received_at`. May have gaps for the
+       * same fire-and-forget reason the round series may, and a gap here is a
+       * lost record rather than a contribution that did not happen.
+       *
+       * Unlike rounds, a gap in this stream is NOT detectable by inspection.
+       * A missing round leaves a hole in an integer sequence; a missing
+       * contribution leaves nothing at all, because the stream has no index to
+       * be discontinuous in. `reporting.dropped_reports` is therefore the only
+       * signal an async campaign has that its stream is incomplete, which makes
+       * it load-bearing here in a way it is not in the synchronous arm.
+       */
+      contributions: ContributionRecord[];
+      /**
+       * The discrete ordered stream of PUBLISHED versions. `index` is sequential
+       * and safe as an axis.
+       *
+       * This is not every merge the campaign ran. A merge whose gate admitted
+       * nothing published no version and is in `empty_merges`. So
+       * `soups.length` is the number of community versions, and the number of
+       * merges is `soups.length + empty_merges.length`. Any view that says
+       * "merges" rather than "versions" has to add the two, and the copy has to
+       * pick one noun and mean it.
+       */
+      soups: SoupRecord[];
+      /**
+       * Merges that ran and published nothing. Separate array because they are a
+       * different kind of event, not a degenerate soup. See `EmptyMerge`.
+       *
+       * Empty array and null are the usual distinction: empty says the campaign
+       * has run no such merge, null says the service does not report them, and
+       * on null the page stops claiming the merge markers are complete rather
+       * than showing a timeline it cannot vouch for.
+       */
+      empty_merges: EmptyMerge[] | null;
+      contributors: ContributorRecord[];
+      merge_trigger: MergeTrigger | null;
+    };
 
 /** The span of the transport log one source contributed, used to check agreement. */
 export interface TransportWindow {
@@ -1004,7 +1741,31 @@ export interface CampaignSummary {
   description: string | null;
   status: CampaignStatus;
   base_model: { id: string; name: string; url: string | null } | null;
-  round: { current: number | null; total: number | null };
+  /**
+   * Mode-appropriate headline progress, discriminated exactly as the full
+   * record's is.
+   *
+   * The index used to carry a bare `round: {current, total}`, which an async
+   * campaign has no honest value for. Sending `{current: null, total: null}`
+   * would have rendered as an unreported round on a campaign that has no rounds
+   * to report, so the index would have shown every async campaign as a
+   * synchronous one with missing telemetry.
+   */
+  progress:
+    | { mode: 'synchronous'; round: { current: number | null; total: number | null } }
+    | {
+        mode: 'asynchronous';
+        /** Contributions recorded so far. Stated by the service, not counted page-side. */
+        n_contributions: number | null;
+        /** Community model versions published so far, i.e. how many soups have run. */
+        n_versions: number | null;
+      };
+  /**
+   * Active participants. Sites under 'synchronous', contributors under
+   * 'asynchronous'. One field because the index renders one count either way and
+   * the label is the page's business, unlike the detail record where the two
+   * participant types carry genuinely different fields.
+   */
   n_active_sites: number | null;
   payload: PayloadDescriptor | null;
   model_licence: string | null;
@@ -1033,8 +1794,18 @@ export interface CampaignRecord {
   experiment: CampaignExperiment | null;
   policy: CampaignPolicy | null;
   base_model: { id: string; name: string; url: string | null } | null;
+  /**
+   * How contributions become a shared model. Free text, rendered verbatim,
+   * because the page must not be the thing that decides what counts as a method.
+   *
+   * Synchronous campaigns say "FedAvg". Async model-soup campaigns say
+   * "uniform soup" or "sample-weighted soup", and would say "greedy soup" if
+   * that fork is taken. `weighting` is what tells a reader whether
+   * `SoupRecord.weights` being null is a withhold or simply inapplicable:
+   * uniform weighting has no per-contribution weight to publish.
+   */
   aggregation: {
-    /** e.g. "FedAvg". */
+    /** e.g. "FedAvg", "uniform soup". */
     method: string;
     /** e.g. "sample count", "uniform". */
     weighting: string;
@@ -1044,23 +1815,15 @@ export interface CampaignRecord {
     accepted_data_licences: string[];
     model_licence: string | null;
   };
-  round: {
-    current: number | null;
-    total: number | null;
-    /** ISO 8601. */
-    started_at: string | null;
-  };
-  sites: SiteRecord[];
   /**
-   * May have gaps. Reporting from the driver into the campaign service is
-   * fire-and-forget and is never awaited on the training critical path, so a
-   * service outage costs round records and not the run. Views must render a
-   * discontinuous series rather than assuming `rounds[i].round === i`.
+   * The progress model. Switch on `progress.mode` before reading anything in it.
    *
-   * A gap is a LOST RECORD, not a round that did not happen, and the pages must
-   * say so in those words. Read with `reporting` to tell the two apart.
+   * `round`, `rounds` and `sites` used to sit at this level. They are the
+   * synchronous arm's fields and they moved inside it in 0.8.0-draft, so a
+   * consumer written for lockstep campaigns cannot silently read them off an
+   * async record. See the two-modes note in the file header.
    */
-  rounds: RoundRecord[];
+  progress: CampaignProgressRecord;
   reporting: {
     /** How many reports the service knows it lost in flight, when it counts them. */
     dropped_reports: number | null;

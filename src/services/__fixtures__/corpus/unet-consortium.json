@@ -1,0 +1,573 @@
+{
+  "aggregation": {
+    "method": "FedAvg",
+    "weighting": "sample count"
+  },
+  "base_model": null,
+  "campaign_id": "unet-consortium",
+  "description": "Two sites train a small U-Net on public benchmark datasets that stay where they are. The network is small enough that the whole state dict is exchanged each round.",
+  "experiment": {
+    "arm": "fedavg",
+    "run_id": "unet-consortium-2026-07",
+    "seed": 0
+  },
+  "generated_at": "2026-09-06T00:00:00Z",
+  "licence_policy": {
+    "accepted_data_licences": [
+      "CC0-1.0",
+      "CC-BY-4.0"
+    ],
+    "model_licence": "MIT"
+  },
+  "payload": {
+    "bytes_per_contribution": null,
+    "bytes_per_site_per_round": 7760000,
+    "kind": "full_state_dict",
+    "label": "Full state dict"
+  },
+  "policy": {
+    "aggregate_min_scoring_sites": 2,
+    "outcomes_released": true,
+    "public_data_campaign": true,
+    "roster_attested": false
+  },
+  "progress": {
+    "mode": "synchronous",
+    "round": {
+      "current": 12,
+      "started_at": "2026-07-19T14:03:00Z",
+      "total": 12
+    },
+    "rounds": [
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "7c7c2bc87c7c2bc87c7c2bc87c7c2bc8",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.41,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.41,
+            "site-b": 0.41
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 0,
+        "scored_with": {
+          "site-a": "7c7c2bc87c7c2bc87c7c2bc87c7c2bc8",
+          "site-b": "7c7c2bc87c7c2bc87c7c2bc87c7c2bc8"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "7d7c2d5b7d7c2d5b7d7c2d5b7d7c2d5b",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.5103,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.5126,
+            "site-b": 0.508
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 1,
+        "scored_with": {
+          "site-a": "7d7c2d5b7d7c2d5b7d7c2d5b7d7c2d5b",
+          "site-b": "7d7c2d5b7d7c2d5b7d7c2d5b7d7c2d5b"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "7e7c2eee7e7c2eee7e7c2eee7e7c2eee",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.5885,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.5926,
+            "site-b": 0.5843
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 2,
+        "scored_with": {
+          "site-a": "7e7c2eee7e7c2eee7e7c2eee7e7c2eee",
+          "site-b": "7e7c2eee7e7c2eee7e7c2eee7e7c2eee"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "7f7c30817f7c30817f7c30817f7c3081",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.6493,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.6548,
+            "site-b": 0.6437
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 3,
+        "scored_with": {
+          "site-a": "7f7c30817f7c30817f7c30817f7c3081",
+          "site-b": "7f7c30817f7c30817f7c30817f7c3081"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "817c33a7817c33a7817c33a7817c33a7",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.7336,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.7411,
+            "site-b": 0.7261
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 5,
+        "scored_with": {
+          "site-a": "817c33a7817c33a7817c33a7817c33a7",
+          "site-b": "817c33a7817c33a7817c33a7817c33a7"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "827c353a827c353a827c353a827c353a",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.7623,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.7705,
+            "site-b": 0.7542
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 6,
+        "scored_with": {
+          "site-a": "827c353a827c353a827c353a827c353a",
+          "site-b": "827c353a827c353a827c353a827c353a"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "837c36cd837c36cd837c36cd837c36cd",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.7847,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.7934
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 7,
+        "scored_with": {
+          "site-a": "837c36cd837c36cd837c36cd837c36cd",
+          "site-b": "837c36cd837c36cd837c36cd837c36cd"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "747c1f30747c1f30747c1f30747c1f30",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.8021,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.8112,
+            "site-b": 0.793
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 8,
+        "scored_with": {
+          "site-a": "747c1f30747c1f30747c1f30747c1f30",
+          "site-b": "747c1f30747c1f30747c1f30747c1f30"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "f57b7f71f57b7f71f57b7f71f57b7f71",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.8262,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.8359,
+            "site-b": 0.8166
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 10,
+        "scored_with": {
+          "site-a": "f57b7f71f57b7f71f57b7f71f57b7f71",
+          "site-b": "f57b7f71f57b7f71f57b7f71f57b7f71"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      },
+      {
+        "eval_on": [
+          "site-a",
+          "site-b"
+        ],
+        "global_sha256": "f47b7ddef47b7ddef47b7ddef47b7dde",
+        "merge_weights": {
+          "site-a": 536,
+          "site-b": 482
+        },
+        "metric": {
+          "aggregate": 0.8345,
+          "aggregate_basis": "merge-weighted mean over the per-dataset validation Dice",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": 2,
+          "name": "validation Dice",
+          "per_site": {
+            "site-a": 0.8443,
+            "site-b": 0.8247
+          },
+          "per_site_basis": "site"
+        },
+        "participants": [
+          "site-a",
+          "site-b"
+        ],
+        "round": 11,
+        "scored_with": {
+          "site-a": "f47b7ddef47b7ddef47b7ddef47b7dde",
+          "site-b": "f47b7ddef47b7ddef47b7ddef47b7dde"
+        },
+        "scored_with_basis": "site",
+        "transport": {
+          "bytes_in": 15520000,
+          "bytes_out": 15520000,
+          "n_transfers": 4,
+          "sources_complete": true
+        }
+      }
+    ],
+    "sites": [
+      {
+        "accelerator": "NVIDIA A100",
+        "activity": "reported",
+        "bioengine_version": "0.7.2",
+        "country": null,
+        "datasets": [
+          {
+            "citation": "Caicedo et al., Nature Methods 2019",
+            "licence": "CC0-1.0",
+            "n_test": 67,
+            "n_train": 536,
+            "n_val": 67,
+            "name": "dsb2018",
+            "objects": "nuclei",
+            "source": "Data Science Bowl 2018",
+            "split_fingerprint": "a41f0c7e"
+          }
+        ],
+        "declared": [
+          "site_name"
+        ],
+        "joined_round": 0,
+        "left_round": null,
+        "n_train_images": 536,
+        "role": "founding",
+        "site_id": "site-a",
+        "site_name": "Consortium site A"
+      },
+      {
+        "accelerator": "NVIDIA A100",
+        "activity": "reported",
+        "bioengine_version": "0.7.2",
+        "country": null,
+        "datasets": [
+          {
+            "citation": "Greenwald et al., Nature Biotechnology 2022",
+            "licence": "CC-BY-4.0",
+            "n_test": 61,
+            "n_train": 482,
+            "n_val": 60,
+            "name": "tissuenet",
+            "objects": "whole cells",
+            "source": "TissueNet",
+            "split_fingerprint": "9b2d5514"
+          }
+        ],
+        "declared": [
+          "site_name"
+        ],
+        "joined_round": 0,
+        "left_round": null,
+        "n_train_images": 482,
+        "role": "founding",
+        "site_id": "site-b",
+        "site_name": "Consortium site B"
+      }
+    ]
+  },
+  "published_model": null,
+  "reporting": {
+    "dropped_reports": 2,
+    "reconciled": true,
+    "reconciled_at": "2026-07-21T08:40:00Z"
+  },
+  "schema_version": "0.10.0-draft",
+  "status": "completed",
+  "stewards": [
+    {
+      "name": "Campaign steward",
+      "workspace": "bioimage-io"
+    }
+  ],
+  "title": "U-Net nucleus segmentation consortium",
+  "transport": {
+    "computed": {
+      "basis": "3N+1 transfers per round for N sites, times the measured payload size",
+      "bytes_moved": 651840000,
+      "validated_against": "a single-site control run whose log covered the whole of it"
+    },
+    "declared_data_bytes": null,
+    "images_held": {
+      "n_images": 1753
+    },
+    "images_moved_bytes": 0,
+    "kinds_transferred": [
+      "model_weights"
+    ],
+    "observed": {
+      "driver": {
+        "bytes_in": 954480000,
+        "bytes_out": 954480000,
+        "n_transfers": 246
+      },
+      "invalid_reason": "The driver was relaunched several times during this run, so its log covers only the last stretch of it while the site logs cover much more.",
+      "per_site": null,
+      "per_site_basis": null,
+      "valid": false,
+      "windows": [
+        {
+          "first_seq": 0,
+          "last_seq": 245,
+          "n_transfers": 246,
+          "source": "driver"
+        },
+        {
+          "first_seq": 0,
+          "last_seq": 1011,
+          "n_transfers": 1012,
+          "source": "site-a"
+        },
+        {
+          "first_seq": 0,
+          "last_seq": 987,
+          "n_transfers": 988,
+          "source": "site-b"
+        }
+      ]
+    },
+    "only_weights_left_site": true
+  }
+}
