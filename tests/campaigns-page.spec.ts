@@ -2399,8 +2399,10 @@ test('the improvement curve is drawn from the witness metric, never the selectio
   // The gate is NAMED, because a reader told that some contributions were not
   // taken is entitled to know what the criterion was...
   expect(text).toContain('pooled AP50 on the selection split');
-  // ...and it is named in the sentence that says it is not what is plotted.
-  expect(text).toContain('It is not the');
+  // ...and it is named in the sentence that separates it from what is plotted.
+  // The separation is drawn on the SPLIT rather than on the name, because the
+  // two may share a name. See the same-name test below.
+  expect(text).toContain('runs on a different split');
   expect(text).toContain('cannot show whether the model improved');
 
   // None of the gate's values reach the page. Naming a metric is publication of
@@ -2414,6 +2416,49 @@ test('the improvement curve is drawn from the witness metric, never the selectio
   // listed here rather than in a test of its own so that this loop stays the one
   // place that has to be updated when a third origin appears.
   for (const value of ['0.629', '0.647', '0.6293', '0.6466', '0.813', '0.8137']) {
+    expect(text, `a selection-metric value ${value} was rendered`).not.toContain(value);
+  }
+});
+
+test('a gate that shares the witness metric name is separated by split, not by name', async ({
+  page,
+}) => {
+  // The reference producer applies ONE matcher to both splits, so witness and
+  // selection arrive carrying an identical `name`. That is honest and it is the
+  // realistic case, not an edge case.
+  //
+  // It breaks any copy that distinguishes the two by naming one of them. The
+  // wording this replaced said "it is not the <gate name>" immediately below a
+  // chart labelled with that exact string, so the page appeared to deny its own
+  // axis. Worse, a reader who resolved the contradiction the natural way would
+  // conclude the plotted curve IS the gate score, which is the single reading
+  // this whole paragraph exists to prevent.
+  const shared = 'mean instance F1 at IoU 0.5';
+  const soups = stubSoups().map((soup) => ({
+    ...soup,
+    witness_metric: { ...(soup.witness_metric as Record<string, unknown>), name: shared },
+    selection_metric: soup.selection_metric
+      ? { ...(soup.selection_metric as Record<string, unknown>), name: shared }
+      : null,
+  }));
+  await stubCampaignService(page, { record: stubAsyncRecord({ soups }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await waitForLoaded(page);
+
+  const text = await regionText(page);
+
+  // The shared name is stated as shared rather than quietly avoided. A reader
+  // seeing one name in two places assumes one number unless told plainly.
+  expect(text).toContain('applies the same metric to a different split');
+  expect(text).toContain('without being the same measurement');
+
+  // And the page must NOT claim the plotted curve is not the thing it is
+  // labelled as. This is the assertion that would have caught the old wording.
+  expect(text).not.toContain(`It is not the ${shared}`);
+
+  // The gate's values still never reach the page, which is the invariant that
+  // does not care whether the names collide.
+  for (const value of ['0.629', '0.647', '0.6293', '0.6466']) {
     expect(text, `a selection-metric value ${value} was rendered`).not.toContain(value);
   }
 });

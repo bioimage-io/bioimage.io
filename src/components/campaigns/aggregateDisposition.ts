@@ -330,7 +330,8 @@ export function aggregateDisposition(
   // It is not right about the wire, which is JSON off an RPC boundary, and this
   // function is where the wire is first trusted.
   //
-  // DOCUMENTED ASSUMPTION, and the limit of what this guard can do.
+  // THE LIMIT OF WHAT THIS GUARD CAN DO, which is unchanged by the backend
+  // work below and is the thing most likely to be misread as fixed.
   //
   // The check is one-directional. It catches a producer that labels its gate
   // score honestly and puts it in the wrong slot, which is the careless
@@ -344,20 +345,30 @@ export function aggregateDisposition(
   // criterion. Nothing about it looks wrong, and the reader it misleads is the
   // one the whole page was built for.
   //
-  // The fix is not on this side. `role` has to be pinned end to end:
+  // The fix was never on this side, and as of 12 Sep 2026 it has landed on the
+  // other one. `role` is pinned end to end by two things that had to arrive
+  // together:
   //   1. a single shared fixture corpus, carrying DISTINCT known witness and
-  //      gate values so a swap is detectable from either side, and
+  //      gate values so a swap is detectable from either side by NUMBER and not
+  //      only by tag. The backend cross-checks against this repository's
+  //      corpus, so the two sides are pinned to one artifact rather than to two
+  //      readings of one agreement.
   //   2. a backend contract test that FAILS if the aggregation or publish path
-  //      ever emits the gate metric under `role: 'witness'`.
-  // Both are open with live-kudu as of 12 Sep 2026, driven by cool-ruff.
+  //      emits the gate metric under `role: 'witness'`. It compares the emitted
+  //      curve against split B rather than inspecting the tag, so a value
+  //      fabricated from split A is caught even though its label is correct.
+  // That retires the PENDING-TEST status this comment used to carry, when the
+  // definition rested on an agreement in writing rather than on a code path
+  // that cannot violate it.
   //
-  // Status as of 12 Sep 2026: CONFIRMED BY THE BACKEND OWNER, PENDING TEST.
-  // live-kudu has agreed the mapping in writing and cool-ruff has relayed it,
-  // so the definition is no longer this page's guess. It is still not a
-  // verified guarantee, because an agreed definition and a code path that
-  // cannot violate it are different things, and the failure above is silent.
-  // This comment comes out when (1) and (2) land and both suites run against
-  // the one corpus, not when the agreement is restated.
+  // What it does NOT retire is the paragraph above, and the distinction is
+  // worth holding onto. The defence now exists at the PRODUCER. This function
+  // still trusts the label, because at render time the label is still the only
+  // evidence it has. A gate score reaching this page under `role: 'witness'`
+  // would still be drawn. The difference is that it is now hard to emit, not
+  // that it became detectable here. Reading (2) as "the page validates role"
+  // is the overclaim to avoid: a test on the other side of an RPC boundary is
+  // not a check on this side of it.
   //
   // The definition, which is fixed: witness is split B, gates nothing, and is
   // the only thing plotted or reported. Selection is split A, the greedy gate,

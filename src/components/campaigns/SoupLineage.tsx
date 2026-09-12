@@ -243,6 +243,20 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
     };
   }, [soups, minScoringSites, baselineMetric, baselineModel]);
 
+  // The witness and the gate may be THE SAME METRIC FUNCTION on different
+  // splits, and on the reference producer they are: one matcher applied to
+  // split A and split B, so both records carry an identical `name`. That is
+  // honest, and it breaks any copy that tells the two apart by naming one of
+  // them. The earlier wording said "it is not the <gateName>" directly beneath
+  // a chart labelled with that same string, which reads as the page denying its
+  // own axis.
+  //
+  // So the contrast is drawn on the SPLIT, which is what actually differs,
+  // and the shared name is stated outright rather than worked around. A reader
+  // seeing one name in two places will assume one number unless told otherwise,
+  // and that assumption is the exact confusion this paragraph exists to prevent.
+  const gateSharesWitnessName = gateName !== null && gateName === metricName;
+
   if (soups.length === 0) {
     return (
       <p className="text-sm text-gray-500">
@@ -402,9 +416,21 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
               can carry information. */}
           {gateName && (
             <p className="mt-1.5 text-xs text-gray-500">
-              This is measured on a split held back from selection. It is not the{' '}
-              {gateName} that decides which contributions a merge keeps, which rises on every
-              published version by definition and so cannot show whether the model improved.
+              This curve is measured on a split that no merge ever consulted.{' '}
+              {gateSharesWitnessName ? (
+                <>
+                  The gate that decides which contributions a merge keeps applies the same metric to
+                  a different split, so both numbers carry the name {gateName} without being the
+                  same measurement.
+                </>
+              ) : (
+                <>
+                  The gate that decides which contributions a merge keeps runs on a different split,
+                  scored as {gateName}.
+                </>
+              )}{' '}
+              A gate score rises on every published version by definition, so it cannot show whether
+              the model improved.
             </p>
           )}
         </div>

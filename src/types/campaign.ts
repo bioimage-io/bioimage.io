@@ -751,8 +751,16 @@ export type AggregateWithholdCause =
  * evidence it has. Emitting the gate metric as a witness produces a curve that
  * rises by construction and looks exactly like a real result. Make the witness
  * split structurally unreachable from the selection code path rather than
- * relying on this field being filled carefully. See the trust point and its
- * documented assumption in `aggregateDisposition.ts`.
+ * relying on this field being filled carefully.
+ *
+ * The reference producer does this, as of 12 Sep 2026: its contract test
+ * compares the emitted curve against split B rather than inspecting the tag, so
+ * a witness value fabricated from split A is caught despite carrying the right
+ * label, and it cross-checks its field-sets against this repository's fixture
+ * corpus. Note what that is and is not. It is a guarantee at the producer, and
+ * it does not make the paragraph above stale: this page still trusts the label
+ * at render time, because at render time the label is still all there is. See
+ * the trust point in `aggregateDisposition.ts`.
  */
 export type MetricRole = 'witness' | 'selection';
 
