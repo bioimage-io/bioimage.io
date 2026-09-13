@@ -95,8 +95,14 @@
     "typescript": "^3.9.10"
   },
   "jest": {
-    "setupFilesAfterEnv": [
-      "<rootDir>/src/jest.setup.ts"
-    ]
+    "transformIgnorePatterns": [
+      "^.+\\.module\\.(css|sass|scss)$"
+    ],
+    "moduleNameMapper": {
+      "^unist-util-visit-parents/do-not-use-color$": "unist-util-visit-parents/lib/color.node.js",
+      "^#minpath$": "vfile/lib/minpath.browser.js",
+      "^#minproc$": "vfile/lib/minproc.browser.js",
+      "^#minurl$": "vfile/lib/minurl.browser.js"
+    }
   }
 }
