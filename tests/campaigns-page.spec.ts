@@ -3635,3 +3635,61 @@ test('the punctuation guard allows a numeric range but not a prose en dash', asy
   expect(bannedPunctuationIn(`merged weekly ${EN_DASH} whenever checkpoints arrived`)).toHaveLength(1);
   expect(bannedPunctuationIn(`a clean sentence with no dashes at all`)).toEqual([]);
 });
+
+// ---------------------------------------------------------------------------
+// A zero that is a starting state, versus a zero that is a result.
+//
+// `formatCount(0)` returns "0", so `Value` renders it and `MissingValue` never
+// fires. Nothing is missing and that is correct. The hazard is downstream: a
+// campaign that has not begun and a campaign that ran and admitted nothing both
+// render "0 contributions, 0 community versions", and those are opposite
+// claims. The second says the selection gate weighed real work and took none of
+// it, which is a genuine and fairly damning result. The first says the gate was
+// never asked a question.
+//
+// `status` separates them and the page previously spent it only on a chip, a
+// colour and the join button. These tests hold both halves: the note appears
+// where the zeros are a starting state, and stays away where they are a finding.
+// ---------------------------------------------------------------------------
+
+test('an open campaign with nothing yet says its zeros are a starting state', async ({ page }) => {
+  await stubCampaignService(page, {
+    record: stubAsyncRecord(
+      { contributions: [], contributors: [], soups: [], empty_merges: [] },
+      { status: 'open' }
+    ),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  const note = page.getByTestId('not-started-note');
+  await expect(note).toBeVisible();
+  await expect(note).toContainText('has not started');
+  await expect(note).toContainText('not a result');
+});
+
+test('a completed campaign that published nothing is NOT reassured', async ({ page }) => {
+  // The asymmetry is the whole point. This campaign ran and took nothing, which
+  // is a real outcome, and softening it with a not-started note would erase the
+  // only case the reader most needs to see.
+  await stubCampaignService(page, {
+    record: stubAsyncRecord(
+      { contributions: [], contributors: [], soups: [], empty_merges: [] },
+      { status: 'completed' }
+    ),
+  });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await expect(page.getByTestId('not-started-note')).toHaveCount(0);
+});
+
+test('the note disappears as soon as a campaign has anything to show', async ({ page }) => {
+  // Open but already moving. Gating on status alone would leave the note
+  // sitting above real figures, calling measured work a starting state.
+  await stubCampaignService(page, { record: stubAsyncRecord({}, { status: 'open' }) });
+  await page.goto(`/#/campaigns/${ASYNC_CAMPAIGN_ID}/progress`);
+  await expect(page.getByTestId('not-started-note')).toHaveCount(0);
+});
+
+test('the synchronous arm draws the same distinction', async ({ page }) => {
+  await stubCampaignService(page, { record: stubRecord({ rounds: [], status: 'open' }) });
+  await page.goto(`/#/campaigns/${CAMPAIGN_ID}/progress`);
+  await expect(page.getByTestId('not-started-note')).toBeVisible();
+});

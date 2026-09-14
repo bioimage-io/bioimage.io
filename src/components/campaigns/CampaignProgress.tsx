@@ -1,7 +1,7 @@
 import React from 'react';
 import { Link, useParams } from 'react-router-dom';
 import { useCampaign } from '../../hooks/useCampaign';
-import { CampaignRecord, CampaignProgressRecord } from '../../types/campaign';
+import { CampaignRecord, CampaignProgressRecord, CampaignStatus } from '../../types/campaign';
 import { CampaignEmptyState, CampaignErrorState, CampaignLoading } from './CampaignStates';
 import { aggregateDisposition } from './aggregateDisposition';
 import ContributionStream from './ContributionStream';
@@ -216,12 +216,49 @@ const Section: React.FC<{ title: string; subtitle?: string; children: React.Reac
   </section>
 );
 
+/**
+ * Says that a zero is a starting state rather than a result.
+ *
+ * `formatCount(0)` returns "0", which is a perfectly good string, so `Value`
+ * renders it and `MissingValue` never fires. That is correct: nothing is
+ * missing. The problem is what the reader does with it. A campaign that has not
+ * started and a campaign that ran and took nothing both render "0
+ * contributions, 0 community versions", and those are opposite claims. The
+ * second is a real and fairly damning result about the selection gate. The
+ * first is the gate never having been asked a question.
+ *
+ * `status` already tells them apart and until now the page spent it only on a
+ * chip, a colour, and the join button. An 'open' campaign has not begun, so its
+ * zeros are the starting state. A 'completed' one with no versions HAS run and
+ * published none, which is a finding and deliberately gets no reassuring note
+ * here: the asymmetry is the point.
+ *
+ * Gated on emptiness as well as status so it disappears the moment anything
+ * arrives, rather than lingering on a campaign that is open and already moving.
+ */
+const NotStartedNote: React.FC<{ status: CampaignStatus; empty: boolean }> = ({
+  status,
+  empty,
+}) => {
+  if (status !== 'open' || !empty) return null;
+  return (
+    <p
+      className="mb-4 rounded-xl border border-gray-200 bg-gray-50 px-4 py-2 text-sm text-gray-600"
+      data-testid="not-started-note"
+    >
+      This campaign is open and has not started. The figures below are its starting state, not a
+      result.
+    </p>
+  );
+};
+
 const SynchronousScreen: React.FC<{ record: CampaignRecord; progress: SyncProgress }> = ({
   record,
   progress,
 }) => (
   <>
     <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
+      <NotStartedNote status={record.status} empty={progress.rounds.length === 0} />
       <RoundBar progress={progress} />
       {/* Three tiles, not four. "Weights out" moved into the headline above,
           and repeating it here would make one measurement look like two. */}
@@ -315,6 +352,10 @@ const AsynchronousScreen: React.FC<{ record: CampaignRecord; progress: AsyncProg
   return (
     <>
       <div className="mt-6 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
+        <NotStartedNote
+          status={record.status}
+          empty={progress.contributions.length === 0 && progress.soups.length === 0}
+        />
         {/* No progress bar. There is no total to be a fraction of: an open
             campaign runs for as long as people keep contributing, so a bar
             would have to invent a finish line. */}
