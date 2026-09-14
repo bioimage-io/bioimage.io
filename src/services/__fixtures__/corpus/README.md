@@ -1,8 +1,38 @@
 # Campaign wire-format corpus
 
+## The numbers in this corpus are invented
+
+Read this before quoting any figure from these files. "Generated" below means
+emitted from a TypeScript source by a script. It does **not** mean derived from
+real data. No campaign described here has run. Every quantity is a shape
+chosen to exercise the wire format, and is not a count of anything that
+happened:
+
+- 33 contributions, split 17 included / 12 assessed and not included / 4
+  pending;
+- 9 contributors and 9 active sites;
+- 9 published soup versions and 3 empty merges;
+- every `transport` byte count, every timestamp, every metric value;
+- the merge cadence, which lands on a fixed spacing because a loop in the
+  generator put it there.
+
+None of these belongs in a paper, a slide, a proposal, or a count of platform
+activity. A consumer that vendors these files is pinning the **format**. The
+values are placeholders and pinning them as evidence is a misread.
+
+The campaigns page carries this same warning as a banner on every route it
+serves from these fixtures. A direct fetch of the JSON does not, because a
+`CampaignRecord` has no field to put it in. That is the gap this section
+covers, and the reason it is written here rather than left to the reader to
+infer.
+
+## How it is produced
+
 Generated. Do not edit by hand. Every file here is emitted from
 `src/services/__fixtures__/campaigns.ts` by
-`scripts/export-campaign-fixtures.js`.
+`scripts/export-campaign-fixtures.js`. This README is hand-written and is
+preserved across regeneration (see `PRESERVE` in that script), so it is not
+covered by any digest in `MANIFEST.json`.
 
 ```
 node scripts/export-campaign-fixtures.js           # regenerate
