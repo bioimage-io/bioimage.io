@@ -28,9 +28,10 @@ Two design rules follow from how it broke before.
    in campaignService.ts or campaign.ts, which are ALWAYS bundled, so they
    reported leaks that were not leaks. Others named values that had never been
    in the fixture at all and could never have fired. Here every probe is
-   harvested from the fixture module and then proven fixture-EXCLUSIVE by
-   grepping the rest of src/ for it. A candidate that appears anywhere else is
-   discarded rather than reported.
+   harvested from the fixture module and then proven fixture-EXCLUSIVE against
+   BOTH the rest of src/ and the dependency text the bundle ships. A candidate
+   that appears in either is discarded rather than reported. See
+   appears_in_dependencies for why the second half of that test exists.
 
 2. NUMERIC SEPARATORS ARE STRIPPED FROM BOTH SIDES. TypeScript source spells a
    number 7_760_000 and the bundle spells it 7760000. Comparing the two
@@ -47,6 +48,7 @@ not been paired with a passing self-test after any edit to it.
 
 import argparse
 import glob
+import json
 import os
 import re
 import shutil
@@ -55,6 +57,7 @@ import sys
 
 REPO = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 FIXTURE = os.path.join("src", "services", "__fixtures__", "campaigns.ts")
+CORPUS = os.path.join("src", "services", "__fixtures__", "corpus")
 BUNDLE = os.path.join("build", "static", "js")
 FIXTURE_MODULE_REF = "__fixtures__/campaigns"
 
@@ -78,7 +81,22 @@ def occurrences(haystack: str, needle: str) -> int:
 
 
 def appears_outside_fixture(value: str) -> bool:
-    """True if `value` occurs anywhere in src/ other than the fixture module."""
+    """True if `value` occurs in src/ outside the fixture module and its own corpus.
+
+    THE CORPUS IS THE FIXTURE, NOT A SECOND WITNESS. Every file in
+    src/services/__fixtures__/corpus/ is generated FROM the fixture module by
+    scripts/export-campaign-fixtures.js. A fixture value appearing there is the
+    same value one serialisation later, so counting it as evidence that the
+    value "exists elsewhere in src/" discards exactly the probes that matter.
+
+    It discarded almost all of them. Before this exclusion the surviving probe
+    set was two FNV-1a constants, 2166136261 and 16777619, which are the
+    generator's hash seeds and not campaign data at all. Every invented figure,
+    every byte total, every contributor name had been filtered out. The gate
+    still passed, still printed a probe count, and still asserted nothing about
+    any number a reader could be misled by. That is this script's original
+    failure mode reappearing through a path its design rules did not cover.
+    """
     result = subprocess.run(
         ["grep", "-rlF", value, "src"], capture_output=True, text=True, cwd=REPO
     )
@@ -86,16 +104,59 @@ def appears_outside_fixture(value: str) -> bool:
         f
         for f in result.stdout.split()
         if os.path.normpath(f) != os.path.normpath(FIXTURE)
+        and not os.path.normpath(f).startswith(os.path.normpath(CORPUS) + os.sep)
     ]
     return bool(hits)
 
 
-def collect_probes() -> list:
-    """Values that exist in the fixture module and nowhere else in src/."""
+def appears_in_dependencies(value: str, directory: str) -> bool:
+    """True if `value` occurs in third-party source embedded in the bundle's maps.
+
+    EXCLUSIVITY HAS TO BE TESTED AGAINST DEPENDENCIES, NOT JUST src/. This
+    started as a grep of src/ alone, on the assumption that anything else in the
+    bundle was ours. It is not: CRA embeds the full text of every node_modules
+    module it bundles into the source maps, so a probe only has to collide with
+    a line of vendor code to fire.
+
+    It did. `86400000` and `3600000` are milliseconds in a day and in an hour.
+    The fixture's own date helper uses them for arithmetic, they appear nowhere
+    else in src/, so both were harvested as fixture-exclusive. They then matched
+    date-fns/constants.js and axios/lib/helpers/cookies.js and the gate reported
+    two leaks in a bundle that had none.
+
+    This is design rule 1's failure mode arriving from the other side. That rule
+    was written after hand-listed probes named values living in always-bundled
+    APP code. The same defect with a different collision source: a probe that
+    vendor text already contains cannot discriminate, and reporting it is
+    indistinguishable from reporting a leak.
+
+    The fix stays derived rather than listed. A denylist of unit constants would
+    be a hand-picked probe set by another name, and it would only cover the
+    collisions somebody thought of. This asks the artifact instead: if the value
+    is in the dependency text that ships with the bundle, it is not a probe.
+    """
+    for path in sorted(glob.glob(os.path.join(directory, "*.js.map"))):
+        try:
+            sourcemap = json.load(open(path, encoding="utf8", errors="ignore"))
+        except (ValueError, OSError):
+            continue
+        sources = sourcemap.get("sources") or []
+        contents = sourcemap.get("sourcesContent") or []
+        for name, content in zip(sources, contents):
+            if not content or "node_modules" not in name:
+                continue
+            if occurrences(STRIP_SEPARATORS.sub("", content), value):
+                return True
+    return False
+
+
+def collect_probes(directory: str) -> list:
+    """Values in the fixture module and in neither the rest of src/ nor any dependency."""
     source = open(os.path.join(REPO, FIXTURE), encoding="utf8").read()
     candidates = set(STRING_CANDIDATES.findall(source))
     candidates |= {STRIP_SEPARATORS.sub("", m) for m in NUMBER_CANDIDATES.findall(source)}
-    return sorted(c for c in candidates if not appears_outside_fixture(c))
+    ours = [c for c in candidates if not appears_outside_fixture(c)]
+    return sorted(c for c in ours if not appears_in_dependencies(c, directory))
 
 
 def scan(directory: str, probes: list) -> list:
@@ -169,7 +230,8 @@ def main() -> int:
     )
     args = parser.parse_args()
 
-    probes = collect_probes()
+    bundle = os.path.join(REPO, BUNDLE)
+    probes = collect_probes(bundle)
     if not probes:
         # Not a pass. An empty probe set would make every assertion below
         # trivially true, which is the failure this whole script exists to
@@ -181,7 +243,7 @@ def main() -> int:
     if args.self_test:
         return self_test(probes)
 
-    findings, n_js, n_maps = scan(os.path.join(REPO, BUNDLE), probes)
+    findings, n_js, n_maps = scan(bundle, probes)
     print(f"scanned {n_js} js + {n_maps} maps")
     for name, probe, count in findings:
         print(f"  LEAK {name}: {probe} x{count}")
