@@ -68,6 +68,31 @@ const extractNounFromId = (id: string): string => {
   return parts[parts.length - 1];
 };
 
+const VIT_SIZE_LABELS: Record<string, string> = { t: 'ViT-T', b: 'ViT-B', l: 'ViT-L', h: 'ViT-H' };
+
+const CELLPOSE_NAMES: Record<string, string> = {
+  cpsam: 'Cellpose-SAM',
+  cpdino: 'Cellpose-DINO',
+  'cpdino-vitb': 'Cellpose-DINO (ViT-B)',
+};
+
+/**
+ * Human-readable default title for a model fine-tuned from `modelType`, so a
+ * draft never lands in the zoo carrying an underscored `model_type`-style name.
+ * Both backends are covered, keyed on the same `cp` prefix `tagsForModel` uses
+ * so the title and the tags can never disagree about which one a run came from.
+ * An unrecognised type degrades to the bare architecture family rather than
+ * echoing the raw id back at the user.
+ */
+const defaultModelName = (modelType?: string): string => {
+  const mt = (modelType || '').trim().toLowerCase();
+  if (!mt) return 'Fine-tuned model';
+  if (mt.startsWith('cp')) return `Fine-tuned ${CELLPOSE_NAMES[mt] || 'Cellpose'}`;
+  const size = VIT_SIZE_LABELS[mt.match(/^vit_([tblh])/)?.[1] ?? ''];
+  const modality = mt.includes('_em_organelles') ? 'EM Organelles' : mt.includes('_lm') ? 'LM Generalist' : '';
+  return ['Fine-tuned SAM', modality, size && `(${size})`].filter(Boolean).join(' ');
+};
+
 const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
   open,
   onClose,
@@ -80,7 +105,7 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
   splitName,
   onExported,
 }) => {
-  const [name, setName] = useState('');
+  const [name, setName] = useState(() => defaultModelName(session.model_type));
   const [description, setDescription] = useState('');
   const [license, setLicense] = useState('CC-BY-4.0');
   const [authors, setAuthors] = useState<AuthorRow[]>([{ name: user?.email || '', affiliation: '' }]);
