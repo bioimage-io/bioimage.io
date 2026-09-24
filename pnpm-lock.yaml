@@ -62,6 +62,9 @@ importers:
       date-fns:
         specifier: ^4.1.0
         version: 4.1.0
+      geotiff:
+        specifier: 3.0.5
+        version: 3.0.5
       hash-wasm:
         specifier: ^4.12.0
         version: 4.12.0
@@ -134,6 +137,9 @@ importers:
       web-vitals:
         specifier: ^4.2.4
         version: 4.2.4
+      zarrita:
+        specifier: 0.6.1
+        version: 0.6.1
       zustand:
         specifier: ^5.0.3
         version: 5.0.3(@types/react@18.3.18)(immer@9.0.21)(react@18.3.1)

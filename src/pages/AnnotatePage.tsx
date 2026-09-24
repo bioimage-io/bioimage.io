@@ -17,6 +17,9 @@ import SamBoxModelDialog from '../components/annotate/SamBoxModelDialog';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
 import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
 import { toArtifactId } from '../components/colab/datasetApi';
+import { openImageSource, ImageSourceHandle } from '../components/colab/imageSource';
+import { imageSourceRefFor } from '../components/colab/brokerApi';
+import { materialiseImage } from '../components/colab/materialise';
 import { useCellposeMaskGen } from '../components/annotate/hooks/useCellposeMaskGen';
 import { useMicroSamDecoder } from '../components/annotate/hooks/useMicroSamDecoder';
 import { MICRO_SAM_MODEL_TYPE } from '../utils/microSamService';
@@ -36,6 +39,21 @@ import { Polygon as OlPolygon } from 'ol/geom';
 interface AnnotatePageProps {
   backTo?: string;
 }
+
+/**
+ * Long-axis cap on the raster the viewer is handed.
+ *
+ * Annotations are stored in full-resolution coordinates and the viewer is told
+ * the source's real `width`/`height` separately from the image URL, so capping
+ * the raster costs sharpness at extreme zoom and nothing else. It buys the
+ * bound that was missing: linking a remote OME-Zarr source is deliberately
+ * free of any size limit, so without a cap here, opening a slide asked the
+ * browser to decode level 0 of a gigapixel store.
+ *
+ * 4096 is a 64 MB RGBA canvas, the same order as the materialisation ceiling,
+ * and above the full resolution of every image in the four existing datasets.
+ */
+const VIEWER_LONG_AXIS_PX = 4096;
 
 // Round 34b: classify a failure from the Start-annotating prep step (decoder
 // download + embedding compute) into an actionable message. The broker's
@@ -277,6 +295,25 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const samDecodeInFlightRef = useRef(false);
   // Mirror of currentImageStem for use inside stable callbacks/effects.
   const currentImageStemRef = useRef<string | null>(null);
+  // The decode handle for the image currently on screen. It has to outlive
+  // `loadImageByStem` because a non-browser format's `displayUrl()` is an
+  // object URL that the handle owns and revokes on `close()` — closing it at
+  // the end of the load would blank the viewer. So the previous handle is
+  // closed only once the next one has replaced it.
+  const imageSourceRef = useRef<ImageSourceHandle | null>(null);
+  // The stem/handle pair currently painted, published only once the swap into
+  // `imageSourceRef` is done. The materialisation effect below keys off this
+  // rather than off `currentImageStem`, which is set *before* the source
+  // opens and would hand the effect the outgoing image's handle.
+  const [loadedSource, setLoadedSource] = useState<{
+    stem: string;
+    handle: ImageSourceHandle;
+  } | null>(null);
+  // Stems this tab has already tried to materialise. Attempt-scoped, not
+  // success-scoped: a failed copy must not re-run on every kernel restart or
+  // every time the user pages back to the image, or a dataset of oversized
+  // stores would grind the page down re-reading them.
+  const materialiseTriedRef = useRef<Set<string>>(new Set());
   // Per-image memoization of the compute+upload step (the expensive part) so
   // eager-load, AIS, and the box loader all dedupe to a single encode. Presigned
   // GET urls expire, so only the "is it stored" promise is cached here; a fresh
@@ -674,17 +711,19 @@ print('CLAHE packages ready')
 
   // Detect low contrast by sampling luminance values from the loaded image.
   // Returns true when the 5th–95th percentile luminance range is below 60/255.
-  const detectLowContrast = useCallback((img: HTMLImageElement): boolean => {
+  const detectLowContrast = useCallback(async (source: ImageSourceHandle): Promise<boolean> => {
     try {
       const SAMPLE = 256; // downscale to at most 256×256 for speed
-      const scale = Math.min(1, SAMPLE / Math.max(img.naturalWidth, img.naturalHeight));
-      const w = Math.max(1, Math.round(img.naturalWidth * scale));
-      const h = Math.max(1, Math.round(img.naturalHeight * scale));
+      const scale = Math.min(1, SAMPLE / Math.max(source.width, source.height));
+      const w = Math.max(1, Math.round(source.width * scale));
+      const h = Math.max(1, Math.round(source.height * scale));
       const canvas = document.createElement('canvas');
       canvas.width = w;
       canvas.height = h;
       const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, w, h);
+      // The coarsest level that still covers 256 px is plenty for a
+      // percentile read, and on a pyramid it is a fraction of the bytes.
+      ctx.drawImage(await source.getDrawable(source.levelForLongAxis(SAMPLE)), 0, 0, w, h);
       const data = ctx.getImageData(0, 0, w, h).data;
       const lumas: number[] = [];
       for (let i = 0; i < data.length; i += 4) {
@@ -719,19 +758,40 @@ print('CLAHE packages ready')
     setClaheEnhancedUrl(null);
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
-      const { read_url: url } = await service.getImageUrl(stem);
+      // Either a presigned file URL or a remote OME-Zarr store root; the
+      // broker says which, and `imageSourceRefFor` is the one translation.
+      const ref = imageSourceRefFor(await service.getImageUrl(stem));
       setCurrentImageStem(stem);
 
-      const img = new Image();
-      img.crossOrigin = 'anonymous';
-      img.src = url;
-      await new Promise<void>((resolve, reject) => {
-        img.onload = () => resolve();
-        img.onerror = () => reject(new Error('Failed to load image'));
-      });
-      console.log('[AnnotatePage] Image loaded:', img.naturalWidth, 'x', img.naturalHeight);
-      setIsLowContrast(detectLowContrast(img));
-      setImageInfo(url, img.naturalWidth, img.naturalHeight);
+      const source = await openImageSource(ref);
+      // Swap first, close after: the outgoing handle may own the object URL
+      // that is still painted on screen.
+      const previous = imageSourceRef.current;
+      imageSourceRef.current = source;
+      previous?.close();
+
+      console.log('[AnnotatePage] Image loaded:', source.width, 'x', source.height);
+      setIsLowContrast(await detectLowContrast(source));
+      // For a browser-native format this is `url` itself, so OpenLayers still
+      // gets the presigned url and nothing about the PNG path changes.
+      setImageInfo(
+        await source.displayUrl(VIEWER_LONG_AXIS_PX),
+        source.width,
+        source.height,
+      );
+      if (Math.max(source.width, source.height) > VIEWER_LONG_AXIS_PX) {
+        // Said once, when it is true, because the alternative is a user
+        // wondering why a slide they linked looks soft and concluding the
+        // source is bad.
+        addBanner(
+          `Shown at reduced resolution (${VIEWER_LONG_AXIS_PX} px). Annotations `
+            + 'are still saved at full resolution. For sharper pixels, link a '
+            + 'region of the source instead of the whole image.',
+          'info',
+          8000,
+        );
+      }
+      setLoadedSource({ stem, handle: source });
       setHasLoadedOnce(true);
     } catch (err: any) {
       console.error('[AnnotatePage] loadImageByStem failed:', err);
@@ -741,6 +801,75 @@ print('CLAHE packages ready')
       if (bannerId) removeBanner(bannerId);
     }
   }, [service, serviceConfig, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+
+  // First-open materialisation (colab-c-ometiff-design.md §8).
+  //
+  // A remote OME-Zarr image is readable the moment it is linked, but there is
+  // nothing in the artifact for `get_training_urls` to hand out. The first
+  // person to open one for annotation writes the dataset's own OME-TIFF copy.
+  //
+  // Deliberately *after* the image is on screen and outside the load path: it
+  // reads full-resolution pixels, boots a Python kernel and uploads tens of
+  // megabytes, and none of that may delay the first paint. If any of it
+  // fails, the image is still displayed and still annotatable. Only training
+  // on this image has to wait, which is what the warning says.
+  useEffect(() => {
+    if (!loadedSource || !service || !kernelReady || !executeCode) return;
+    const { stem, handle } = loadedSource;
+    // No native read means the image already lives in the artifact.
+    if (!handle.readLevelNative) return;
+    if (materialiseTriedRef.current.has(stem)) return;
+    materialiseTriedRef.current.add(stem);
+
+    let cancelled = false;
+    const bannerId = addBanner('Adding this image to the dataset...', 'loading', 0);
+    (async () => {
+      try {
+        const outcome = await materialiseImage({
+          service,
+          handle,
+          stem,
+          executeCode,
+          publicUrl: process.env.PUBLIC_URL || '',
+        });
+        if (cancelled) return;
+        if (outcome.status === 'done') {
+          addBanner('This image is now part of the dataset.', 'success', 4000);
+        } else if (outcome.status === 'skipped') {
+          addBanner(outcome.reason, 'info', 10000);
+        }
+        // 'already' is the common case on the second visit and says nothing
+        // the user needs to hear.
+      } catch (err: any) {
+        console.error('[AnnotatePage] materialise failed:', err);
+        if (cancelled) return;
+        addBanner(
+          'Could not add this image to the dataset, so it cannot be used for '
+            + 'training yet. Annotating it still works.',
+          'warning',
+          10000,
+          err?.message,
+        );
+      } finally {
+        if (!cancelled) removeBanner(bannerId);
+      }
+    })();
+
+    return () => {
+      // Only stops the banners and the reporting. The kernel work is not
+      // interruptible, and abandoning it half-way would be worse than letting
+      // it finish: the broker's second phase is what decides whether the
+      // manifest ever changes, and it verifies the object itself.
+      cancelled = true;
+      removeBanner(bannerId);
+    };
+  }, [loadedSource, service, kernelReady, executeCode, addBanner, removeBanner]);
+
+  // Release the last decode handle (and any object URL it owns) on unmount.
+  useEffect(() => () => {
+    imageSourceRef.current?.close();
+    imageSourceRef.current = null;
+  }, []);
 
   // Deep-link fast path: as soon as the service is ready, render the
   // `&image=<stem>` image immediately, independent of the dataset index or
