@@ -2,7 +2,6 @@ import React from 'react';
 import { Link } from 'react-router-dom';
 import { useCampaign } from '../../hooks/useCampaign';
 import ContributorRoster from './ContributorRoster';
-import SiteRoster from './SiteRoster';
 import TransportAudit from './TransportAudit';
 import { formatCount } from './format';
 import { Value } from './MissingValue';
@@ -43,19 +42,15 @@ const FederatedProvenance: React.FC<{ campaignId: string }> = ({ campaignId }) =
   if (loading || error || !data) return null;
 
   const progress = data.progress;
-  const async = progress.mode === 'asynchronous';
 
   return (
     <section className="mt-8 rounded-2xl border border-gray-200 bg-white/80 p-6 shadow-sm">
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div>
-          <h2 className="text-lg font-semibold text-gray-900">
-            {async ? 'Trained by a community' : 'Trained across institutions'}
-          </h2>
+          <h2 className="text-lg font-semibold text-gray-900">Trained by a community</h2>
           <p className="mt-1 text-sm text-gray-600">
-            {async
-              ? 'This model was fine-tuned by contributors on their own data, and the results were averaged into it. The training images stayed where they were.'
-              : 'This model was produced by a federation campaign. The images it learned from never left the sites that hold them.'}
+            This model was fine-tuned by contributors on their own data, and the results were
+            averaged into it. The training images stayed where they were.
           </p>
         </div>
         <Link
@@ -68,33 +63,21 @@ const FederatedProvenance: React.FC<{ campaignId: string }> = ({ campaignId }) =
 
       <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">
-            {async ? 'Contributors' : 'Sites'}
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Contributors</dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-            <Value>
-              {formatCount(
-                progress.mode === 'synchronous'
-                  ? progress.sites.length
-                  : progress.contributors.length
-              )}
-            </Value>
+            <Value>{formatCount(progress.contributors.length)}</Value>
           </dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">
-            {async ? 'Contributions merged' : 'Rounds'}
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Contributions merged</dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
             <Value>
+              {/* Counted off the contributions, not off the soups. A merge count
+                  answers a different question ("how often was the model
+                  updated") and would understate the training that went into
+                  this checkpoint by roughly its fold size. */}
               {formatCount(
-                progress.mode === 'synchronous'
-                  ? progress.rounds.length
-                  : // Counted off the contributions, not off the soups. A merge
-                    // count answers a different question ("how often was the
-                    // model updated") and would understate the training that
-                    // went into this checkpoint by roughly its fold size.
-                    progress.contributions.filter((c) => c.disposition === 'included').length
+                progress.contributions.filter((c) => c.disposition === 'included').length
               )}
             </Value>
           </dd>
@@ -129,17 +112,13 @@ const FederatedProvenance: React.FC<{ campaignId: string }> = ({ campaignId }) =
 
       <div className="mt-6">
         <h3 className="text-sm font-semibold uppercase tracking-wide text-gray-700">
-          {async ? 'Contributors' : 'Contributing sites'}
+          Contributors
         </h3>
         <div className="mt-3">
-          {progress.mode === 'synchronous' ? (
-            <SiteRoster sites={progress.sites} rosterAttested={data.policy?.roster_attested} />
-          ) : (
-            <ContributorRoster
-              contributors={progress.contributors}
-              rosterAttested={data.policy?.roster_attested}
-            />
-          )}
+          <ContributorRoster
+            contributors={progress.contributors}
+            rosterAttested={data.policy?.roster_attested}
+          />
         </div>
       </div>
     </section>

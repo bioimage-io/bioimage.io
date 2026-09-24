@@ -29,64 +29,40 @@ import { Value } from './MissingValue';
  * position rather than a gap waiting to be filled. Read this before adding one.
  *
  * The two quantities have different shapes. Bytes moved accumulates with every
- * round; data held does not move at all. A quotient of the two is therefore not
+ * merge; data held does not move at all. A quotient of the two is therefore not
  * one number, it is a number that depends entirely on the window you take it
  * over, and the windows disagree about the SIGN.
  *
- * Every campaign therefore has a crossover round, the round at which the total
+ * Every campaign therefore has a crossover point, the moment at which the total
  * sent overtakes the total held, and the same run reads as a saving before it
- * and a cost after it. A per-round figure sits permanently on the flattering
- * side of that crossing, so a per-round ratio does not merely understate the
+ * and a cost after it. A per-merge figure sits permanently on the flattering
+ * side of that crossing, so a per-merge ratio does not merely understate the
  * campaign-wide one. Past the crossing it reverses it, and nothing on a page
- * showing the per-round number would tell a reader which side they were on.
+ * showing the per-merge number would tell a reader which side they were on.
  *
  * Where the crossing falls is set by the corpus size relative to the payload,
- * NOT by whether the payload is an adapter or a whole model. The transfer
- * pattern is structural, one payload per transfer:
+ * NOT by whether the payload is an adapter or a whole model. A 7.8 MB state
+ * dict and a 1.2 GB one, moved on the same schedule over the same corpus, land
+ * in completely different places, and both are full state dicts. The payload
+ * KIND predicts nothing on its own.
  *
- *     2 * |participants|  +  1  +  |participants union eval_on|
+ * THE FORECAST CURVE IS NOT COMING BACK, and that is a narrowing worth
+ * recording rather than leaving as an unexplained absence. Through 0.13.0-draft
+ * this comment set out a cumulative-to-date curve with the crossing marked, and
+ * `transportMath.ts` computed its per-step multiplier from each round's
+ * `participants` and `eval_on` sets. That multiplier is a fact about LOCKSTEP
+ * federated averaging, where every participant pushes, pulls and reads once per
+ * round. An asynchronous campaign has no such step: a contributor pulls the
+ * current community model when it feels like it and pushes one checkpoint back,
+ * and merges happen on their own cadence. The module was deleted with the
+ * synchronous arm at 0.14.0-draft because there was no expression left for it
+ * to evaluate.
  *
- * being a push and a pull for each site that trains, one aggregate write, and
- * one store read for each site that reads the aggregate, which is every site
- * that trains OR evaluates. So the campaign saves data for as long as
- *
- *     payload_bytes * multiplier * rounds  <  corpus_bytes
- *
- * This used to be written as a flat 3N+1, which is the value the expression
- * takes ONLY at full participation, where eval_on is a subset of participants
- * and the union is just N. It is not a general coefficient. A leave-one-site-out
- * fold at six sites trains five and evaluates six, so it is 2*5 + 1 + 6 = 17,
- * not 19. Applying 19 across a mixed series overstates transport for precisely
- * the rounds that had fewer sites, which is the direction that makes the
- * campaign look worse than it was, but it is wrong either way and the error
- * grows with how uneven the schedule is.
- *
- * So the curve must read `participants` and `eval_on` from each round record
- * rather than take an N from the campaign. Then it is right by construction and
- * no round needs to be special-cased.
- *
- * Two campaigns of identical shape, six sites at FULL participation over a
- * 600 GB corpus, land in completely different places under that condition. This
- * platform's U-Net has a 7.8 MB state dict and crosses at about round 4,000, so
- * its sixty-round schedule never approaches it. A Cellpose-SAM-scale state dict
- * at 1.2 GB crosses at about round 26 and finishes the same schedule having
- * moved more than twice what it avoided moving. Both are full state dicts. The
- * payload kind predicts nothing on its own.
- *
- * What is correct, when the page has a campaign that can supply it, is a
- * cumulative-to-date curve with that crossing marked. That is a real finding
- * and this panel is where it will go. It needs per-round coverage from round
- * zero, which the consortium run cannot supply retroactively.
- *
- * It also needs the real multiplier and not an approximation. Counting only the
- * pushes and pulls gives 2N, which at six sites and full participation is 12
- * against 19 and puts the crossing 58% too late. That 58% is itself specific to
- * full participation, which is the point: there is no single correction factor
- * to apply, only the per-round sets.
- *
- * Until then the panel shows both quantities and no quotient. A reader who
- * wants the ratio can divide, and will have both labels in front of them when
- * they do.
+ * What the async record carries instead is a MEASURED per-merge transport
+ * figure, which is the better of the two anyway: it is a count rather than a
+ * model of a count. The panel shows both quantities and no quotient. A reader
+ * who wants the ratio can divide, and will have both labels in front of them
+ * when they do.
  */
 
 interface TransportAuditProps {
@@ -122,10 +98,18 @@ const TransportAudit: React.FC<TransportAuditProps> = ({
   mode = null,
 }) => {
   const who = participantNouns(mode);
-  // The unit the campaign advances in. A synchronous run has rounds and an
-  // asynchronous one has merges, and there is no word that covers both without
-  // sounding like neither.
-  const step = mode === 'asynchronous' ? 'merge' : 'round';
+  // The unit the campaign advances in.
+  //
+  // A constant, and it used to be a ternary against `mode`: a synchronous run
+  // advanced in ROUNDS and an asynchronous one in MERGES, and there is no word
+  // that covers both without sounding like neither. Every mode the contract
+  // still has advances in merges, so the branch was removed rather than left
+  // with both arms returning the same string.
+  //
+  // It stays a named local so the sentence below reads it once instead of
+  // spelling the noun out three times. A future mode that advances in something
+  // else brings its branch back here, which is one line and one place.
+  const step = 'merge';
   if (!transport) {
     return (
       <p className="text-sm text-gray-500">
@@ -170,7 +154,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({
   // assumes an adapter: a small network exchanging its whole state dict is a
   // legitimate campaign and has to read correctly here too.
   const payloadLabel = payload?.label ?? null;
-  const perRound = formatBytes(payload?.bytes_per_site_per_round);
+  const perContribution = formatBytes(payload?.bytes_per_contribution);
 
   const kinds = transport.kinds_transferred;
 
@@ -180,7 +164,7 @@ const TransportAudit: React.FC<TransportAuditProps> = ({
         <Figure
           label="What travels"
           value={payloadLabel}
-          hint={perRound ? `${perRound} per ${who.singular}, per round` : undefined}
+          hint={perContribution ? `${perContribution} per contribution` : undefined}
         />
         <Figure
           label="Weights moved out"
@@ -221,9 +205,9 @@ const TransportAudit: React.FC<TransportAuditProps> = ({
           out at the top of this file. The note says so, because a reader who
           notices the obvious comparison is missing deserves to know it was
           left out on purpose rather than forgotten. */}
-      {/* "round" is the wrong unit for an async campaign, which has merges and
-          no rounds at all. The crossover argument is identical in both modes, so
-          only the noun changes. */}
+      {/* The unit comes from `step` rather than being written into the
+          sentence, because the crossover argument is identical whatever a
+          campaign advances in and only the noun would ever change. */}
       <p className="mt-2 text-xs leading-relaxed text-gray-500">
         This panel does not divide one of these figures by the other. The amount moved grows with
         every {step} while the amount held stays where it is, so any such comparison depends on the

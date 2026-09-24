@@ -6,7 +6,6 @@ import { CampaignEmptyState, CampaignErrorState, CampaignLoading } from './Campa
 import JoinCampaignDialog from './JoinCampaignDialog';
 import ContributorRoster from './ContributorRoster';
 import PrototypeBanner from './PrototypeBanner';
-import SiteRoster from './SiteRoster';
 import TransportAudit from './TransportAudit';
 import TransportHeadline from './TransportHeadline';
 import { formatBytes, formatDate } from './format';
@@ -69,21 +68,14 @@ const CampaignDetail: React.FC = () => {
   }
 
   const progress = data.progress;
-  // The two modes quote the payload figure against different denominators, and
-  // exactly one of the two fields is populated per mode. Reading the wrong one
-  // yields null, which renders as nothing, so a mode mix-up here would be
-  // invisible rather than loud. Hence the switch instead of a `??` chain.
-  const perPayload =
-    progress.mode === 'synchronous'
-      ? formatBytes(data.payload?.bytes_per_site_per_round)
-      : formatBytes(data.payload?.bytes_per_contribution);
-  const perPayloadUnit = progress.mode === 'synchronous' ? 'per round' : 'per contribution';
-  // A closed consortium has sites and an open community has contributors. The
-  // words are not interchangeable: "site" names an institutional deployment on
-  // a fixed roster, which is what the synchronous test was, and the async
-  // campaign is open to anyone with data and a GPU.
-  const participantNoun = progress.mode === 'synchronous' ? 'site' : 'contributor';
-  const startedAt = progress.mode === 'synchronous' ? progress.round.started_at : progress.started_at;
+  const perPayload = formatBytes(data.payload?.bytes_per_contribution);
+  const perPayloadUnit = 'per contribution';
+  // CONTRIBUTOR, never "site". The word is not a style choice: "site" names an
+  // institutional deployment on a fixed roster, which is what the synchronous
+  // arm had, and this campaign is open to anyone with data and a GPU. The
+  // synchronous arm and its noun left the contract at 0.14.0-draft.
+  const participantNoun = 'contributor';
+  const startedAt = progress.started_at;
   const weightsOnly = data.transport?.only_weights_left_site === true;
   const canJoin = data.status === 'open' || data.status === 'running';
 
@@ -198,21 +190,15 @@ const CampaignDetail: React.FC = () => {
         />
       </Section>
 
-      {progress.mode === 'synchronous' ? (
-        <Section title="Participating sites">
-          <SiteRoster sites={progress.sites} rosterAttested={data.policy?.roster_attested} />
-        </Section>
-      ) : (
-        <Section
-          title="Contributors"
-          subtitle="Anyone with data and a GPU can join. Nobody waits for anybody else."
-        >
-          <ContributorRoster
-            contributors={progress.contributors}
-            rosterAttested={data.policy?.roster_attested}
-          />
-        </Section>
-      )}
+      <Section
+        title="Contributors"
+        subtitle="Anyone with data and a GPU can join. Nobody waits for anybody else."
+      >
+        <ContributorRoster
+          contributors={progress.contributors}
+          rosterAttested={data.policy?.roster_attested}
+        />
+      </Section>
 
       <Section title="At a glance">
         <dl className="grid gap-x-8 gap-y-4 text-sm sm:grid-cols-2 lg:grid-cols-3">
@@ -268,35 +254,21 @@ const CampaignDetail: React.FC = () => {
               {data.aggregation.method}, {data.aggregation.weighting} weighting
             </dd>
           </div>
-          {/* Two different facts, not one fact with two spellings. A round
-              counter measures how far through a fixed plan a run is. An async
-              campaign has no plan to be partway through, so the comparable
-              figure is how much has accumulated, which has no denominator. */}
-          {progress.mode === 'synchronous' ? (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-gray-500">Rounds</dt>
-              <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-                {progress.round.current === null ? (
-                  <Value>{null}</Value>
-                ) : progress.round.total ? (
-                  `${progress.round.current} of ${progress.round.total}`
-                ) : (
-                  `${progress.round.current}`
-                )}
-              </dd>
-            </div>
-          ) : (
-            <div>
-              <dt className="text-xs uppercase tracking-wide text-gray-500">Contributed so far</dt>
-              <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-                {progress.contributions.length}
-                {progress.contributions.length === 1 ? ' contribution' : ' contributions'}
-                {', '}
-                {progress.soups.length}
-                {progress.soups.length === 1 ? ' version' : ' versions'}
-              </dd>
-            </div>
-          )}
+          {/* An accumulation, not a position in a plan. This tile used to have
+              a second arm showing a round counter, which measures how far
+              through a FIXED plan a run is. A campaign with no plan has nothing
+              to be partway through, so the comparable figure is how much has
+              arrived, and it has no denominator. */}
+          <div>
+            <dt className="text-xs uppercase tracking-wide text-gray-500">Contributed so far</dt>
+            <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
+              {progress.contributions.length}
+              {progress.contributions.length === 1 ? ' contribution' : ' contributions'}
+              {', '}
+              {progress.soups.length}
+              {progress.soups.length === 1 ? ' version' : ' versions'}
+            </dd>
+          </div>
           <div>
             <dt className="text-xs uppercase tracking-wide text-gray-500">Accepted data licences</dt>
             <dd className="mt-0.5 font-medium text-gray-800">

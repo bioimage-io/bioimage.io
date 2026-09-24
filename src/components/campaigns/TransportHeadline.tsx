@@ -36,9 +36,8 @@ import { ParticipantMode, participantNouns } from './participants';
  * who reads nothing else will still see it.
  *
  * It is "at least" and not a total because the formula counts each arm once,
- * while a driver relaunch restarts the arm that was in flight from its first
- * round. Those rounds put weights on the network and the formula does not see
- * them. Nothing in the record says whether a campaign was restarted, and the
+ * while a relaunch restarts the stretch that was in flight. That stretch put
+ * weights on the network and the formula does not see it. Nothing in the record says whether a campaign was restarted, and the
  * page does not need to know: "at least" is true either way, and it means both
  * of this widget's possible figures now fail in the same direction. Whichever
  * one is on screen, the real number is at least this large.
@@ -48,7 +47,7 @@ import { ParticipantMode, participantNouns } from './participants';
  * is that every number on it is a real observation.
  *
  * The two figures sit side by side and are NEVER divided into one. The left one
- * grows with every round and the right one does not move at all, so a quotient
+ * grows with every merge and the right one does not move at all, so a quotient
  * of them is a function of how long the campaign has been running, and for a
  * campaign that exchanges whole models it changes sign partway through. See the
  * note at the top of TransportAudit.tsx. The layout is a comparison and not a
@@ -89,7 +88,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({
   const heldImages = formatCount(transport?.images_held?.n_images);
   const held = heldBytes ?? (heldImages ? `${heldImages} images` : null);
 
-  const perRound = formatBytes(payload?.bytes_per_site_per_round);
+  const perContribution = formatBytes(payload?.bytes_per_contribution);
   const payloadLabel = payload?.label;
 
   return (
@@ -159,7 +158,7 @@ const TransportHeadline: React.FC<TransportHeadlineProps> = ({
             Counted on the campaign&rsquo;s own transport log as the campaign ran, not asserted
             afterwards.
             {payloadLabel
-              ? ` What travels is ${payloadLabel}${perRound ? `, about ${perRound} per ${who.singular} per round` : ''}.`
+              ? ` What travels is ${payloadLabel}${perContribution ? `, about ${perContribution} per contribution` : ''}.`
               : ''}
           </>
         ) : movedIsComputed ? (

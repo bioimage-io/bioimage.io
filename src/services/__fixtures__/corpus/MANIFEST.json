@@ -1,11 +1,16 @@
 {
+  "_synthetic": {
+    "pins": "format",
+    "since": "0.14.0-draft",
+    "source": "src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io",
+    "warning": "The figures in this file are invented. No campaign described here has run. Every count, byte total, timestamp and metric value is a shape chosen to exercise the wire format, not a measurement. Vendoring this file pins the FORMAT. Quoting its values as evidence is a misread."
+  },
   "digest": "sha256 over the sorted-key JSON in this directory",
   "files": {
-    "cellpose-sam-community.json": "b2930976c69b5e60210af728f77608f00dea781e9b67a3e4ec30ed91c157f998",
-    "index.json": "988c3819efa0c1cd4a83005f537e6600273b473992f79f895ea8588566071bb1",
-    "unet-consortium.json": "62249e70f8a848b6a3f2fcc14df7da4fc38bc3743288aa741bdee946a50fd8f3"
+    "cellpose-sam-community.json": "891c3b8e2758ee098d8cb4e07c8ca3220ebd9162d49e61a1cdf01d84263caa88",
+    "index.json": "662b0469d0447a81e3add78792023f73e79855b2f682cd957cf351047a7331d4"
   },
   "regenerate": "node scripts/export-campaign-fixtures.js",
-  "schema_version": "0.13.0-draft",
+  "schema_version": "0.14.0-draft",
   "source": "src/services/__fixtures__/campaigns.ts"
 }

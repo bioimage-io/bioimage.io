@@ -25,7 +25,7 @@ export type MissingReason =
   | 'unreported'
   /** The service holds it and its disclosure policy declines to publish it. */
   | 'withheld'
-  /** The site never declared it, and the platform does not measure it. */
+  /** The contributor never declared it, and the platform does not measure it. */
   | 'undeclared'
   /**
    * The service published it and this page declined to render it.
@@ -55,7 +55,7 @@ const REASONS: Record<MissingReason, { label: string; title: string }> = {
   undeclared: {
     label: 'Not declared',
     title:
-      'The site did not declare this when it joined. The platform does not measure it, so there is nothing to fall back on.',
+      'The contributor did not declare this when they joined. The platform does not measure it, so there is nothing to fall back on.',
   },
   unshown: {
     label: 'Not shown',

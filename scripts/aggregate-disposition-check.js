@@ -68,12 +68,14 @@ try {
     else { console.log(`ok   ${name}`); passed++; }
   };
 
-  // A round with everything in order. Three evaluating sites, complete per-site
-  // map, no stated withhold.
+  // A merge with everything in order. Complete per-site map over three
+  // contributors, no stated withhold.
+  //
+  // `eval_on` left 0.14.0-draft with the synchronous arm. It listed the sites a
+  // round ASKED to evaluate, which only a lockstep driver knows: an async merge
+  // scores whoever reported, and there is no roll call to compare against. See
+  // the two removed cases below the floor block.
   const ok = (over) => ({
-    round: 0,
-    participants: ['a', 'b', 'c'],
-    eval_on: ['a', 'b', 'c'],
     metric: {
       // Required since 0.9.0-draft. Every case in this file that is meant to
       // reach a gate below the role check has to carry it, so it lives in the
@@ -95,8 +97,6 @@ try {
       aggregate_withheld: null,
       ...(over && over.metric),
     },
-    ...(over && over.round !== undefined ? { round: over.round } : {}),
-    ...(over && over.eval_on !== undefined ? { eval_on: over.eval_on } : {}),
   });
 
   // Plots. Without these the refusal cases below prove nothing.
@@ -132,7 +132,7 @@ try {
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
     { plot: false, by: 'absent' });
   eq('no metric at all is absent',
-    aggregateDisposition({ round: 0, participants: [], eval_on: [], metric: null }, 3),
+    aggregateDisposition({ metric: null }, 3),
     { plot: false, by: 'absent' });
 
   // Page refusals. Each is a figure the service published that the page will
@@ -158,7 +158,6 @@ try {
   // rejected it as a malformed site map, because the over-long gate inferred a
   // key space from a cardinality it had no business comparing.
   const pooledArm = {
-    eval_on: ['pooled'],
     metric: {
       per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
       per_site_basis: 'dataset',
@@ -198,9 +197,9 @@ try {
   // anything, which loses the finding rather than classifying it. The service
   // commits to withholding below the floor, so publishing anyway is a breach.
   eq('a floor breach is still a page refusal',
-    aggregateDisposition(ok({ eval_on: ['a','b','c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3).by,
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3).by,
     'page');
-  eq('a self-contradicting round is still a page refusal',
+  eq('a self-contradicting merge is still a page refusal',
     aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3).by, 'page');
 
   // 0.7.0. The panel limit above was never a property of dataset-keyed rounds,
@@ -208,7 +207,6 @@ try {
   // space. `n_datasets_scored` supplies one, so the same pooled arm that could
   // never be checked is now checked in its own units and plots.
   const pooledArmCounted = {
-    eval_on: ['pooled'],
     metric: {
       per_site: { d1: 0.8, d2: 0.8, d3: 0.8, d4: 0.8, d5: 0.8, d6: 0.8 },
       per_site_basis: 'dataset',
@@ -268,9 +266,6 @@ try {
   // record that broke nothing. These two cases are the only ones that build the
   // metric by hand, because the fixture supplies the key deliberately.
   const preV7 = (over) => ({
-    round: 0,
-    participants: ['a', 'b', 'c'],
-    eval_on: ['a', 'b', 'c'],
     metric: {
       role: 'witness',
       name: 'validation Dice',
@@ -315,34 +310,36 @@ try {
     ['partial_map', 'map_exceeds_count', 'per_site_not_site_keyed']);
 
   // THE OPERAND. The floor exists to stop a pooled figure standing on too few
-  // sites, and the figure is a mean over `n_sites_scored`. It used to be checked
-  // against `eval_on.length`, which counts the sites ASKED to evaluate, and
-  // nothing anywhere related the two numbers. The four cases below are that
-  // distinction, and before the fix the first two plotted.
-  eq('one site scoring out of a full eval set is below the floor',
-    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
+  // contributors, and the figure is a mean over `n_sites_scored`. It was once
+  // checked against the length of the evaluating roll call instead, and nothing
+  // anywhere related the two numbers. The cases below are that distinction, and
+  // before the fix the first two plotted.
+  eq('one contributor scoring is below the floor',
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
     { plot: false, by: 'page', cause: 'below_scoring_floor' });
-  eq('the same round with the map withheld is still below the floor',
-    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: null, n_sites_scored: 1 } }), 3),
+  eq('the same merge with the map withheld is still below the floor',
+    aggregateDisposition(ok({ metric: { per_site: null, n_sites_scored: 1 } }), 3),
     { plot: false, by: 'page', cause: 'below_scoring_floor' });
-  // The mirror. A short eval set is not itself disqualifying: what matters is
-  // how many sites the published mean is over. Without this the fix would look
-  // correct while having merely moved the same wrong refusal to a new field.
-  eq('a short eval set does not refuse when enough sites scored',
-    aggregateDisposition(ok({ eval_on: ['a', 'b'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 2),
+  // The mirror. A small panel is not itself disqualifying: what matters is how
+  // many contributors the published mean is over, measured against the floor
+  // the campaign declared. Without this the fix would look correct while having
+  // merely moved the same wrong refusal to a new field.
+  eq('a two-contributor mean plots against a floor of two',
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 2),
     { plot: true, value: 0.8 });
-  eq('an unreported eval set does not refuse when enough sites scored',
-    aggregateDisposition(ok({ eval_on: null }), 3),
-    { plot: true, value: 0.8 });
-  // More scored than were asked. Impossible from the driver, so it is a
-  // contradiction in the record and not a coverage shortfall, and it is
-  // reported as its own cause rather than folded into the floor.
-  eq('more scoring sites than evaluating sites is a contradiction',
-    aggregateDisposition(ok({ eval_on: ['a', 'b'], metric: { per_site: { a: 0.8, b: 0.8, c: 0.8 }, n_sites_scored: 3 } }), 3),
-    { plot: false, by: 'page', cause: 'scoring_exceeds_eval_set' });
-  eq('the contradiction is not reported as a floor failure',
-    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 5).cause,
-    'scoring_exceeds_eval_set');
+
+  // TWO CASES ARE GONE FROM HERE, AND SO IS THE CHECK THEY DROVE. They asserted
+  // `scoring_exceeds_eval_set`: more contributors scored than the round had
+  // asked to evaluate, which is arithmetically impossible from a lockstep
+  // driver and so was a contradiction the page could name. The comparison needs
+  // both operands, and the second one was `eval_on`. An async merge issues no
+  // roll call, so there is no count to exceed and the cause has nothing to fire
+  // on. It left the union at 0.14.0-draft with the field.
+  //
+  // What is no longer checkable: a record claiming more scorers than the
+  // campaign has contributors now passes the floor and plots. Recovering it
+  // would need a declared panel size on the wire, which the contract does not
+  // have and which nothing has asked for.
   eq('unstated floor refuses',
     aggregateDisposition(ok(), null),
     { plot: false, by: 'page', cause: 'floor_unstated' });
@@ -453,7 +450,7 @@ try {
   // and this is the assertion that would catch someone "tidying" the null
   // handling into a `?? 'campaign_holdout'`.
   eq('an unstated scope keeps the floor on',
-    aggregateDisposition(ok({ metric: { aggregate_scope: null, n_sites_scored: 1, per_site: { a: 0.8 }, eval_on: ['a'] } }), 3),
+    aggregateDisposition(ok({ metric: { aggregate_scope: null, n_sites_scored: 1, per_site: { a: 0.8 } } }), 3),
     { plot: false, by: 'page', cause: 'below_scoring_floor' });
   eq('a missing scope key keeps the floor on',
     aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3).cause,
@@ -487,7 +484,6 @@ try {
     aggregateDisposition(ok(), null).plot, false);
   eq('null floor refuses however many sites scored',
     aggregateDisposition(ok({
-      eval_on: ['a', 'b', 'c', 'd', 'e', 'f'],
       metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8, e: 0.8, f: 0.8 }, n_sites_scored: 6 },
     }), null).plot, false);
 
@@ -529,12 +525,11 @@ try {
   // whatever those cases happened to cover.
   const reached = [
     aggregateDisposition(ok({ metric: { aggregate_withheld: 'partial_map' } }), 3),
-    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 3, eval_on: null } }), 1),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 3 } }), 1),
     aggregateDisposition(ok({ metric: { per_site: { a: 0.8, b: 0.8, c: 0.8, d: 0.8 } } }), 3),
     aggregateDisposition(ok({ metric: { n_sites_scored: null } }), 3),
     aggregateDisposition(ok({ metric: { n_datasets_scored: 3 } }), 3),
-    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8, b: 0.8 }, n_sites_scored: 2 } }), 5),
-    aggregateDisposition(ok({ eval_on: ['a', 'b', 'c'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
     aggregateDisposition(ok(), null),
     aggregateDisposition(ok(pooledArm), 1),
     aggregateDisposition(ok({ metric: { per_site_basis: null } }), 3),
@@ -549,7 +544,7 @@ try {
   const t = emptyTally();
   [
     aggregateDisposition(ok(), 3),
-    aggregateDisposition(ok({ eval_on: ['a'], metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
+    aggregateDisposition(ok({ metric: { per_site: { a: 0.8 }, n_sites_scored: 1 } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: 'floor_unknown' } }), 3),
     aggregateDisposition(ok({ metric: { aggregate: null, aggregate_withheld: null } }), 3),
     aggregateDisposition(ok(pooledArm), 1),

@@ -1,27 +1,26 @@
 import React from 'react';
-import { ContributorRecord, DeclaredSiteField } from '../../types/campaign';
+import { ContributorRecord, DeclaredProfileField } from '../../types/campaign';
 import { formatCount, formatDate } from './format';
 import MissingValue, { Value } from './MissingValue';
 
 /**
  * The contributor list for an asynchronous campaign.
  *
- * Deliberately NOT SiteRoster with different column headings. The two tables
- * describe different things and the difference is load-bearing:
+ * WHY THESE COLUMNS AND NOT AN ACTIVITY COLUMN. Through 0.13.0-draft this file
+ * sat next to a SiteRoster, which listed the institutions of a synchronous
+ * campaign, and the two tables were kept separate on purpose. A site had an
+ * ACTIVITY, because there was a current round and a site either reported into
+ * it or did not, and a site joined AT A ROUND rather than on a date. Neither
+ * column had any meaning here. That arm was removed at 0.14.0-draft and
+ * SiteRoster went with it, but the reasoning is what shaped this table, so it
+ * is recorded rather than deleted.
  *
- *   A synchronous site has an ACTIVITY, because there is a current round and a
- *   site either reported into it or did not. An async contributor has no such
- *   state. Nothing is in flight for them to be late for. The honest column is
- *   when they last contributed, and how often, and a reader can decide for
- *   themselves what counts as active.
- *
- *   A synchronous site joined AT A ROUND. An async contributor joined on a
- *   date, because there is no round index to join at.
- *
- * Reusing the one table with an `activity` column forced to null would have
- * rendered "Not reported" for a state that does not exist in this campaign,
- * which points a reader at a gap in the record rather than at a difference in
- * how the campaign runs.
+ * A contributor has no in-flight state. Nothing is pending for them to be late
+ * for. The honest columns are when they last contributed and how often, and a
+ * reader decides for themselves what counts as active. An `activity` column
+ * forced to null would render "Not reported" for a state that does not exist,
+ * pointing a reader at a gap in the record rather than at how the campaign
+ * runs.
  *
  * The declared-versus-measured discipline carries over unchanged, including the
  * three-state provenance: an absent `declared` list is the absence of evidence
@@ -30,14 +29,14 @@ import MissingValue, { Value } from './MissingValue';
 
 type Provenance = 'declared' | 'measured' | 'unknown';
 
-function provenanceOf(contributor: ContributorRecord, field: DeclaredSiteField): Provenance {
+function provenanceOf(contributor: ContributorRecord, field: DeclaredProfileField): Provenance {
   if (!contributor.declared) return 'unknown';
   return contributor.declared.includes(field) ? 'declared' : 'measured';
 }
 
 const ProvenanceMark: React.FC<{
   contributor: ContributorRecord;
-  field: DeclaredSiteField;
+  field: DeclaredProfileField;
 }> = ({ contributor, field }) => {
   const provenance = provenanceOf(contributor, field);
   if (provenance === 'measured') return null;

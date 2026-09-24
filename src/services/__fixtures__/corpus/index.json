@@ -1,9 +1,16 @@
 {
+  "_synthetic": {
+    "pins": "format",
+    "since": "0.14.0-draft",
+    "source": "src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io",
+    "warning": "The figures in this file are invented. No campaign described here has run. Every count, byte total, timestamp and metric value is a shape chosen to exercise the wire format, not a measurement. Vendoring this file pins the FORMAT. Quoting its values as evidence is a misread."
+  },
   "campaigns": [
     {
       "base_model": {
         "id": "bioimage-io/cellpose-sam",
         "name": "Cellpose-SAM",
+        "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
         "url": "#/models/cellpose-sam",
         "version": "0.2.0"
       },
@@ -13,7 +20,6 @@
       "n_active_sites": 9,
       "payload": {
         "bytes_per_contribution": 1300000000,
-        "bytes_per_site_per_round": null,
         "kind": "full_state_dict",
         "label": "Full Cellpose-SAM checkpoint"
       },
@@ -25,30 +31,7 @@
       "started_at": "2026-06-15T09:00:00.000Z",
       "status": "open",
       "title": "Community Cellpose-SAM fine-tuning"
-    },
-    {
-      "base_model": null,
-      "campaign_id": "unet-consortium",
-      "description": "Two sites train a small U-Net on public benchmark datasets that stay where they are. The network is small enough that the whole state dict is exchanged each round.",
-      "model_licence": "MIT",
-      "n_active_sites": 2,
-      "payload": {
-        "bytes_per_contribution": null,
-        "bytes_per_site_per_round": 7760000,
-        "kind": "full_state_dict",
-        "label": "Full state dict"
-      },
-      "progress": {
-        "mode": "synchronous",
-        "round": {
-          "current": 12,
-          "total": 12
-        }
-      },
-      "started_at": "2026-07-19T14:03:00Z",
-      "status": "completed",
-      "title": "U-Net nucleus segmentation consortium"
     }
   ],
-  "schema_version": "0.13.0-draft"
+  "schema_version": "0.14.0-draft"
 }

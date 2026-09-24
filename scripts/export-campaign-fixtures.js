@@ -14,6 +14,16 @@
  *   <campaign_id>.json      a CampaignRecord, i.e. `get_campaign`
  *   MANIFEST.json           schema version + sha256 of every file above
  *
+ * Every file also carries a top-level `_synthetic` block. The figures in this
+ * corpus are invented, and until 0.14.0-draft that warning lived only in the
+ * README and in a banner the page draws. Neither reaches someone who fetches
+ * the JSON, which is exactly what a vendoring consumer does, so the one route
+ * that carries the numbers did not carry the warning. It is in the payload now.
+ *
+ * The key is underscore-prefixed to say it is not a wire field. It is a
+ * property of THIS CORPUS, not of `CampaignRecord`, and a backend that starts
+ * emitting it would be asserting its own live data is invented.
+ *
  * A consumer vendors the JSON files and compares their sha256 against the
  * manifest. A mismatch means the corpus moved, which is the signal to re-read
  * the diff. The digests are taken over the SORTED-KEY serialisation, so
@@ -52,6 +62,24 @@ const OUT_DIR = path.join(REPO, 'src', 'services', '__fixtures__', 'corpus');
  * regenerate nor reported as drift by --check.
  */
 const PRESERVE = new Set(['README.md']);
+
+/**
+ * The in-payload synthetic marker. Stamped on every emitted file.
+ *
+ * Deliberately verbose. A short flag like `"synthetic": true` is readable only
+ * by someone who already suspects the answer, and the failure this guards
+ * against is a reader who does not: someone who fetches one of these files,
+ * sees plausible counts with plausible timestamps, and quotes them. The
+ * sentence has to do the work on its own, at the point of contact, with no
+ * README in hand.
+ */
+const SYNTHETIC_MARKER = {
+  warning:
+    'The figures in this file are invented. No campaign described here has run. Every count, byte total, timestamp and metric value is a shape chosen to exercise the wire format, not a measurement. Vendoring this file pins the FORMAT. Quoting its values as evidence is a misread.',
+  pins: 'format',
+  source: 'src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io',
+  since: '0.14.0-draft',
+};
 
 /**
  * Deep key sort, so the digest tracks content rather than declaration order.
@@ -124,17 +152,19 @@ function main() {
   // The index response the page sees first. Its schema_version sits on the
   // envelope, not per item, exactly as CampaignListResponse declares.
   files['index.json'] = stableJson({
+    _synthetic: SYNTHETIC_MARKER,
     schema_version: schemaVersion,
     campaigns: FIXTURE_CAMPAIGN_SUMMARIES,
   });
   for (const id of ids) {
-    files[`${id}.json`] = stableJson(FIXTURE_CAMPAIGNS[id]);
+    files[`${id}.json`] = stableJson({ _synthetic: SYNTHETIC_MARKER, ...FIXTURE_CAMPAIGNS[id] });
   }
 
   const digests = {};
   for (const [name, text] of Object.entries(files)) digests[name] = sha256(text);
 
   files['MANIFEST.json'] = stableJson({
+    _synthetic: SYNTHETIC_MARKER,
     schema_version: schemaVersion,
     source: 'src/services/__fixtures__/campaigns.ts',
     regenerate: 'node scripts/export-campaign-fixtures.js',

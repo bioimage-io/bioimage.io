@@ -55,7 +55,7 @@ const JoinCampaignDialog: React.FC<JoinCampaignDialogProps> = ({ campaign, onClo
     return () => window.removeEventListener('keydown', onKey);
   }, [onClose]);
 
-  const perRound = formatBytes(campaign.payload?.bytes_per_site_per_round);
+  const perContribution = formatBytes(campaign.payload?.bytes_per_contribution);
   const payloadLabel = campaign.payload?.label;
 
   const canSubmit =
@@ -160,8 +160,11 @@ const JoinCampaignDialog: React.FC<JoinCampaignDialogProps> = ({ campaign, onClo
               {payloadLabel ? (
                 <p className="mt-2 text-sm text-gray-700">
                   {payloadLabel}
-                  {perRound ? `, about ${perRound} in each direction per round.` : '.'} Your images
-                  and labels stay on your storage. Nothing else is read from your deployment.
+                  {perContribution
+                    ? `, about ${perContribution} in each direction per contribution.`
+                    : '.'}{' '}
+                  Your images and labels stay on your storage. Nothing else is read from your
+                  deployment.
                 </p>
               ) : (
                 <p className="mt-2 text-sm text-gray-600">

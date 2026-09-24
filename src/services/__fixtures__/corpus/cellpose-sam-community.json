@@ -1,4 +1,10 @@
 {
+  "_synthetic": {
+    "pins": "format",
+    "since": "0.14.0-draft",
+    "source": "src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io",
+    "warning": "The figures in this file are invented. No campaign described here has run. Every count, byte total, timestamp and metric value is a shape chosen to exercise the wire format, not a measurement. Vendoring this file pins the FORMAT. Quoting its values as evidence is a misread."
+  },
   "aggregation": {
     "method": "greedy soup",
     "weighting": "uniform"
@@ -6,12 +12,12 @@
   "base_model": {
     "id": "bioimage-io/cellpose-sam",
     "name": "Cellpose-SAM",
+    "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
     "url": "#/models/cellpose-sam",
     "version": "0.2.0"
   },
   "campaign_id": "cellpose-sam-community",
   "description": "An open community fine-tunes Cellpose-SAM on microscopy archives that are too large to move. Each contributor trains locally, whenever it suits them, and the checkpoints that come back are periodically averaged into a community model that everyone can use. Each merge tries the checkpoints it has received one at a time and keeps the ones that improve the pooled model.",
-  "experiment": null,
   "generated_at": "2026-09-12T15:00:00.000Z",
   "licence_policy": {
     "accepted_data_licences": [
@@ -22,7 +28,6 @@
   },
   "payload": {
     "bytes_per_contribution": 1300000000,
-    "bytes_per_site_per_round": null,
     "kind": "full_state_dict",
     "label": "Full Cellpose-SAM checkpoint"
   },
@@ -563,7 +568,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -592,7 +597,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -621,7 +626,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -650,7 +655,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -679,7 +684,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -708,7 +713,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -737,7 +742,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -766,7 +771,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -795,7 +800,7 @@
           }
         ],
         "declared": [
-          "site_name",
+          "contributor_name",
           "country",
           "datasets",
           "n_train_images"
@@ -1387,7 +1392,7 @@
     "reconciled": false,
     "reconciled_at": null
   },
-  "schema_version": "0.13.0-draft",
+  "schema_version": "0.14.0-draft",
   "status": "open",
   "stewards": [
     {

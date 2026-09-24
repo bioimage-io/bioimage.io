@@ -1,7 +1,7 @@
 import { AggregateWithholdCause, WitnessMetric } from '../../types/campaign';
 
 /**
- * Whether a round's pooled score may be plotted, and if not, who decided so.
+ * Whether a pooled score may be plotted, and if not, who decided so.
  *
  * Three outcomes and not two, because "no point on the chart" covers three
  * situations a reader must be able to tell apart:
@@ -36,9 +36,10 @@ import { AggregateWithholdCause, WitnessMetric } from '../../types/campaign';
  * Every member of this union names a stated obligation the record breaks. The
  * service commits to withholding the aggregate for `partial_map`,
  * `completeness_unknown`, `below_scoring_floor` and `floor_unknown`, so a
- * record that publishes one anyway has broken a rule it declared. The other
- * three are self-contradictions: a value beside a reason there is no value, a
- * cardinality that cannot occur, and a round that answered more than it asked.
+ * record that publishes one anyway has broken a rule it declared. The rest are
+ * self-contradictions: a value beside a reason there is no value, a cardinality
+ * that cannot occur, a count in a key space the map does not use, and a metric
+ * in a witness slot that declares itself a selection score.
  *
  * That is the membership test, and it is stated here because the note under the
  * chart tells the reader this in as many words. Anything that fails the test
@@ -54,19 +55,17 @@ export type PageRefusal =
   /** No `n_sites_scored`, so neither completeness nor the floor can be checked. */
   | 'completeness_unknown'
   /**
-   * A dataset count on a round whose map is not dataset-keyed.
+   * A dataset count on a record whose map is not dataset-keyed.
    *
    * `n_datasets_scored` is specified as present when and only when
    * `per_site_basis` is 'dataset', so a record carrying it anywhere else has
    * not decided what it counts. Note the direction: it is the COUNT that is
    * out of place, never the co-occurrence of the two counts. A dataset-keyed
-   * round with an aggregate carries both, because the floor is a rule about
+   * record with an aggregate carries both, because the floor is a rule about
    * sites however the map is keyed, and reading their co-occurrence as the
    * contradiction would reopen 0.6.0's leak in the dataset key space.
    */
   | 'count_key_space_mismatch'
-  /** More sites recorded as scoring than were asked to evaluate. */
-  | 'scoring_exceeds_eval_set'
   /** Fewer SCORING sites than the campaign's own floor. */
   | 'below_scoring_floor'
   /** No floor stated, so it cannot be shown to have been met. */
@@ -154,14 +153,14 @@ export type PanelLimit =
   /**
    * The map is keyed by something this record carries no count of.
    *
-   * Until 0.7.0 that was every dataset-keyed round, because `n_sites_scored`
+   * Until 0.7.0 that was every dataset-keyed record, because `n_sites_scored`
    * was the schema's only denominator and it counts sites, so completeness was
    * assertable in the site key space and in no other. `n_datasets_scored`
    * closed that gap, and it closed it the way the gap had to be closed: by the
    * producer publishing a count in the map's own key space rather than by this
    * page inferring one.
    *
-   * So this now fires only on a dataset-keyed round that carries no dataset
+   * So this now fires only on a dataset-keyed record that carries no dataset
    * count, which after 0.7.0 means a record written before the field existed.
    * It stays a panel limit and does not become a refusal, because the completed
    * consortium run cannot be regenerated and a record cannot be at fault for
@@ -198,7 +197,7 @@ export type PanelLimit =
  * side it belongs on now fails a test instead of shipping.
  *
  * The sentences are for the maintainer, not the reader. Reader-facing wording
- * lives in `RoundChart`, phrased as the withhold rather than as the breach.
+ * lives in `SoupLineage`, phrased as the withhold rather than as the breach.
  */
 export const REFUSAL_OBLIGATION: Record<PageRefusal, string> = {
   contradictory_withhold:
@@ -211,8 +210,6 @@ export const REFUSAL_OBLIGATION: Record<PageRefusal, string> = {
     '`n_sites_scored` is required whenever `aggregate` is non-null, since it is the denominator the mean is over.',
   count_key_space_mismatch:
     '`n_datasets_scored` is present when and only when `per_site_basis` is `dataset`.',
-  scoring_exceeds_eval_set:
-    'A site cannot return a score for a round it was not asked to evaluate.',
   below_scoring_floor:
     'The service withholds the aggregate when fewer sites scored than the campaign\'s own floor.',
   floor_unstated:
@@ -245,36 +242,41 @@ export type AggregateDisposition =
   | { plot: false; by: 'absent' };
 
 /**
- * Decides one round's aggregate.
+ * Decides one scored event's aggregate.
  *
  * `minScoringSites` comes from `policy.aggregate_min_scoring_sites` and is never
- * defaulted. Supplying a value here would present one consortium's disclosure
+ * defaulted. Supplying a value here would present one campaign's disclosure
  * threshold as a property of the platform, which is a worse error than a wrong
  * default: it misattributes whose judgement it is.
  *
- * It is checked against `n_sites_scored` and not against `eval_on.length`. The
- * distinction is the whole of the 0.6.0 change and it is not a nuance: the
- * value this function returns is a mean over the sites that scored, so a floor
- * read from the sites that were ASKED is a rule about a different number than
- * the one that gets published. `eval_on` appears below exactly once, in a
- * contradiction check, and restoring it to the floor would reopen the leak.
+ * It is checked against `n_sites_scored`. That was the whole of the 0.6.0
+ * change and it is not a nuance: the value this function returns is a mean over
+ * the participants that scored, so a floor read from the participants that were
+ * ASKED is a rule about a different number than the one that gets published.
+ *
+ * THERE IS NO LONGER A SET THAT WERE ASKED. Through 0.13.0-draft this interface
+ * carried a second field, `eval_on`, read in exactly one place: a contradiction
+ * check that refused an aggregate when more participants were recorded as
+ * scoring than the campaign had asked to evaluate. Only the synchronous arm
+ * ever populated it, every other caller passed null, and with that arm gone at
+ * 0.14.0-draft the field had no producer at all. It was removed rather than
+ * left as a permanently-null parameter, because a gate that cannot fire reads
+ * like a gate that never fires.
+ *
+ * `scoring_exceeds_eval_set` went with it. That is a narrowing of what this
+ * function checks and it is recorded rather than glossed: an inconsistency
+ * between the evaluating set and the scoring count is no longer detectable
+ * here, because the record no longer states the evaluating set.
  *
  * When several refusals apply, the first in source order is reported and the
- * rest are not enumerated. One round produces one reason, because the note
- * under the chart counts rounds and a round counted twice overstates how much
- * is missing.
+ * rest are not enumerated. One event produces one reason, because the note
+ * under the chart counts events and one counted twice overstates how much is
+ * missing.
  *
- * The parameter is STRUCTURAL rather than `RoundRecord`, because a soup merge
- * publishes a pooled figure under exactly these rules and is not a round. Only
- * two fields are read, and widening to the pair states that: everything here is
- * a property of the metric, apart from the one contradiction check that needs
- * the set the campaign asked to evaluate.
- *
- * A soup has no such set in the schema, so callers pass `eval_on: null` and the
- * contradiction check alone goes quiet. The floor and the completeness gate
- * still apply, which is the point. Making this take a SoupRecord too by adding
- * a second entry point would have let the two drift, and the disclosure rule
- * these gates enforce is the same rule in both campaign modes.
+ * The parameter is STRUCTURAL rather than `SoupRecord`, because more than one
+ * kind of record publishes a pooled figure under exactly these rules. One field
+ * is read, and taking it alone states that: everything here is a property of
+ * the metric.
  */
 export interface ScoredEvent {
   /**
@@ -284,15 +286,13 @@ export interface ScoredEvent {
    * guard is the role check in the body, which covers the wire.
    */
   metric: WitnessMetric | null;
-  /** The set asked to evaluate, where the campaign mode records one. */
-  eval_on: string[] | null;
 }
 
 export function aggregateDisposition(
-  round: ScoredEvent,
+  event: ScoredEvent,
   minScoringSites: number | null
 ): AggregateDisposition {
-  const metric = round.metric;
+  const metric = event.metric;
   if (!metric) return { plot: false, by: 'absent' };
 
   if (metric.aggregate === null) {
@@ -472,7 +472,8 @@ export function aggregateDisposition(
   // `aggregate` and therefore the operand of the floor, so a record without it
   // has no floor to check even when it publishes no per-site map at all. That
   // path was the wider half of the leak: with `per_site` null the whole block
-  // was skipped, this field was never read, and the floor passed on `eval_on`.
+  // was skipped, this field was never read, and the floor passed on the
+  // then-present `eval_on` count instead.
   if (metric.n_sites_scored === null) {
     return { plot: false, by: 'page', cause: 'completeness_unknown' };
   }
@@ -499,20 +500,6 @@ export function aggregateDisposition(
     if (mapped > scored) {
       return { plot: false, by: 'page', cause: 'map_exceeds_count' };
     }
-  }
-
-  // The only place `eval_on` is read, and it is a contradiction check rather
-  // than a coverage one. A site cannot return a score it was not asked for, so
-  // scoring more sites than were evaluated cannot come from the driver: it says
-  // the record was assembled wrong, and an aggregate from a record that
-  // contradicts itself about its own denominator is not publishable whatever
-  // the floor says.
-  //
-  // Scoring FEWER than were asked is not checked here and must not be. That is
-  // an ordinary partial round, and the floor below is the rule that decides
-  // whether it stands.
-  if (round.eval_on !== null && metric.n_sites_scored > round.eval_on.length) {
-    return { plot: false, by: 'page', cause: 'scoring_exceeds_eval_set' };
   }
 
   // The floor is checked even though the service is supposed to have checked
@@ -553,7 +540,6 @@ export function emptyTally(): DispositionTally {
       map_exceeds_count: 0,
       completeness_unknown: 0,
       count_key_space_mismatch: 0,
-      scoring_exceeds_eval_set: 0,
       below_scoring_floor: 0,
       floor_unstated: 0,
       gate_metric_as_witness: 0,

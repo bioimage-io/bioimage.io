@@ -17,20 +17,13 @@ const STATUS_STYLES: Record<CampaignStatus, { label: string; className: string }
 const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => {
   const status = STATUS_STYLES[campaign.status] ?? STATUS_STYLES.closed;
   const summary = campaign.progress;
-  const async = summary.mode === 'asynchronous';
-  // Exactly one of the two payload fields is populated, chosen by mode. See the
-  // note in CampaignDetail for why this is a switch and not a `??` chain.
-  const perPayload = async
-    ? formatBytes(campaign.payload?.bytes_per_contribution)
-    : formatBytes(campaign.payload?.bytes_per_site_per_round);
-  // Only a fixed-length run has a fraction to be partway through. An open
-  // campaign that runs for as long as people keep contributing has no
-  // denominator, and a bar drawn against an invented one would be the page
-  // asserting a finish line the campaign never set.
-  const fraction =
-    summary.mode === 'synchronous' && summary.round.current !== null && summary.round.total
-      ? Math.min(1, summary.round.current / summary.round.total)
-      : null;
+  const perPayload = formatBytes(campaign.payload?.bytes_per_contribution);
+  // NO PROGRESS BAR, and this card used to draw one. Only a fixed-length run has
+  // a fraction to be partway through, and the synchronous arm that had one left
+  // the contract at 0.14.0-draft. An open campaign runs for as long as people
+  // keep contributing, so it has no denominator, and a bar drawn against an
+  // invented one would be the page asserting a finish line the campaign never
+  // set.
 
   return (
     <Link
@@ -54,42 +47,26 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
 
       <dl className="mt-5 grid grid-cols-2 gap-4 text-sm sm:grid-cols-4">
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">
-            {async ? 'Contributors' : 'Sites'}
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Contributors</dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
             <Value>{formatCount(campaign.n_active_sites)}</Value>
           </dd>
         </div>
         <div>
-          <dt className="text-xs uppercase tracking-wide text-gray-500">
-            {async ? 'Community model' : 'Round'}
-          </dt>
+          <dt className="text-xs uppercase tracking-wide text-gray-500">Community model</dt>
           <dd className="mt-0.5 font-medium tabular-nums text-gray-800">
-            {summary.mode === 'asynchronous' ? (
-              <>
-                <Value>
-                  {summary.n_versions === null
-                    ? null
-                    : summary.n_versions === 1
-                    ? '1 version'
-                    : `${formatCount(summary.n_versions)} versions`}
-                </Value>
-                {summary.n_contributions !== null && (
-                  <span className="block text-xs font-normal text-gray-500">
-                    from {formatCount(summary.n_contributions)}{' '}
-                    {summary.n_contributions === 1 ? 'contribution' : 'contributions'}
-                  </span>
-                )}
-              </>
-            ) : summary.round.current === null ? (
-              <Value>{null}</Value>
-            ) : summary.round.total ? (
-              <span>
-                {summary.round.current} of {summary.round.total}
+            <Value>
+              {summary.n_versions === null
+                ? null
+                : summary.n_versions === 1
+                ? '1 version'
+                : `${formatCount(summary.n_versions)} versions`}
+            </Value>
+            {summary.n_contributions !== null && (
+              <span className="block text-xs font-normal text-gray-500">
+                from {formatCount(summary.n_contributions)}{' '}
+                {summary.n_contributions === 1 ? 'contribution' : 'contributions'}
               </span>
-            ) : (
-              <span>{summary.round.current}</span>
             )}
           </dd>
         </div>
@@ -99,7 +76,7 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
             <Value>{campaign.payload?.label ?? null}</Value>
             {perPayload && (
               <span className="block text-xs font-normal text-gray-500">
-                {async ? `${perPayload} per contribution` : `${perPayload} per site, per round`}
+                {perPayload} per contribution
               </span>
             )}
           </dd>
@@ -111,15 +88,6 @@ const CampaignCard: React.FC<{ campaign: CampaignSummary }> = ({ campaign }) => 
           </dd>
         </div>
       </dl>
-
-      {fraction !== null && (
-        <div className="mt-5 h-1.5 w-full overflow-hidden rounded-full bg-gray-100">
-          <div
-            className="h-full rounded-full bg-gradient-to-r from-blue-500 to-purple-500 transition-[width] duration-500 ease-out"
-            style={{ width: `${Math.round(fraction * 100)}%` }}
-          />
-        </div>
-      )}
     </Link>
   );
 };

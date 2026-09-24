@@ -5,34 +5,34 @@
  * production build sets. Whenever they are in use the pages show a persistent
  * prototype banner, so nothing here can be mistaken for a measurement.
  *
- * Every site name below is invented. No real institution appears, because a
- * real name on an illustrative roster reads as that institution having joined
- * a campaign that does not exist.
+ * Every contributor name below is invented. No real institution appears,
+ * because a real name on an illustrative roster reads as that institution
+ * having joined a campaign that does not exist.
  *
- * The two fixtures deliberately differ in shape, so the components are
- * exercised against both of the profiles the schema has to serve. Since
- * 0.8.0-draft those profiles are the two campaign MODES, which is a deeper
- * split than the payload-and-units differences they started as:
+ * ONE CAMPAIGN, and the file is smaller than it was for a reason worth
+ * recording. Through 0.13.0-draft this file carried a second fixture,
+ * `unet-consortium`, which was the SYNCHRONOUS initial test: lockstep rounds,
+ * a site roster, full state dicts, per-round pooled Dice. It was deleted at
+ * 0.14.0-draft along with the synchronous arm of the contract, because the
+ * campaign programme targets FOUNDATION MODELS and a two-site U-Net is not
+ * one. The app it described (`apps/federated-unet`) still runs and still keeps
+ * its own data. It simply no longer has a website contract.
  *
- *  - `cellpose-sam-community` is the ASYNCHRONOUS model-soup flagship. An open
- *    community fine-tunes Cellpose-SAM locally, at its own pace, and the
- *    checkpoints are periodically averaged into a growing community model.
- *    Two event streams, a wall-clock axis, a version lineage, a FULL-CHECKPOINT
- *    payload, GREEDY selection so some contributions are assessed and not taken,
- *    a witness metric distinct from the selection gate, and a transport log
- *    whose per-source windows agree.
- *  - `unet-consortium` is the SYNCHRONOUS initial test, and it is kept rather
- *    than deleted for two reasons. It is the only fixture that exercises the
- *    completed-and-reconciled path, which a permanently-open async campaign
- *    structurally cannot reach. And it is the record of what was actually run
- *    first: lockstep rounds, full state dicts, no byte figure for data held
- *    (only image counts), a metric named "validation Dice" rather than a
- *    generic score, and a transport log whose windows do NOT agree, so the
- *    observed total is withheld and only the computed figure is offered.
+ * What remains is the flagship. `cellpose-sam-community` is the ASYNCHRONOUS
+ * model soup: an open community fine-tunes Cellpose-SAM locally, at its own
+ * pace, and the checkpoints are periodically averaged into a growing community
+ * model. Two event streams, a wall-clock axis, a version lineage, a
+ * FULL-CHECKPOINT payload, GREEDY selection so some contributions are assessed
+ * and not taken, a witness metric distinct from the selection gate, and a
+ * transport log whose per-source windows agree.
  *
- * If a component renders the second one correctly it cannot be hardcoding
- * "adapter", "TB", "score", or a summable transport log. If it renders both it
- * cannot be hardcoding a round axis either.
+ * WHAT THE SECOND FIXTURE USED TO BUY, and what now has to be bought some
+ * other way. It was the only record here that reached `status: 'completed'`
+ * and the only one whose transport windows did NOT agree, so it was the only
+ * exercise of the withheld-observed-total path. A permanently-open campaign
+ * cannot reach either state, so those two paths are now covered by the spec's
+ * own stubs rather than by a served corpus file. A component that regresses on
+ * them will fail a test, not a page.
  *
  * THE EMPTY-MERGE CASE IS NOW EXERCISED, and the history is worth keeping
  * because it is the shape of the mistake this file exists to avoid. Through
@@ -58,8 +58,6 @@ import {
   ContributionRecord,
   ContributorRecord,
   EmptyMerge,
-  RoundRecord,
-  SiteRecord,
   SoupRecord,
 } from '../../types/campaign';
 
@@ -82,8 +80,8 @@ const CHECKPOINT_BYTES = 1_300_000_000;
 
 /**
  * A deterministic stand-in for a merged-weights digest. Not a real hash and not
- * claimed to be one: it exists so the round log renders the same shape the live
- * record will, with digests that agree within a round and differ between them.
+ * claimed to be one: it exists so the merge log renders the same shape the live
+ * record will, with digests that agree within a merge and differ between them.
  */
 function fixtureDigest(seedText: string): string {
   let h = 2166136261;
@@ -574,7 +572,7 @@ function toContributor(seed: ContributorSeed): ContributorRecord {
     bioengine_version: '0.7.2',
     // Everything a contributor typed into its join form. The platform measured
     // none of it, and the roster marks each one so a reader can tell.
-    declared: ['site_name', 'country', 'datasets', 'n_train_images'],
+    declared: ['contributor_name', 'country', 'datasets', 'n_train_images'],
   };
 }
 
@@ -597,9 +595,6 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   // status of 'running' would read as closed to new contributors, which is the
   // opposite of what this campaign is.
   status: 'open',
-  // Not a slice of a larger experiment. There is no arm and no seed to pin,
-  // because there is no round number for them to disambiguate.
-  experiment: null,
   policy: {
     // Private facility archives throughout, which is why the fingerprints
     // above are null.
@@ -678,6 +673,10 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
     // rather than resolving it to a zoo version, so the generic-label path is
     // live and both paths stay covered by tests.
     version: '0.2.0',
+    // The measured digest, in full. Truncating it would leave a reader with the
+    // appearance of content identification and no way to check anything, which
+    // is the failure the field's own doc names.
+    sha256: '0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667',
     url: '#/models/cellpose-sam',
   },
   // Greedy souping. A merge walks the checkpoints it has received, adds each to
@@ -838,9 +837,6 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   payload: {
     kind: 'full_state_dict',
     label: 'Full Cellpose-SAM checkpoint',
-    // Null: this campaign has no rounds, so a per-round-per-site figure would
-    // be a number about a schedule it does not have.
-    bytes_per_site_per_round: null,
     bytes_per_contribution: CHECKPOINT_BYTES,
   },
   stewards: [{ name: 'Campaign steward', workspace: 'bioimage-io' }],
@@ -854,239 +850,8 @@ const CELLPOSE_SAM_CAMPAIGN: CampaignRecord = {
   generated_at: isoAt(TODAY, 6),
 };
 
-const UNET_SITES: SiteRecord[] = [
-  {
-    site_id: 'site-a',
-    site_name: 'Consortium site A',
-    country: null,
-    role: 'founding',
-    joined_round: 0,
-    left_round: null,
-    accelerator: 'NVIDIA A100',
-    datasets: [
-      {
-        name: 'dsb2018',
-        objects: 'nuclei',
-        n_train: 536,
-        n_val: 67,
-        n_test: 67,
-        source: 'Data Science Bowl 2018',
-        licence: 'CC0-1.0',
-        citation: 'Caicedo et al., Nature Methods 2019',
-        split_fingerprint: 'a41f0c7e',
-      },
-    ],
-    n_train_images: 536,
-    activity: 'reported',
-    bioengine_version: '0.7.2',
-    // Public benchmark data, read off disk by the site's own loader, so the
-    // counts are measured rather than typed into a form. Only the display
-    // name is declared.
-    declared: ['site_name'],
-  },
-  {
-    site_id: 'site-b',
-    site_name: 'Consortium site B',
-    country: null,
-    role: 'founding',
-    joined_round: 0,
-    left_round: null,
-    accelerator: 'NVIDIA A100',
-    datasets: [
-      {
-        name: 'tissuenet',
-        objects: 'whole cells',
-        n_train: 482,
-        n_val: 60,
-        n_test: 61,
-        source: 'TissueNet',
-        licence: 'CC-BY-4.0',
-        citation: 'Greenwald et al., Nature Biotechnology 2022',
-        split_fingerprint: '9b2d5514',
-      },
-    ],
-    n_train_images: 482,
-    activity: 'reported',
-    bioengine_version: '0.7.2',
-    declared: ['site_name'],
-  },
-];
-
-const UNET_STATE_DICT_BYTES = 7_760_000;
-
-// One round where only one of the two sites reported a score. The aggregate is
-// still in the record, and the chart deliberately withholds it: with two sites,
-// an aggregate plus one per-site value reconstructs the other exactly.
-const UNET_PARTIAL_ROUND = 7;
-
-function unetRounds(total: number): RoundRecord[] {
-  const rounds: RoundRecord[] = [];
-  for (let round = 0; round < total; round += 1) {
-    const per_site: Record<string, number> = {};
-    UNET_SITES.forEach((site, i) => {
-      const ceiling = 0.874 - i * 0.021;
-      per_site[site.site_id] = Number(
-        (ceiling - (ceiling - 0.41) * Math.exp(-round / 4)).toFixed(4)
-      );
-    });
-    const values = Object.values(per_site);
-    const aggregate = Number((values.reduce((a, b) => a + b, 0) / values.length).toFixed(4));
-    if (round === UNET_PARTIAL_ROUND) {
-      delete per_site['site-b'];
-    }
-    const digest = fixtureDigest(`unet-consortium/${round}`);
-    rounds.push({
-      round,
-      participants: UNET_SITES.map((s) => s.site_id),
-      eval_on: UNET_SITES.map((s) => s.site_id),
-      merge_weights: { 'site-a': 536, 'site-b': 482 },
-      metric: {
-        // Lockstep FedAvg selects nothing, so this is a witness by
-        // construction. It is still declared, because "by construction" is a
-        // fact about the campaign and not a property of the record, and
-        // `RoundRecord.metric` is typed `WitnessMetric` so the declaration is
-        // what makes it assignable.
-        role: 'witness' as const,
-        // The opposite arm from the community soup above, and the reason both
-        // exist in this file: this aggregate IS pooled over scores each site
-        // computed on data it holds, so `n_sites_scored` is its denominator and
-        // the floor is about exactly this number.
-        aggregate_scope: 'participant_pool' as const,
-        name: 'validation Dice',
-        higher_is_better: true,
-        per_site,
-        per_site_basis: 'site' as const,
-        aggregate,
-        aggregate_basis: 'merge-weighted mean over the per-dataset validation Dice',
-        // Both sites scored every round. Round 7 published only one of the two
-        // curves, which is what makes its per-site map partial.
-        n_sites_scored: UNET_SITES.length,
-        // Site-keyed round, so this stays null. Setting it would be the
-        // `count_key_space_mismatch` refusal, which is exactly what that gate
-        // is for.
-        n_datasets_scored: null,
-        // The aggregate is present on every round including the partial one.
-        // That is deliberate: this fixture exercises the PAGE refusing a figure
-        // the record carries, which is a different path from the campaign
-        // withholding one and saying why.
-        aggregate_withheld: null,
-      },
-      global_sha256: digest,
-      scored_with: { 'site-a': digest, 'site-b': digest },
-      scored_with_basis: 'site' as const,
-      transport: {
-        bytes_out: UNET_STATE_DICT_BYTES * UNET_SITES.length,
-        bytes_in: UNET_STATE_DICT_BYTES * UNET_SITES.length,
-        n_transfers: UNET_SITES.length * 2,
-        sources_complete: true,
-      },
-    });
-  }
-  return rounds;
-}
-
-const UNET_ALL_ROUNDS = unetRounds(12);
-
-// Two round reports never reached the campaign service. Reporting is
-// fire-and-forget, so a gap here is a lost record rather than a round that did
-// not happen, and the driver's own committed arm record still has both. This
-// campaign has completed, so the two have been reconciled and the remaining
-// gaps are the ones reconciliation could not close.
-const UNET_DROPPED_ROUNDS = [4, 9];
-const UNET_ROUNDS = UNET_ALL_ROUNDS.filter((r) => !UNET_DROPPED_ROUNDS.includes(r.round));
-
-// The driver was relaunched seven times over the run, so its in-memory log
-// covers only the tail. The site logs cover far more. Adding them together
-// would produce a total that looks complete and undercounts by most of the run.
-const UNET_COMPUTED_BYTES =
-  UNET_ALL_ROUNDS.length * (3 * UNET_SITES.length + 1) * UNET_STATE_DICT_BYTES;
-
-const UNET_CAMPAIGN: CampaignRecord = {
-  schema_version: CAMPAIGN_SCHEMA_VERSION,
-  campaign_id: 'unet-consortium',
-  title: 'U-Net nucleus segmentation consortium',
-  description:
-    'Two sites train a small U-Net on public benchmark datasets that stay where they are. '
-    + 'The network is small enough that the whole state dict is exchanged each round.',
-  status: 'completed',
-  experiment: { arm: 'fedavg', seed: 0, run_id: 'unet-consortium-2026-07' },
-  policy: {
-    public_data_campaign: true,
-    roster_attested: false,
-    outcomes_released: true,
-    // Two sites, so two is the only floor that admits a pooled figure at all.
-    // A floor equal to the roster size is weaker than it looks: it is
-    // underdetermined within one round, but across rounds where membership
-    // changes while the protected quantity does not, the system can solve. This
-    // fixture holds membership fixed, which is the case where it does not.
-    aggregate_min_scoring_sites: 2,
-  },
-  base_model: null,
-  aggregation: { method: 'FedAvg', weighting: 'sample count' },
-  licence_policy: {
-    accepted_data_licences: ['CC0-1.0', 'CC-BY-4.0'],
-    model_licence: 'MIT',
-  },
-  progress: {
-    mode: 'synchronous',
-    round: { current: 12, total: 12, started_at: '2026-07-19T14:03:00Z' },
-    rounds: UNET_ROUNDS,
-    sites: UNET_SITES,
-  },
-  reporting: {
-    dropped_reports: UNET_DROPPED_ROUNDS.length,
-    reconciled: true,
-    reconciled_at: '2026-07-21T08:40:00Z',
-  },
-  transport: {
-    observed: {
-      valid: false,
-      invalid_reason:
-        'The driver was relaunched several times during this run, so its log covers only the '
-        + 'last stretch of it while the site logs cover much more.',
-      per_site: null,
-      per_site_basis: null,
-      driver: {
-        bytes_out: UNET_STATE_DICT_BYTES * 123,
-        bytes_in: UNET_STATE_DICT_BYTES * 123,
-        n_transfers: 246,
-      },
-      windows: [
-        { source: 'driver', first_seq: 0, last_seq: 245, n_transfers: 246 },
-        { source: 'site-a', first_seq: 0, last_seq: 1011, n_transfers: 1012 },
-        { source: 'site-b', first_seq: 0, last_seq: 987, n_transfers: 988 },
-      ],
-    },
-    computed: {
-      bytes_moved: UNET_COMPUTED_BYTES,
-      basis: '3N+1 transfers per round for N sites, times the measured payload size',
-      validated_against: 'a single-site control run whose log covered the whole of it',
-    },
-    kinds_transferred: ['model_weights'],
-    only_weights_left_site: true,
-    images_moved_bytes: 0,
-    // No byte figure exists for this campaign: the driver counts images on
-    // public benchmark datasets and never measures their size on disk.
-    // Public benchmark datasets, counted rather than sized. No byte figure
-    // exists at all, so there is no basis to state and no ratio to render.
-    images_held: { n_images: 1753 },
-    declared_data_bytes: null,
-  },
-  payload: {
-    kind: 'full_state_dict',
-    label: 'Full state dict',
-    bytes_per_site_per_round: UNET_STATE_DICT_BYTES,
-    // Null: a synchronous campaign has no contributions to measure per.
-    bytes_per_contribution: null,
-  },
-  stewards: [{ name: 'Campaign steward', workspace: 'bioimage-io' }],
-  published_model: null,
-  generated_at: '2026-09-06T00:00:00Z',
-};
-
 export const FIXTURE_CAMPAIGNS: Record<string, CampaignRecord> = {
   [CELLPOSE_SAM_CAMPAIGN.campaign_id]: CELLPOSE_SAM_CAMPAIGN,
-  [UNET_CAMPAIGN.campaign_id]: UNET_CAMPAIGN,
 };
 
 function toSummary(record: CampaignRecord): CampaignSummary {
@@ -1100,15 +865,6 @@ function toSummary(record: CampaignRecord): CampaignSummary {
     payload: record.payload,
     model_licence: record.licence_policy.model_licence,
   };
-  if (p.mode === 'synchronous') {
-    return {
-      ...shared,
-      progress: { mode: 'synchronous', round: { current: p.round.current, total: p.round.total } },
-      n_active_sites: p.sites.filter((s) => s.role !== 'withdrawn' && s.role !== 'pending_review')
-        .length,
-      started_at: p.round.started_at,
-    };
-  }
   return {
     ...shared,
     progress: {
@@ -1127,5 +883,4 @@ function toSummary(record: CampaignRecord): CampaignSummary {
 
 export const FIXTURE_CAMPAIGN_SUMMARIES: CampaignSummary[] = [
   toSummary(CELLPOSE_SAM_CAMPAIGN),
-  toSummary(UNET_CAMPAIGN),
 ];

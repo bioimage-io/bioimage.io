@@ -2,47 +2,62 @@
  * Federation campaign records, as read by the Campaigns pages.
  *
  * DRAFT. This is the website's proposal for the JSON contract exposed by the
- * `federation-campaign` BioEngine app, written to be a thin view over what the
- * federated driver ALREADY records rather than a new vocabulary. The mapping,
- * against `apps/federated-unet/` in the bioengine repo:
+ * `federation-campaign` BioEngine app.
+ *
+ * ## Scope: foundation models only
+ *
+ * A campaign in this contract is a community fine-tuning programme around a
+ * PRE-TRAINED FOUNDATION MODEL, with Cellpose-SAM as the pilot. That is the
+ * scope Nils set on 15 Sep 2026 and it is narrower than the file used to be.
+ *
+ * Through 0.13.0-draft this schema also typed a synchronous FedAvg consortium
+ * running lockstep rounds across a fixed site roster, which was a thin view over
+ * `apps/federated-unet/` in the bioengine repo:
  *
  *   TransportSummary  <- checkpoints.py  TransportLog.dump()
  *   RoundRecord       <- run_federated.py  round_records[]
  *   SiteRecord        <- entry.py  get_status() + push_weights()
  *
- * Bump CAMPAIGN_SCHEMA_VERSION on any breaking change and keep the mapping
- * comments accurate: they are what makes it checkable that the page cannot
- * display a number the driver never measured.
+ * 0.14.0-draft removes that arm. `apps/federated-unet` is still live and still
+ * maintained; it simply has no website contract any more, and nothing here
+ * should be read as a claim about it. If a synchronous programme ever comes back
+ * into scope, `progress.mode` is still a discriminated union with one member, so
+ * re-adding an arm is additive rather than a re-cut of the union.
+ *
+ * What remains is the ASYNCHRONOUS MODEL-SOUP arm, which has no shipped producer
+ * yet either. The only mapping it has is to a backend under construction
+ * (live-kudu's soup service), so every field below is a proposal the backend is
+ * being built against rather than a description of something already recorded.
+ * That distinction matters more here than it did with the driver mapping: there
+ * is no running system to check a field against, so a field that looks measured
+ * is only ever as good as the declaration that carries it.
+ *
+ * Bump CAMPAIGN_SCHEMA_VERSION on any breaking change, and when a producer does
+ * land, write its mapping here: a checkable mapping is what makes it provable
+ * that the page cannot display a number nothing ever measured.
  *
  * Ownership, settled with able-clam: this file is the typed wire contract and
  * the backend conforms to it, because two files defining the same format is how
  * they drift. The backend owns the SEMANTICS of what fills each field, and the
  * service echoes `schema_version` so a mismatch is visible rather than silent.
  *
- * ## A campaign is one arm-seed, not a whole run
- *
- * `RoundRecord.round` is the driver's `r` from `range(args.rounds)`, which
- * restarts at 0 per arm AND per seed. The consortium run is 15 arms x 5 seeds,
- * so each round number occurs 75 times across it. A campaign therefore pins
- * `experiment.arm` and `experiment.seed`, which is what makes `round` unique
- * within a campaign and what makes a campaign URL stable.
- *
  * ## Snapshotted, not proxied
  *
  * Fields sourced from `get_status()` (datasets, accelerator, bioengine_version)
- * come from a live RPC on the site. The service SNAPSHOTS them into the record
- * at join and at each round rather than proxying a live call, for two reasons:
- * a live proxy contradicts the snapshot the rest of the record is, and it goes
- * blank the moment a campaign ends, which is exactly when this page matters
- * most. Nothing here may be wired to a live per-site call.
+ * come from a live RPC on a contributor's deployment. The service SNAPSHOTS them
+ * into the record at join and at each contribution rather than proxying a live
+ * call, for two reasons: a live proxy contradicts the snapshot the rest of the
+ * record is, and it goes blank the moment a campaign ends, which is exactly when
+ * this page matters most. Nothing here may be wired to a live per-contributor
+ * call.
  *
  * ## Declared and measured are different things
  *
- * Some values the platform measured; some a site typed into a join form. They
- * must never be mixed into one figure or one visual treatment. `SiteRecord`
- * carries an explicit `declared` list naming its own self-declared fields, so
- * the roster can mark them rather than the page having to remember which is
- * which.
+ * Some values the platform measured; some a contributor typed into a join form.
+ * They must never be mixed into one figure or one visual treatment.
+ * `ContributorRecord` carries an explicit `declared` list naming its own
+ * self-declared fields, so the roster can mark them rather than the page having
+ * to remember which is which.
  *
  * ## The nullability rule
  *
@@ -55,30 +70,35 @@
  * ## What this schema deliberately does NOT assume
  *
  * The design mockup this page came from was drawn against a hypothetical
- * Cellpose-SAM campaign. The first real campaign (the U-Net consortium) differs
- * in three ways, and the schema accommodates all three rather than hiding them:
+ * Cellpose-SAM campaign, and Cellpose-SAM is now the pilot. That closeness is a
+ * hazard rather than a convenience: a mockup's numbers are chosen to look right,
+ * and the four guards below all exist because a figure the mockup drew turned
+ * out to be one no producer can supply. They are kept as guards, not as
+ * history.
  *
- *  1. There is no terabyte figure. The driver records image COUNTS on public
- *     benchmark datasets and measures dataset sizes nowhere, so the only byte
- *     figure available is one the sites declare. It lives in its own field,
- *     `declared_data_bytes`, and is expected to be null for the U-Net campaign.
- *     The page then renders an image count and does not estimate a size from it.
- *  2. The U-Net campaign exchanges FULL state dicts, which is correct for a
- *     small U-Net. `PayloadDescriptor.kind` carries that, and no page hardcodes
- *     the word "adapter".
- *  3. The metric is validation Dice per dataset, not a generic "score".
- *     `RoundMetric.name` travels with the record and is rendered verbatim.
+ *  1. There is no terabyte figure, and the schema must not imply one. A byte
+ *     count over a contributor's training corpus is something they DECLARE, not
+ *     something the platform can measure, so it lives in its own field,
+ *     `declared_data_bytes`, and is null until someone declares it. The page
+ *     renders an image count and never estimates a size from it.
+ *  2. The payload kind is data, not an assumption. The soup fork was ruled
+ *     FULL-WEIGHT, so `PayloadDescriptor.kind` says `full_state_dict` today, and
+ *     no page hardcodes either that or the word "adapter". A campaign that
+ *     switches to a low-rank adapter changes a value here, not a component.
+ *  3. The metric name travels with the record and is rendered verbatim. There is
+ *     no generic "score" label anywhere, because the campaign, not the page,
+ *     knows what it measured.
  *
- * There is a FOURTH mismatch, found later and larger than the other three: the
- * mockup's headline saving figure is not a property of the campaign at all, it
- * is a property of the window it is taken over, and over a long enough campaign
- * it changes SIGN. Bytes moved accumulates with every round and data held does
- * not, so a quotient of the two is a function of how long the run has gone on.
- * Every campaign therefore has a crossover round, and whether that round is
- * inside or outside the schedule depends on the corpus size relative to the
- * payload, not on whether the payload is an adapter or a whole model. This
- * schema carries no field for a saving and no page may render saving language,
- * or any quotient of bytes moved by data held, in any form. See
+ * The FOURTH guard is the largest and it is a prohibition rather than a field.
+ * The mockup's headline saving figure is not a property of the campaign at all,
+ * it is a property of the window it is taken over, and over a long enough
+ * campaign it changes SIGN. Bytes moved accumulates with every contribution and
+ * every merge; data held does not. A quotient of the two is therefore a function
+ * of how long the campaign has run, so every campaign has a crossover point, and
+ * whether that point falls inside the campaign depends on the corpus size
+ * relative to the payload rather than on whether the payload is an adapter or a
+ * whole model. This schema carries no field for a saving and no page may render
+ * saving language, or any quotient of bytes moved by data held, in any form. See
  * TransportAudit.tsx for the full note.
  *
  * That rule now binds the paper as well as the page, confirmed by the paper
@@ -86,62 +106,44 @@
  * a property of the schema rather than of either surface, and the next person to
  * want a headline multiplier will look for the reason in this file.
  *
- * ## Two campaign modes, and why they are a union rather than a superset
+ * ## One mode, and why `mode` is still a discriminated union
  *
- * A synchronous campaign advances in lockstep rounds: every site trains the same
- * round, the driver merges, everyone pulls the aggregate, repeat. That is the
- * U-Net consortium, and it is what every field above was written for.
- *
- * An asynchronous model-soup campaign has no rounds at all. Contributors
- * fine-tune on their own data at their own pace and push a checkpoint whenever
- * they finish. Periodically those checkpoints are averaged into a new community
- * model that everyone can pull. The two are not a fast and a slow version of one
- * process, they are two processes, and the difference the record has to carry is
- * that ASYNC HAS TWO EVENT STREAMS WHERE SYNC HAS ONE:
+ * An asynchronous model-soup campaign has no rounds. Contributors fine-tune on
+ * their own data at their own pace and push a checkpoint whenever they finish.
+ * Periodically those checkpoints are merged into a new community model that
+ * everyone can pull. The structural fact the record has to carry is that there
+ * are TWO EVENT STREAMS, not one:
  *
  *   CONTRIBUTIONS  continuous, unordered, one per contributor per finished run,
  *                  arriving at arbitrary wall-clock times.
  *   SOUP MERGES    discrete, ordered, each one producing an immutable community
  *                  checkpoint version.
  *
- * In a synchronous campaign these coincide. Round r IS both "everyone trained"
- * and "the driver merged", which is exactly why one `RoundRecord` can carry
- * participants, merge weights and a metric at once. Asynchronously they come
- * apart: a contribution and the merge that folds it in happen days apart, and
- * between them sit other contributors' runs that will land in the same merge or
- * the next one.
+ * They come apart in time: a contribution and the merge that folds it in happen
+ * days apart, and between them sit other contributors' runs that will land in
+ * the same merge or the next one. Nothing in this file may assume a contribution
+ * and a merge share an index, a timestamp, or a cardinality.
  *
- * So `progress` is a DISCRIMINATED UNION on `mode` and not a bag of nullable
- * fields. A record carrying both `rounds` and `contributions` would be
- * describing a campaign that does not exist, and the rest of this file is built
- * on the principle that the record should not be able to express a thing that
- * cannot happen. The cost is that every consumer must switch on `mode`; that is
- * the intended cost, because a consumer that forgets is one the compiler stops.
+ * `progress` is nonetheless a DISCRIMINATED UNION on `mode` with exactly one
+ * member. That is deliberate and it is not a leftover. Through 0.13.0-draft
+ * there were two members and the union was carrying a real distinction; 0.14.0
+ * removed the synchronous one. Keeping the discriminant costs every consumer one
+ * switch it cannot currently get wrong, and buys the ability to add a second
+ * process ADDITIVELY. Collapsing it would save that switch now and force a
+ * breaking re-cut, plus a re-pin on every consumer of the fixture corpus, the
+ * first time a second process appears. The union was the expensive half of
+ * 0.8.0-draft and it is already paid for.
  *
- * Three fields that look shared are deliberately NOT:
- *
- *  1. `SiteRecord.joined_round` has no async counterpart. A contributor does not
- *     join at a round, it joins at a time, and it is characterised by when and
- *     how often it contributed rather than by which rounds it was present for.
- *     Hence `ContributorRecord` with `joined_at`, not a nullable round on a
- *     shared type.
- *  2. `PayloadDescriptor.bytes_per_site_per_round` is a per-round-per-site
- *     quantity. The async analogue is per CONTRIBUTION, and one contributor
- *     contributing twice in the time another contributes once makes these
- *     genuinely different numbers rather than the same number renamed. Two
- *     fields, exactly one populated per mode.
- *  3. The transport formula. Sync is `2|participants| + 1 + |participants union
- *     eval_on|` transfers per round. Async has no round to multiply by: it is
- *     one upload per contribution plus one download per contributor that pulls
- *     each new community version. `ComputedTransport.basis` is rendered verbatim
- *     precisely so a mode change is a different string rather than a code change,
- *     and that property is now load-bearing rather than incidental.
+ * The shape that is specifically NOT permitted, and the reason a discriminant
+ * beats a bag of nullable fields: a record carrying two populated event-stream
+ * families with no discriminant leaves the reader to decide which one wins, and
+ * every such decision is a page inventing a semantics the producer never stated.
  *
  * ## Inclusion is a decision, and as of 0.9.0-draft the campaign makes it
  *
  * Under uniform or sample-weighted averaging, every contribution that arrives is
- * in the soup by construction, exactly as every site that reported is in a FedAvg
- * aggregate. Under GREEDY souping it is not: checkpoints are admitted against a
+ * in the soup by construction, the way every participant that reported is in a
+ * uniformly averaged aggregate. Under GREEDY souping it is not: checkpoints are admitted against a
  * held-out set and a contributor can do everything right and not be in the model.
  *
  * The fork was ruled greedy on 12 Sep 2026, and the hold that stood here through
@@ -160,7 +162,7 @@
  *     leaderboard with the ranking implied instead of stated, which is worse
  *     rather than better. Selection outcomes are published PER MERGE, where they
  *     describe the merge, and never aggregated per contributor. This is the same
- *     rule that keeps `RoundMetric.per_site` withheld, arriving by a new route.
+ *     rule that keeps `CampaignMetric.per_site` withheld, arriving by a new route.
  *
  * ## A selection gate makes its own metric unusable as an improvement curve
  *
@@ -178,66 +180,64 @@
  * JSON and a type alone cannot stop a producer putting the gate score in the
  * witness slot.
  *
- * ## Disclosure rules (binding, from the driver owner)
+ * ## Disclosure rules (binding, originally from the driver owner)
  *
  * Some fields are deliberately withholdable, and the page must render fine
  * without them rather than treating absence as an error:
  *
  *  - **Roster**: exposed, but it is a list of SELF-DECLARED display names. The
- *    driver cannot attest identity under the current deployment, so no view
- *    may present it as an authenticated membership list.
- *  - **Per-site metric curves**: run-internal. Only the aggregate is public by
- *    default, because a live per-site curve is a public leaderboard of whose
- *    data is hardest, which is a reputational hazard and a disincentive to
- *    join. `RoundMetric.per_site` is therefore nullable.
- *  - **Training-set sizes**: opt-in, and this is a boundary that spans three
- *    fields rather than one. `RoundRecord.merge_weights` publishes every site's
- *    training-set size because that is what FedAvg weights on. But
- *    `SiteRecord.n_train_images` is the SAME quantity read straight off
- *    `push_weights()`, and `TransportSummary.images_held.n_images` is its sum.
- *    Gating only merge_weights would leak the protected value through the
- *    roster panel instead of the metrics panel. All three are nullable and all
- *    three are governed by one flag.
- *  - **Membership is not the weight.** `joined_round` is derived from the
- *    merge_weights keys. Presence (is this site a key) and value (how much did
- *    it count) are different quantities and only the value is protected, so
- *    presence may be derived freely while the derivation must not carry values
- *    through when the flag is off.
+ *    platform cannot attest identity under the current deployment, so no view
+ *    may present it as an authenticated membership list. In an OPEN campaign
+ *    this binds harder rather than softer: the roster is no longer a short list
+ *    of known institutions a reader could sanity-check by eye.
+ *  - **Per-participant metric curves**: run-internal. Only the aggregate is
+ *    public by default, because a live per-participant curve is a public
+ *    leaderboard of whose data is hardest, which is a reputational hazard and a
+ *    disincentive to join. `CampaignMetric.per_site` is therefore nullable.
+ *  - **Training-set sizes**: opt-in, and this is a boundary that spans several
+ *    fields rather than one. `ContributorRecord.n_train_images`,
+ *    `ContributionRecord.n_train_images` and
+ *    `TransportSummary.images_held.n_images` are the same protected quantity at
+ *    three scopes, the last being a sum of the others. Gating one would leak the
+ *    value through another panel, so all of them are nullable and all of them
+ *    are governed by one flag.
+ *  - **Membership is not the weight.** That a contributor took part and how much
+ *    its data counted are different quantities, and only the second is
+ *    protected. Presence may be derived freely; a derivation must not carry
+ *    values through when the flag is off.
  *  - **Split fingerprints**: exposed for public-data campaigns, opt-in
  *    otherwise, because a fingerprint over private data is a membership
  *    oracle. Nullable.
- *  - **Outcome axis is post-hoc**: process fields (roster, transport, round
- *    progress, fingerprints) may update live. Accuracy may not, at all, until
+ *  - **Outcome axis is post-hoc**: process fields (roster, transport, merge
+ *    cadence, fingerprints) may update live. Accuracy may not, at all, until
  *    `policy.outcomes_released` says the campaign's primary-metric rules have
- *    resolved. `RoundRecord.metric` is nullable for that reason and not by
- *    accident, but nullability is only half of it: a service that sends a
+ *    resolved. `SoupRecord.witness_metric` is nullable for that reason and not
+ *    by accident, but nullability is only half of it: a service that sends a
  *    metric anyway must still not have it rendered, so the page gates on the
  *    flag rather than on whether the field happens to be populated.
  *
- * ## Reporting is lossy in flight and reconciled at the end
+ * ## Reporting is lossy in flight
  *
- * Driver-to-service reporting is fire-and-forget and is never awaited on the
- * training critical path, so a service outage costs round records and not the
- * run. `rounds` may therefore have holes WHILE a campaign runs.
+ * Reporting into the campaign service is fire-and-forget and is never awaited on
+ * the training critical path, so a service outage costs records and not runs.
+ * `contributions`, `soups` and `empty_merges` may all have holes.
  *
- * When an arm completes, the driver commits an authoritative arm record and the
- * service re-reads it to fill the rounds that were lost in flight. That is not
- * interpolation and not backfilling: the committed record is the source of
- * truth and the live reports were always a lossy preview of it. The service
- * must still never SYNTHESISE a round, and it must always prefer the committed
- * record over the live report.
+ * `reporting.dropped_reports` is what a reader has instead of being able to see
+ * those holes, and the async arm's doc explains why seeing them is impossible: a
+ * missing element of an unindexed stream leaves no trace. A page that ignores
+ * the field is not showing a slightly short stream, it is showing a stream it
+ * has no grounds to call complete.
  *
- * Two consequences the pages have to render:
- *
- *  - Reconciliation is an end-of-arm event, not continuous repair. A running
- *    campaign should expect gaps and say so; the same campaign after completion
- *    should be whole. The committed arm record is written once, at arm end, so
- *    a running campaign is permanently `reconciled: false`. That is the correct
- *    reading of a running campaign and not a bug to chase.
- *  - `reporting.dropped_reports` counts reports lost in flight, and
- *    `reporting.reconciled` says whether the series has been checked against
- *    the committed record. Together they let a reader tell "we lost telemetry"
- *    from "the run genuinely skipped this round", which are different facts.
+ * `reporting.reconciled` and `reconciled_at` are a HOLDOVER and are documented
+ * as such rather than quietly dropped. They were defined against the federated
+ * driver's end-of-arm committed record, which was the authoritative source the
+ * lossy live reports were a preview of. That driver is no longer in this
+ * contract, and the soup backend has not stated an equivalent, so as of
+ * 0.14.0-draft there is no producer for either field and no page may read a null
+ * `reconciled` as "not yet reconciled". It means nobody has said. The fields are
+ * kept because removing them would be asserting that no async backend will ever
+ * have a committed store worth reconciling against, which is a claim this side
+ * is in no position to make.
  */
 
 /**
@@ -274,7 +274,7 @@
  *
  * Also in 0.3.0-draft: `RoundRecord.eval_on`, without which the transport
  * multiplier is only computable at full participation, and
- * `RoundMetric.aggregate_withheld`, which carries the reason for a withhold so
+ * `CampaignMetric.aggregate_withheld`, which carries the reason for a withhold so
  * the page does not reconstruct it. The page could infer every one of those
  * causes from public process fields. It must not: inference from an absence is
  * how a withhold becomes indistinguishable from a gap, which is the same bug
@@ -285,7 +285,7 @@
  * false for as long as the gap stayed open, and the page would have accepted
  * 0.3.0 records while dropping their withheld rounds on the floor.
  *
- * 0.4.0-draft: MINOR. `RoundMetric.per_site_basis`, and every reader of
+ * 0.4.0-draft: MINOR. `CampaignMetric.per_site_basis`, and every reader of
  * `per_site` must change, so this is the clearest minor in the list.
  *
  * The previous version asserted "keyed by site_id" in a doc comment, which the
@@ -349,7 +349,7 @@
  * the field the floor is checked against, required whenever an aggregate is
  * published.
  *
- * 0.7.0-draft: MINOR. `RoundMetric.n_datasets_scored`, the denominator 0.4.0
+ * 0.7.0-draft: MINOR. `CampaignMetric.n_datasets_scored`, the denominator 0.4.0
  * left missing when it made the key space declarable. A consumer that ignores
  * it keeps withholding correct dataset-keyed aggregates forever, so ignoring it
  * is not a safe default and every reader of `per_site` must change.
@@ -403,7 +403,7 @@
  *
  * `SoupRecord.metric` is GONE and is not renamed in place, which is the point of
  * doing it this way. It splits into `witness_metric` and `selection_metric`, and
- * `RoundMetric` grows a required `role` so the two are distinguishable as values
+ * `CampaignMetric` grows a required `role` so the two are distinguishable as values
  * and not only as field names. A consumer that was reading `.metric` gets a
  * compile error and has to choose, rather than silently continuing to read
  * whichever score now lives at the old name. Under a gate, the wrong choice draws
@@ -443,7 +443,7 @@
  * 0.11.0-draft: MINOR and additive, in two parts, both from the Cellpose-SAM
  * soup backend's field contract (live-kudu, 12 Sep 2026).
  *
- * `RoundMetric.aggregate_scope`. The scoring floor assumed every aggregate is a
+ * `CampaignMetric.aggregate_scope`. The scoring floor assumed every aggregate is a
  * mean over PARTICIPANT-held scores, because that is what the synchronous
  * consortium produced, and it refuses any aggregate with a null
  * `n_sites_scored`. The soup campaign scores its witness split centrally on a
@@ -507,8 +507,53 @@
  * version string is what tells a reader which wire they are on, and a wire that
  * changed without it is the drift this envelope exists to catch. The backend is
  * making the same disambiguation, so it is a coordinated change either way.
+ *
+ * 0.14.0-draft: MINOR, and by far the largest removal in this list. The
+ * SYNCHRONOUS ARM IS GONE. Campaigns target foundation models only, with
+ * Cellpose-SAM as the pilot, which is a scope decision from Nils on 15 Sep 2026
+ * and not a schema judgement.
+ *
+ * Removed: the `mode: 'synchronous'` member of `CampaignProgressRecord` and of
+ * `CampaignSummary.progress`, `RoundRecord`, `SiteRecord`, `SiteRole`,
+ * `SiteActivity`, `CampaignExperiment`, `CampaignRecord.experiment`, and
+ * `PayloadDescriptor.bytes_per_site_per_round`.
+ *
+ * Renamed, because the unit they were named after no longer exists:
+ * `RoundMetric` becomes `CampaignMetric`, `RoundTransport` becomes
+ * `TransportCounts`, `SiteDataset` becomes `ContributorDataset`, and
+ * `DeclaredSiteField` becomes `DeclaredProfileField` (not
+ * `DeclaredContributorField`, which would have sat one character from the
+ * existing `DeclaredContributionField`). Earlier entries in this log use the
+ * NEW names, so that every name in this file resolves to something that exists.
+ *
+ * Deliberately NOT renamed: `per_site`, `per_site_basis`, `n_sites_scored`,
+ * `policy.aggregate_min_scoring_sites`, `CampaignSummary.n_active_sites` and
+ * `KeySpace` `'site'`. The rule separating the two lists is whether the thing
+ * named still exists. A round does not exist in any form, so a type called
+ * `RoundMetric` points at nothing. A scoring site does exist and is now called a
+ * contributor, so those names are merely stale, and renaming a live concept
+ * across roughly three hundred call sites inside a removal this size would make
+ * both changes harder to review than either alone. Read "site" as "a scoring
+ * participant". This is a known debt, recorded rather than left to be
+ * rediscovered.
+ *
+ * `reporting.reconciled` and `reconciled_at` survive with NO PRODUCER, which is
+ * documented at the field rather than fixed. They were defined against the
+ * federated driver's end-of-arm committed record, and that driver left with the
+ * synchronous arm.
+ *
+ * The cost being accepted, recorded here so it is not re-litigated: this file
+ * began as a thin typed view over `apps/federated-unet/` in the bioengine repo,
+ * that app is live and maintained, and after this version the website no longer
+ * types its records at all. The app keeps running and keeps its own data. It
+ * simply has no website contract, which was the ruling rather than an oversight.
+ *
+ * `mode` stays a discriminated union with one member. Collapsing it would save
+ * every consumer one switch today and cost a breaking re-cut, plus a re-pin on
+ * every consumer of the fixture corpus, the first time a second process appears.
+ * The union was the expensive half of 0.8.0-draft and it is already paid for.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.13.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.14.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -525,58 +570,51 @@ export const CAMPAIGN_SCHEMA_VERSION = '0.13.0-draft';
 export type KeySpace = 'site' | 'dataset';
 
 /**
- * What crosses the site boundary each round.
+ * What crosses the network per contribution and per merge.
  *
  * `kind` exists so the page can describe the payload truthfully for campaigns
- * with very different transport profiles. A small U-Net exchanging its whole
- * state dict and a 300M-parameter foundation model exchanging a low-rank
- * adapter are both legitimate; they are not the same claim.
+ * with very different transport profiles. A 300M-parameter foundation model
+ * exchanging full weights and the same model exchanging a low-rank adapter are
+ * both legitimate; they are not the same claim, and no component hardcodes
+ * either one.
  */
 export interface PayloadDescriptor {
   kind: 'full_state_dict' | 'lora_adapter' | 'gradient' | 'other';
   /** Human-readable, rendered verbatim. e.g. "Full state dict", "LoRA adapter (r=8, qkv and head)". */
   label: string;
   /**
-   * Measured per round from the transport log, where the log covers that round.
-   * Null otherwise, and NEVER estimated from a parameter count.
+   * Measured bytes for one contribution's upload, where the transport log covers
+   * it. Null otherwise, and NEVER estimated from a parameter count.
    *
    * A campaign-wide measured figure is specifically not acceptable here: the
    * per-source transport logs are in-memory and reset on process restart, so a
    * campaign-wide sum silently undercounts. A trustworthy campaign-wide number
    * exists, but it is computed from the validated transfer pattern rather than
    * observed, so it belongs in `ComputedTransport` where it can be labelled.
-   */
-  bytes_per_site_per_round: number | null;
-  /**
-   * The asynchronous analogue: measured bytes for one contribution's upload.
    *
-   * A sibling field rather than a rename, because these are different
-   * quantities and not one quantity under two names. A per-round-per-site figure
-   * is multiplied by rounds and sites to reach a campaign total; a
-   * per-contribution figure is multiplied by however many contributions happened
-   * to arrive, which no schedule fixes. Collapsing them would let a reader carry
-   * a sync intuition onto an async number, which is the whole class of error the
-   * basis fields in this file exist to stop.
-   *
-   * Exactly one of the two is populated for any campaign, decided by
-   * `progress.mode`. Both null is an ordinary unreported state.
+   * Through 0.13.0-draft this sat beside `bytes_per_site_per_round`, its
+   * synchronous sibling, and the pair was deliberately not collapsed into one
+   * field. The sibling went with the synchronous arm in 0.14.0-draft. The reason
+   * they were separate is still the rule here: this figure is multiplied by
+   * however many contributions happen to arrive, which no schedule fixes, so it
+   * must never be read as a per-period quantity.
    */
   bytes_per_contribution: number | null;
 }
 
 /**
- * One dataset a site contributes. Mirrors `get_status().datasets_loaded[name]`,
- * snapshotted into the record at join and at each round. Never read live: see
- * the snapshotted-not-proxied note in the file header.
+ * One dataset a contributor holds. Mirrors `get_status().datasets_loaded[name]`,
+ * snapshotted into the record at join and at each contribution. Never read live:
+ * see the snapshotted-not-proxied note in the file header.
  */
-export interface SiteDataset {
+export interface ContributorDataset {
   name: string;
   /** What the images contain, e.g. "fluorescence nuclei". */
   objects: string | null;
   n_train: number | null;
   n_val: number | null;
   n_test: number | null;
-  /** Where the data came from. Null for data the site has not published. */
+  /** Where the data came from. Null for data the contributor has not published. */
   source: string | null;
   licence: string | null;
   citation: string | null;
@@ -589,98 +627,19 @@ export interface SiteDataset {
 }
 
 /**
- * How a site currently relates to the campaign.
+ * Names of `ContributorRecord` profile fields whose values a contributor typed
+ * into a join form rather than the platform measuring them.
  *
- * 'founding' is presentation rather than an independent fact: it means
- * `joined_round === 0`. The service should derive it rather than asserting it,
- * so it cannot drift from the merge_weights the aggregate was actually
- * computed from.
+ * Named for the PROFILE rather than the contributor, to keep it one character
+ * apart from nothing. `DeclaredContributionField` already exists and names the
+ * declared fields of a single CONTRIBUTION, which is a different record with a
+ * different lifetime, and `DeclaredContributorField` beside it would have been
+ * two near-identical names for two things a reader has to keep apart.
  */
-export type SiteRole = 'founding' | 'joined' | 'pending_review' | 'withdrawn';
+export type DeclaredProfileField = 'contributor_name' | 'country' | 'datasets' | 'n_train_images';
 
 /**
- * What a site is doing in the round being displayed.
- *
- * Only the states the driver can actually back. There is deliberately no
- * 'training' or 'unreachable' here: the driver records nothing live per site,
- * and the only way to produce those would be to poll `get_status()`, which is a
- * live call and therefore goes blank when the campaign ends. Both backed states
- * are derived from whether the site appears in the latest round's participants.
- *
- * `SiteRecord.activity` is nullable on top of this, for the ordinary case where
- * the service does not know.
- */
-export type SiteActivity = 'reported' | 'idle' | 'pending_review';
-
-/**
- * Names of `SiteRecord` fields whose values a site typed into a join form
- * rather than the platform measuring them.
- */
-export type DeclaredSiteField = 'site_name' | 'country' | 'datasets' | 'n_train_images';
-
-/**
- * One participating site.
- *
- * `joined_round` is recorded rather than smoothed over: a site that joined
- * mid-campaign contributed to fewer rounds and its weight in the merged model
- * is correspondingly smaller, which the provenance has to show.
- *
- * `site_name` is SELF-DECLARED. The platform does not verify that a
- * participating deployment belongs to the institution it names, so no view may
- * present this list as attested membership.
- */
-export interface SiteRecord {
-  site_id: string;
-  /** Self-declared. Not verified against any institutional identity. */
-  site_name: string;
-  /** ISO 3166 country name or null if the site has not declared one. */
-  country: string | null;
-  /** Derived: 'founding' is `joined_round === 0`, not an independent assertion. */
-  role: SiteRole;
-  /**
-   * Derived from the merge_weights keys. Presence is derivable even when the
-   * weight VALUES are withheld, so this stays populated in a campaign that has
-   * opted out of publishing training-set sizes.
-   */
-  joined_round: number | null;
-  /** Set when a site leaves; its earlier rounds still count. */
-  left_round: number | null;
-  /** Snapshot of `get_status().torch.cuda_device`. Null on CPU-only or undisclosed sites. */
-  accelerator: string | null;
-  datasets: SiteDataset[];
-  /**
-   * From `push_weights().n_train_images`, the count actually used for FedAvg
-   * weighting. Opt-in and governed by the same flag as `merge_weights`: this is
-   * the site's training-set size, which is the exact quantity that flag exists
-   * to protect.
-   */
-  n_train_images: number | null;
-  /** Null when the service does not know. See SiteActivity for why it often will not. */
-  activity: SiteActivity | null;
-  /** Snapshot of `get_status()`. Null when the site did not report one. */
-  bioengine_version: string | null;
-  /**
-   * Which of this site's own fields are self-declared rather than measured.
-   * Rendered visually distinct from measured values, so a reader can tell a
-   * form entry from an observation without being told per field.
-   *
-   * An empty array is a positive statement that nothing was declared. It is not
-   * the same as null and must not be collapsed into it.
-   *
-   * Still nullable here even though the service has required it since
-   * 0.2.5-draft, because this type describes what can arrive over the wire, not
-   * what the producer promises to send. Nothing on this side type-checks the
-   * JSON. Dropping the null would delete the page's only handling of a producer
-   * regression and replace it with the assumption that regressions do not
-   * happen, which is how the self-declared values would go back to being
-   * presented as platform-measured. SiteRoster renders the third state visibly
-   * rather than silently picking a side.
-   */
-  declared: DeclaredSiteField[] | null;
-}
-
-/**
- * Why the service published no aggregate for a round.
+ * Why the service published no aggregate for a scored event.
  *
  * A closed union, emitted by the service, and the page never infers which
  * applies. It could: every one of these is derivable from public process
@@ -740,10 +699,10 @@ export type AggregateWithholdCause =
  * state which it is instead of the page guessing conservatively and quietly
  * dropping curves the campaign was entitled to show.
  *
- * A synchronous FedAvg campaign selects nothing, so every metric it publishes is
- * a witness by construction. It still declares the role, because "by
- * construction" is an argument about the campaign and not a property of the
- * record, and the next mode added to this schema may not have it.
+ * A campaign that selects nothing, as uniform souping and FedAvg both do,
+ * publishes only witnesses by construction. It still declares the role, because
+ * "by construction" is an argument about the campaign and not a property of the
+ * record, and a reader holding one record cannot check the argument.
  *
  * NOTE TO PRODUCERS. The page enforces this field in one direction only. It
  * refuses a metric declaring 'selection' in a slot it plots, and it cannot
@@ -796,8 +755,17 @@ export type MetricRole = 'witness' | 'selection';
  */
 export type AggregateScope = 'participant_pool' | 'campaign_holdout';
 
-/** The scoring for one round. `name` is campaign-specific and rendered as given. */
-export interface RoundMetric {
+/**
+ * The scoring for one event: a merge's witness or selection score, or the
+ * campaign's baseline. `name` is campaign-specific and rendered as given.
+ *
+ * Was `RoundMetric` through 0.13.0-draft. The shape is unchanged; the unit it
+ * hangs off is not, and several of the field docs below still say "round" where
+ * they mean "scored event". They are being corrected as they are touched rather
+ * than in one sweep, because a mechanical pass over prose is how a true sentence
+ * becomes a plausible false one.
+ */
+export interface CampaignMetric {
   /**
    * Whether this score gates anything. See `MetricRole`. Required, and the one
    * field here that is about the campaign's process rather than its numbers.
@@ -818,12 +786,13 @@ export interface RoundMetric {
    * The key space is NOT implied. It is stated by `per_site_basis` and this
    * field means nothing without it.
    *
-   * This doc comment used to say "keyed by `SiteRecord.site_id`" and that was
-   * the defect. The only known producer keys by DATASET: `val_dice()` in
-   * run_federated.py builds `scores[dataset]` while returning `scored_with[site]`
-   * from the same loop, so the two key spaces come out of one function. A page
-   * that reads this map as site-keyed resolves dataset names through the roster
-   * and renders whichever ones happen to match as labelled site curves.
+   * This doc comment used to assert a site-id key space, and that was the
+   * defect. The producer it was written against keyed by DATASET: `val_dice()`
+   * in run_federated.py built `scores[dataset]` while returning
+   * `scored_with[site]` from the same loop, so two key spaces came out of one
+   * function. A page that reads this map as site-keyed resolves dataset names
+   * through the roster and renders whichever ones happen to match as labelled
+   * per-participant curves.
    *
    * Nothing detects that by inspection. In the launch consortium the client
    * name and the dataset name are the identical string for all six datasets
@@ -876,8 +845,8 @@ export interface RoundMetric {
    * This exists because a null field cannot distinguish a decision from a gap
    * on its own, and the page had no third state for it: a null aggregate fell
    * out of both branches of the chart's loop, contributing no point, no
-   * counter, and no note. The round silently shortened the line, and every
-   * missing round was rendered as if the campaign had never had one.
+   * counter, and no note. The event silently shortened the line, and every
+   * withheld score was rendered as if the campaign had never produced one.
    */
   aggregate_withheld: AggregateWithholdCause | null;
   /**
@@ -887,14 +856,15 @@ export interface RoundMetric {
    */
   aggregate_basis: string | null;
   /**
-   * How many sites contributed a score this round.
+   * How many participants contributed a score to this event.
    *
    * The denominator of `aggregate`, and therefore the operand the scoring floor
    * is checked against. It began life as the public stand-in for `per_site`, a
    * way to state completeness without publishing the map, and it is still that.
    * It is no longer only that, which is why the doc comment grew: the floor used
-   * to read `eval_on` instead, and a page reading this field as an optional
-   * completeness hint would not notice that the floor now depends on it.
+   * to read a count of participants ASKED instead, and a page reading this
+   * field as an optional completeness hint would not notice that the floor now
+   * depends on it.
    *
    * Required whenever `aggregate` is non-null, whether or not `per_site` is
    * published. Null withholds the aggregate rather than skipping the floor,
@@ -902,13 +872,14 @@ export interface RoundMetric {
    * how many sites stand behind it, which is the condition the floor exists to
    * rule out.
    *
-   * Never greater than `|eval_on|` where both are present: a site cannot return
-   * a score it was not asked for. That is a contradiction rather than a coverage
-   * gap, and the page reports it as one.
+   * Never greater than the number of participants asked, where a campaign
+   * publishes that: a participant cannot return a score it was not asked for.
+   * That is a contradiction rather than a coverage gap, and the page reports it
+   * as one.
    */
   n_sites_scored: number | null;
   /**
-   * How many datasets contributed a score this round.
+   * How many datasets contributed a score to this event.
    *
    * A count in the same key space as the VALUES of the driver's `scored_by` map,
    * which is what makes it comparable to `len(val_dice)` and to nothing else.
@@ -918,7 +889,7 @@ export interface RoundMetric {
    * otherwise have to re-derive it from the driver.
    *
    * Present when and only when `per_site_basis` is 'dataset'. On a site-keyed
-   * round there is nothing for it to count, and a record carrying both a site
+   * event there is nothing for it to count, and a record carrying both a site
    * map and a dataset count has not decided what it counts, so the page refuses
    * it rather than picking one. That is a louder failure than silently
    * preferring either, which is the point of requiring the key spaces to agree.
@@ -927,14 +898,14 @@ export interface RoundMetric {
    * even though they are siblings. The scoring floor is a rule about SITES
    * whatever the map is keyed by: a pooled arm averaging six datasets from one
    * site is still one site's data under a pooled label, which is the disclosure
-   * the floor exists to stop. So a dataset-keyed round with an aggregate carries
+   * the floor exists to stop. So a dataset-keyed event with an aggregate carries
    * both counts, this one to show its map is complete and `n_sites_scored` for
    * the floor to stand on. Treating their co-occurrence as the contradiction
    * would reopen 0.6.0's leak in a second key space.
    *
-   * Null on a dataset-keyed round is not a fault and is not refused as one. The
+   * Null on a dataset-keyed event is not a fault and is not refused as one. The
    * field postdates the first completed campaign, whose records cannot be
-   * regenerated, so a dataset-keyed round without it falls back to the older
+   * regenerated, so a dataset-keyed event without it falls back to the older
    * behaviour: the map cannot be checked, and the aggregate is withheld with no
    * accusation attached.
    */
@@ -953,7 +924,7 @@ export interface RoundMetric {
  * reason: `per_site_basis` exists because a key space asserted in prose is a
  * claim nobody can check.
  */
-export type WitnessMetric = RoundMetric & { role: 'witness' };
+export type WitnessMetric = CampaignMetric & { role: 'witness' };
 
 /**
  * The score a greedy soup admitted contributions against.
@@ -967,136 +938,52 @@ export type WitnessMetric = RoundMetric & { role: 'witness' };
  * or version, which is the shape the type prevents by not being assignable to
  * `ScoredEvent.metric`.
  */
-export type SelectionMetric = RoundMetric & { role: 'selection' };
+export type SelectionMetric = CampaignMetric & { role: 'selection' };
 
 /**
- * Bytes moved in one round.
+ * Bytes moved by one unit of campaign activity: a contribution upload, a merge,
+ * or one source's share of either.
  *
- * Transport entries carry no round field, but their paths are
- * `{seed}/{arm}/round_{NN}/{site}.pt` on both the driver and the site side, so
- * every entry attributes to a round by parsing its own path.
+ * Was `RoundTransport` through 0.13.0-draft, when the unit was always a round.
+ * The shape did not change with the rename; the unit did, and the unit is the
+ * whole content of the type.
  *
- * That per-round attribution is what makes transport reportable at all. The
- * per-source logs are in-memory and reset on process restart, so a
- * campaign-wide sum silently undercounts: it looks complete and is not. The
- * same truncated log read per round gives exact bytes for the rounds it covers
- * and null for the rounds it does not, which turns an invisible undercount into
- * a visible gap.
+ * Per-unit attribution is what makes transport reportable at all. The per-source
+ * logs are in-memory and reset on process restart, so a campaign-wide sum
+ * silently undercounts: it looks complete and is not. The same truncated log
+ * read per unit gives exact bytes for the units it covers and null for the units
+ * it does not, which turns an invisible undercount into a visible gap.
  *
- * These figures are rendered PER ROUND and are never summed, extrapolated, or
- * put over the data held. A per-round transport figure and a campaign-wide one
- * are different quantities and the comparison between them reverses sign
- * depending on which you use. See the note at the top of TransportAudit.tsx.
+ * These figures are rendered PER UNIT and are never summed, extrapolated, or put
+ * over the data held. A per-unit transport figure and a campaign-wide one are
+ * different quantities and the comparison between them reverses sign depending
+ * on which you use. See the note at the top of TransportAudit.tsx.
  */
-export interface RoundTransport {
+export interface TransportCounts {
   bytes_out: number | null;
   bytes_in: number | null;
   n_transfers: number | null;
   /**
-   * True only when EVERY source's log covers this round.
+   * True only when EVERY source's log covers this unit.
    *
-   * This is the per-round analogue of `ObservedTransport.valid` and it exists
-   * for the same reason. A round covered by four sources out of six produces a
-   * `bytes_out` that is a real sum of real entries and is still not the round's
+   * This is the per-unit analogue of `ObservedTransport.valid` and it exists for
+   * the same reason. A merge covered by four sources out of six produces a
+   * `bytes_out` that is a real sum of real entries and is still not the merge's
    * transport: it is a partial sum that looks complete, which is the exact
    * failure the campaign-wide total has, moved down one level.
    *
-   * The round log therefore gates the per-round byte figure on this flag rather
-   * than on `bytes_out` being populated, because a populated value cannot tell
-   * a reader whether it is whole. Null fails closed, like every other flag in
-   * this schema, so a service that cannot answer this per round simply shows no
-   * per-round bytes.
+   * Views therefore gate the byte figure on this flag rather than on `bytes_out`
+   * being populated, because a populated value cannot tell a reader whether it is
+   * whole. Null fails closed, like every other flag in this schema, so a service
+   * that cannot answer this per unit simply shows no per-unit bytes.
    */
   sources_complete: boolean | null;
-}
-
-/** One federation round. Mirrors an entry of `run_federated.py` `round_records`. */
-export interface RoundRecord {
-  round: number;
-  /** Site ids that trained this round. May be a subset of the roster. */
-  participants: string[];
-  /**
-   * Site ids that evaluated this round's aggregate. May include sites that did
-   * not train, which is the whole reason it is a separate field: a
-   * leave-one-site-out fold trains five and evaluates six.
-   *
-   * Needed for the transport multiplier, whose last term is
-   * `|participants union eval_on|`, one store read per site that pulls the
-   * aggregate. Without it the multiplier is only computable at full
-   * participation, and assuming full participation is the same class of error
-   * as any other flattering default.
-   *
-   * It is NOT derived from `scored_with`, whose keys are the same set, because
-   * `scored_with` belongs to the outcome axis: it travels with `metric` and the
-   * page gates that whole surface on `policy.outcomes_released`. Deriving the
-   * multiplier from it would make a process quantity conditional on an outcome
-   * flag, and the transport curve would be withheld for every running campaign,
-   * which is exactly when it is worth reading.
-   *
-   * The test that settles which axis it belongs to: the model was shipped to
-   * those sites whether or not any score is ever released. The bytes moved. So
-   * the SET is a process quantity and only the VALUES are an outcome.
-   *
-   * Nullable and fails closed. A null withholds the point rather than assuming
-   * the eval set equalled the participant set, which is the flattering
-   * assumption: it undercounts the aggregate reads, understates the multiplier,
-   * and so puts the crossover later than it belongs.
-   */
-  eval_on: string[] | null;
-  /**
-   * FedAvg weights actually applied, keyed by site id. Opt-in: sample-count
-   * weights publish every site's training-set size. Null when withheld.
-   */
-  merge_weights: Record<string, number> | null;
-  /**
-   * Null while a campaign is running and reporting process axes only. Accuracy
-   * is an outcome axis and may be published post-hoc.
-   *
-   * Typed as a witness rather than a bare `RoundMetric` since 0.9.0-draft.
-   * Synchronous FedAvg admits every site that reported, so nothing here was ever
-   * selected on and the round metric has always been a witness. Stating it costs
-   * a producer one literal and buys the guarantee that the sync and async curves
-   * are drawn under the same rule. A sync-only `RoundMetric` would be one more
-   * place a future selecting mode could quietly land.
-   */
-  metric: WitnessMetric | null;
-  /** Digest of the merged weights, so a curve can be tied to the exact aggregate. */
-  global_sha256: string | null;
-  /**
-   * The digest of the aggregate each unit ACTUALLY scored on.
-   *
-   * The strongest provenance field in the record. The driver writes it after
-   * the merge and the pull, and raises when a unit's digest matches the
-   * previous round's while the aggregate moved, which catches a site scoring on
-   * weights it never received. The honest rendering of "6 sites training" is
-   * "6 sites scored on a22dba37...".
-   *
-   * Which makes the key space load-bearing rather than incidental, and this
-   * comment used to assert it. `scored_with` comes out of the same function as
-   * `RoundMetric.per_site` and the two are keyed DIFFERENTLY: `val_dice()`
-   * writes `scored_with[site]` and `scores[dataset]` in one loop. Today the
-   * site half is genuinely site-keyed, checked at run_federated.py:343 where
-   * the call passes `eval_on`. It is still not a fact any consumer can confirm,
-   * and a page that renders the map's size as a count of sites is asserting the
-   * key space every time it prints the sentence.
-   */
-  scored_with: Record<string, string> | null;
-  /**
-   * What `scored_with` is keyed by. Null means the producer did not say.
-   *
-   * The page names a count of sites in the provenance sentence, so it prints
-   * that sentence only for 'site'. Under any other basis it has a digest it
-   * could show and no way to say how many sites stand behind it, and a digest
-   * without that count is the part a reader would supply themselves.
-   */
-  scored_with_basis: KeySpace | null;
-  transport: RoundTransport | null;
 }
 
 /**
  * Whether a contribution ended up in a soup.
  *
- * All three values are reachable as of 0.9.0-draft. The campaign souths greedily
+ * All three values are reachable as of 0.9.0-draft. The campaign soups greedily
  * and admits contributions against a held-out split, so a contribution can be
  * assessed and left out.
  *
@@ -1135,12 +1022,12 @@ export type DeclaredContributionField = 'n_train_images' | 'dataset_name';
  * than a property of the campaign. `received_at` is the ordering key, and it is
  * the x-axis of every async view.
  *
- * `base_version` is the field with no synchronous counterpart at all, and it is
- * the one that makes an async record checkable. In lockstep every site trains
- * from the same aggregate by construction, so "which weights did this start
- * from" is answered by the round number. Asynchronously contributors start from
- * whatever community version was current when they began, which may be several
- * soups behind by the time they finish. A contribution built on a stale base is
+ * `base_version` is the field that makes a contribution checkable at all. A
+ * lockstep process would not need it: every participant trains from the same
+ * aggregate by construction, so "which weights did this start from" is answered
+ * by the schedule. Here contributors start from whatever community version was
+ * current when they began, which may be several soups behind by the time they
+ * finish, and nothing but this field records it. A contribution built on a stale base is
  * not invalid and is not hidden; it is a real property of async training that
  * the record carries so a reader can see it rather than assuming freshness.
  */
@@ -1170,17 +1057,17 @@ export interface ContributionRecord {
   bytes_out: number | null;
   /**
    * The contributor's training-set size for this run. Opt-in, and governed by
-   * the SAME flag as the synchronous `merge_weights`, because it is the same
-   * protected quantity: under sample-count weighting this is literally the
-   * weight this contribution carried into the soup.
+   * the SAME flag as every other appearance of a training-set size, because it
+   * is the same protected quantity: under sample-count weighting this is
+   * literally the weight this contribution carried into the soup.
    */
   n_train_images: number | null;
   /** What the contributor trained on, as declared. Null when not declared. */
   dataset_name: string | null;
   /**
    * Which of this contribution's own fields are self-declared. Same contract and
-   * same rendering rule as `SiteRecord.declared`, including that an empty array
-   * is a positive statement and is not null.
+   * same rendering rule as `ContributorRecord.declared`, including that an empty
+   * array is a positive statement and is not null.
    */
   declared: DeclaredContributionField[] | null;
   /**
@@ -1229,10 +1116,9 @@ export interface SoupRecord {
    *
    * Publishing the SET is a process fact and is not gated. Publishing how much
    * each one counted is the protected quantity, and it lives in `weights` under
-   * the training-set-size flag. Same split as the synchronous case, where
-   * membership is derived from the merge_weights keys while the values are
-   * withheld: presence and weight are different quantities and only the weight
-   * is protected.
+   * the training-set-size flag. Presence and weight are different quantities and
+   * only the weight is protected, so the set may be published while the values
+   * are withheld.
    *
    * Under greedy souping this is the set the gate ADMITTED, which is a subset of
    * `assessed` rather than equal to it.
@@ -1301,11 +1187,11 @@ export interface SoupRecord {
    * shorter name reads as the default and the default would be the circular one
    * on any campaign that publishes both.
    *
-   * Gated on `policy.outcomes_released` exactly as `RoundRecord.metric` is, and
-   * for the same reason: it is the outcome axis, and a metric published
-   * mid-campaign reads as a result when it is a partial observation.
+   * Gated on `policy.outcomes_released`, because it is the outcome axis and a
+   * metric published mid-campaign reads as a result when it is a partial
+   * observation.
    *
-   * Reusing `RoundMetric` rather than defining a parallel type is deliberate.
+   * Reusing `CampaignMetric` rather than defining a parallel type is deliberate.
    * Every rule that type carries (the key-space basis, the scoring floor, the
    * withhold causes, the required denominator) applies unchanged to a soup: a
    * pooled figure over too few contributors is the same disclosure hazard as one
@@ -1329,7 +1215,7 @@ export interface SoupRecord {
   /** Digest of the merged weights, so a point on the eval curve ties to an exact checkpoint. */
   global_sha256: string | null;
   /** Bytes moved by this merge: the distribution of the new checkpoint to contributors. */
-  transport: RoundTransport | null;
+  transport: TransportCounts | null;
 }
 
 /**
@@ -1352,8 +1238,8 @@ export interface CommunityCheckpoint {
    * soup up to and including the one that produced it.
    *
    * Stated by the service rather than summed by the page from `contributions`
-   * lengths. The contribution stream may have gaps for the same fire-and-forget
-   * reason the round series may, so a page-side sum would silently report the
+   * lengths. The contribution stream may have gaps, for the fire-and-forget
+   * reason in the file header, so a page-side sum would silently report the
    * reporting coverage as the campaign's size, and it would do it on the single
    * number most likely to be quoted.
    */
@@ -1427,7 +1313,7 @@ export interface EmptyMerge {
    * that the reconciliation does not require the campaign total and the sum of
    * published merges to be silently different numbers.
    */
-  transport: RoundTransport | null;
+  transport: TransportCounts | null;
   /**
    * The gate bar no candidate cleared, on the SELECTION split. Never plotted.
    *
@@ -1454,7 +1340,7 @@ export interface EmptyMerge {
    * Null is the ordinary reporting gap: a merge declined everything and the
    * service did not publish what it was measuring against.
    */
-  selection_metric: RoundMetric | null;
+  selection_metric: CampaignMetric | null;
 }
 
 /**
@@ -1623,21 +1509,22 @@ export interface MergeAgent {
 }
 
 /**
- * One participant in an ASYNCHRONOUS campaign.
+ * One participant in a campaign.
  *
- * Not a `SiteRecord`, and the difference is not cosmetic. A site in a lockstep
- * consortium is characterised by the rounds it was present for, which is what
- * `joined_round` and `left_round` encode. A contributor in an open async
- * campaign is characterised by when it first contributed and how often it has
- * since, and there is no round for it to have joined at. Giving the shared type
- * a nullable `joined_round` would have produced a field that is structurally
- * always null for half the campaigns, which is how a reader learns to ignore it.
+ * Characterised by WHEN it first contributed and how often it has since, which
+ * is what `joined_at`, `latest_contribution_at` and `n_contributions` carry.
+ * There is deliberately no join INDEX of any kind. Through 0.13.0-draft this
+ * type had a synchronous sibling whose participants were characterised by the
+ * rounds they were present for, and the two were kept separate rather than
+ * merged behind nullable fields, because a field that is structurally always
+ * null for half the campaigns is how a reader learns to ignore it. The sibling
+ * is gone and that reasoning is kept, because the field it warns against is the
+ * one someone will propose adding back.
  *
- * `contributor_name` is SELF-DECLARED, under exactly the same rule as
- * `SiteRecord.site_name`: the platform does not verify that a deployment belongs
- * to the institution or person it names. In an OPEN campaign this matters more
- * rather than less, because the roster is no longer a short list of known
- * institutions that a reader could sanity-check by eye.
+ * `contributor_name` is SELF-DECLARED: the platform does not verify that a
+ * deployment belongs to the institution or person it names. In an OPEN campaign
+ * this matters more rather than less, because the roster is no longer a short
+ * list of known institutions that a reader could sanity-check by eye.
  */
 export interface ContributorRecord {
   contributor_id: string;
@@ -1657,7 +1544,7 @@ export interface ContributorRecord {
   n_contributions: number | null;
   /** Snapshot of `get_status().torch.cuda_device`. Null on CPU-only or undisclosed. */
   accelerator: string | null;
-  datasets: SiteDataset[];
+  datasets: ContributorDataset[];
   /**
    * Summed training-set size across this contributor's datasets. Opt-in under
    * the same flag as everywhere else this quantity appears.
@@ -1666,118 +1553,115 @@ export interface ContributorRecord {
   /** Snapshot of `get_status()`. Null when not reported. */
   bioengine_version: string | null;
   /**
-   * Which of this contributor's fields are self-declared. Empty array is a
-   * positive statement and is not null. Same contract as `SiteRecord.declared`.
+   * Which of this contributor's profile fields are self-declared rather than
+   * measured. Rendered visually distinct from measured values, so a reader can
+   * tell a form entry from an observation without being told per field.
+   *
+   * An empty array is a positive statement that nothing was declared. It is not
+   * the same as null and must not be collapsed into it.
+   *
+   * Still nullable even though the service has required it since 0.2.5-draft,
+   * because this type describes what can arrive over the wire, not what the
+   * producer promises to send. Nothing on this side type-checks the JSON.
+   * Dropping the null would delete the page's only handling of a producer
+   * regression and replace it with the assumption that regressions do not
+   * happen, which is how self-declared values would go back to being presented
+   * as platform-measured. ContributorRoster renders the third state visibly
+   * rather than silently picking a side.
    */
-  declared: DeclaredSiteField[] | null;
+  declared: DeclaredProfileField[] | null;
 }
 
 /**
  * The progress model, discriminated on `mode`.
  *
- * See the two-modes note in the file header for why this is a union and not a
- * superset with nullable halves. Every consumer switches; that is the point.
+ * One member since 0.14.0-draft. See the one-mode note in the file header for
+ * why the discriminant stays: it costs a switch nobody can currently get wrong
+ * and it is what makes a second process additive instead of breaking.
  */
-export type CampaignProgressRecord =
-  | {
-      mode: 'synchronous';
-      round: {
-        current: number | null;
-        total: number | null;
-        /** ISO 8601. */
-        started_at: string | null;
-      };
-      /**
-       * May have gaps. Reporting from the driver into the campaign service is
-       * fire-and-forget and is never awaited on the training critical path, so a
-       * service outage costs round records and not the run. Views must render a
-       * discontinuous series rather than assuming `rounds[i].round === i`.
-       *
-       * A gap is a LOST RECORD, not a round that did not happen, and the pages
-       * must say so in those words. Read with `reporting` to tell the two apart.
-       */
-      rounds: RoundRecord[];
-      sites: SiteRecord[];
-    }
-  | {
-      mode: 'asynchronous';
-      /** ISO 8601. When the campaign opened for contributions. */
-      started_at: string | null;
-      /**
-       * The continuous stream, ordered by `received_at`. May have gaps for the
-       * same fire-and-forget reason the round series may, and a gap here is a
-       * lost record rather than a contribution that did not happen.
-       *
-       * Unlike rounds, a gap in this stream is NOT detectable by inspection.
-       * A missing round leaves a hole in an integer sequence; a missing
-       * contribution leaves nothing at all, because the stream has no index to
-       * be discontinuous in. `reporting.dropped_reports` is therefore the only
-       * signal an async campaign has that its stream is incomplete, which makes
-       * it load-bearing here in a way it is not in the synchronous arm.
-       */
-      contributions: ContributionRecord[];
-      /**
-       * The discrete ordered stream of PUBLISHED versions. `index` is sequential
-       * and safe as an axis.
-       *
-       * This is not every merge the campaign ran. A merge whose gate admitted
-       * nothing published no version and is in `empty_merges`. So
-       * `soups.length` is the number of community versions, and the number of
-       * merges is `soups.length + empty_merges.length`. Any view that says
-       * "merges" rather than "versions" has to add the two, and the copy has to
-       * pick one noun and mean it.
-       */
-      soups: SoupRecord[];
-      /**
-       * The base model's own witness score, measured on the same split by the
-       * same code before any contribution was folded in. Null when the campaign
-       * did not measure one.
-       *
-       * It is NOT the first point of the lineage, and the field exists at this
-       * level rather than as `soups[-1]` so that it cannot be made into one by
-       * an off-by-one. A lineage point is a published community version with a
-       * `soup_id`, an `index`, a member list and a digest. The baseline has
-       * none of those: it is the starting checkpoint, which the campaign did
-       * not produce and cannot point a reader at as its own output. Splicing it
-       * into the series would put a version-0 on the axis that never existed,
-       * and would make the first real merge look like an increment from a
-       * campaign artefact rather than from the published model everyone
-       * already had.
-       *
-       * What it is for is the question a witness curve cannot answer alone.
-       * Without it the curve says the community model improved over successive
-       * merges, which is true and uninteresting, since a greedy gate admits
-       * only what improves. With it the curve says whether the community model
-       * is better than the thing it started from, which is the only comparison
-       * a reader outside the campaign has any use for. Render it as a reference
-       * LEVEL across the whole chart, labelled with the base model's name.
-       *
-       * Typed `WitnessMetric` so the role declaration is required and the same
-       * refusals apply. A baseline measured on the selection split is a gate
-       * figure and must not be drawn beside a witness curve as though the two
-       * were comparable, and nothing about being a baseline exempts it. For the
-       * comparison to mean anything it must carry the same `name` and the same
-       * `aggregate_scope` as the soups' witness metrics, and a page that finds
-       * they differ should say so rather than drawing the line anyway.
-       */
-      baseline_metric: WitnessMetric | null;
-      /**
-       * Merges that ran and published nothing. Separate array because they are a
-       * different kind of event, not a degenerate soup. See `EmptyMerge`.
-       *
-       * Empty array and null are the usual distinction: empty says the campaign
-       * has run no such merge, null says the service does not report them, and
-       * on null the page stops claiming the merge markers are complete rather
-       * than showing a timeline it cannot vouch for.
-       */
-      empty_merges: EmptyMerge[] | null;
-      contributors: ContributorRecord[];
-      merge_trigger: MergeTrigger | null;
-    };
+export type CampaignProgressRecord = {
+  mode: 'asynchronous';
+  /** ISO 8601. When the campaign opened for contributions. */
+  started_at: string | null;
+  /**
+   * The continuous stream, ordered by `received_at`. May have gaps: reporting
+   * into the campaign service is fire-and-forget and is never awaited on the
+   * training critical path, so a service outage costs records and not runs. A
+   * gap is a LOST RECORD rather than a contribution that did not happen, and the
+   * pages must say so in those words.
+   *
+   * A gap here is NOT detectable by inspection, and that is the hard part. An
+   * indexed series makes a missing element visible as a hole in the integers; a
+   * missing contribution leaves nothing at all, because the stream has no index
+   * to be discontinuous in. `reporting.dropped_reports` is therefore the ONLY
+   * signal this campaign has that its stream is incomplete, which makes it
+   * load-bearing rather than diagnostic. A page that ignores it is not showing a
+   * slightly short stream, it is showing a stream it has no grounds to call
+   * complete.
+   */
+  contributions: ContributionRecord[];
+  /**
+   * The discrete ordered stream of PUBLISHED versions. `index` is sequential
+   * and safe as an axis.
+   *
+   * This is not every merge the campaign ran. A merge whose gate admitted
+   * nothing published no version and is in `empty_merges`. So
+   * `soups.length` is the number of community versions, and the number of
+   * merges is `soups.length + empty_merges.length`. Any view that says
+   * "merges" rather than "versions" has to add the two, and the copy has to
+   * pick one noun and mean it.
+   */
+  soups: SoupRecord[];
+  /**
+   * The base model's own witness score, measured on the same split by the
+   * same code before any contribution was folded in. Null when the campaign
+   * did not measure one.
+   *
+   * It is NOT the first point of the lineage, and the field exists at this
+   * level rather than as `soups[-1]` so that it cannot be made into one by
+   * an off-by-one. A lineage point is a published community version with a
+   * `soup_id`, an `index`, a member list and a digest. The baseline has
+   * none of those: it is the starting checkpoint, which the campaign did
+   * not produce and cannot point a reader at as its own output. Splicing it
+   * into the series would put a version-0 on the axis that never existed,
+   * and would make the first real merge look like an increment from a
+   * campaign artefact rather than from the published model everyone
+   * already had.
+   *
+   * What it is for is the question a witness curve cannot answer alone.
+   * Without it the curve says the community model improved over successive
+   * merges, which is true and uninteresting, since a greedy gate admits
+   * only what improves. With it the curve says whether the community model
+   * is better than the thing it started from, which is the only comparison
+   * a reader outside the campaign has any use for. Render it as a reference
+   * LEVEL across the whole chart, labelled with the base model's name.
+   *
+   * Typed `WitnessMetric` so the role declaration is required and the same
+   * refusals apply. A baseline measured on the selection split is a gate
+   * figure and must not be drawn beside a witness curve as though the two
+   * were comparable, and nothing about being a baseline exempts it. For the
+   * comparison to mean anything it must carry the same `name` and the same
+   * `aggregate_scope` as the soups' witness metrics, and a page that finds
+   * they differ should say so rather than drawing the line anyway.
+   */
+  baseline_metric: WitnessMetric | null;
+  /**
+   * Merges that ran and published nothing. Separate array because they are a
+   * different kind of event, not a degenerate soup. See `EmptyMerge`.
+   *
+   * Empty array and null are the usual distinction: empty says the campaign
+   * has run no such merge, null says the service does not report them, and
+   * on null the page stops claiming the merge markers are complete rather
+   * than showing a timeline it cannot vouch for.
+   */
+  empty_merges: EmptyMerge[] | null;
+  contributors: ContributorRecord[];
+  merge_trigger: MergeTrigger | null;
+};
 
 /** The span of the transport log one source contributed, used to check agreement. */
 export interface TransportWindow {
-  /** "driver", or a `SiteRecord.site_id`. */
+  /** The merge side, or a `ContributorRecord.contributor_id`. */
   source: string;
   first_seq: number | null;
   last_seq: number | null;
@@ -1789,9 +1673,9 @@ export interface TransportWindow {
  *
  * Renders ONLY when `valid` is true. The per-source logs are in-memory and
  * reset on process restart, so the sources sit on unsynchronised windows and
- * summing across them has no defined meaning. On the U-Net consortium campaign
- * they do not agree, so this block is expected to report `valid: false` and
- * render nothing at all. `invalid_reason` is what the page shows instead.
+ * summing across them has no defined meaning. `valid: false` and a rendered
+ * `invalid_reason` is the expected state for any campaign whose sources restart,
+ * which is most of them, and the page shows the reason instead of the numbers.
  */
 export interface ObservedTransport {
   valid: boolean;
@@ -1807,17 +1691,17 @@ export interface ObservedTransport {
    * first component to use it inherits an unverifiable claim and there is
    * nothing at that point to notice it against.
    */
-  per_site: Record<string, RoundTransport> | null;
+  per_site: Record<string, TransportCounts> | null;
   /**
    * What `per_site` is keyed by. Null means the producer did not say.
    *
-   * `run_federated.py:681` builds it over `apps.items()`, the same namespace as
-   * `eval_on`, so it is site-keyed today and `TransportWindow.source` agrees.
-   * Both of those are facts about the current driver rather than about the
-   * record, which is the distinction this field exists to carry.
+   * No producer has yet declared a key space for this map. That is a fact about
+   * the current state of the backend rather than about the record, which is the
+   * distinction this field exists to carry: a page may not assume contributor
+   * keys merely because `TransportWindow.source` uses them.
    */
   per_site_basis: KeySpace | null;
-  driver: RoundTransport | null;
+  driver: TransportCounts | null;
   windows: TransportWindow[] | null;
 }
 
@@ -1834,13 +1718,12 @@ export interface ComputedTransport {
   /**
    * A LOWER BOUND on the bytes moved, never a total. Render it as "at least".
    *
-   * The formula counts each arm once, but a driver relaunch keeps the arms that
-   * finished and restarts the arm that was in flight from round 0. The rounds
-   * that arm had already run really did put weights on the network and the
-   * formula does not see them, so a restarted campaign moved strictly more than
-   * this. The consortium run is on its seventh relaunch.
+   * The formula counts the transfers the campaign's pattern implies, and a
+   * campaign that restarted a merge, re-uploaded a contribution, or retried a
+   * failed transfer really did put weights on the network in ways the pattern
+   * does not see. Such a campaign moved strictly more than this.
    *
-   * Nothing in the record says whether a given campaign was restarted, so the
+   * Nothing in the record says whether a given campaign retried anything, so the
    * page cannot qualify this conditionally, and it does not need to: "at least"
    * is true of a clean run as well. Both of this page's transport figures now
    * fail in the same direction. The observed sum undercounts when the windows
@@ -1850,14 +1733,13 @@ export interface ComputedTransport {
    */
   bytes_moved: number | null;
   /**
-   * The formula, rendered verbatim, e.g.
-   * "2|participants| + 1 + |participants union eval_on| transfers per round
-   * x measured payload size".
+   * The formula, rendered verbatim, e.g. "one upload per contribution plus one
+   * download per contributor per published version x measured payload size".
    *
-   * The example here used to read "3N+1", which is that expression evaluated at
-   * full participation and not the general form. It is only an example string,
-   * but a wrong coefficient sitting in a doc comment is how a flat one ends up
-   * in code, so it is corrected rather than left as shorthand.
+   * Rendered verbatim and never reconstructed page-side. That property became
+   * load-bearing rather than incidental when the contract carried two modes with
+   * genuinely different formulae, and it stays that way: a campaign that changes
+   * how it counts transfers must change a string here, not a component.
    */
   basis: string;
   /** What the formula was checked against, e.g. a control run. Null if unchecked. */
@@ -1888,18 +1770,18 @@ export interface TransportSummary {
   images_moved_bytes: number | null;
   /**
    * How many images stayed where they were: the roster's summed training-set
-   * size, MEASURED, off the same `push_weights()` call as
-   * `SiteRecord.n_train_images`. Null when unreported.
+   * size, MEASURED, and the same quantity as
+   * `ContributorRecord.n_train_images`. Null when unreported.
    *
-   * It therefore sits behind the same opt-in flag as `merge_weights` and
-   * `SiteRecord.n_train_images`. It looks innocuous and is not.
+   * It therefore sits behind the same opt-in flag as every other appearance of a
+   * training-set size. It looks innocuous and is not.
    *
    * The SUM has a failure the individual values do not. A published total plus
-   * n-1 opted-in sites reconstructs the site that opted out, so the service
-   * serves `n_images` only when EVERY site on the roster has set the flag, not
-   * merely when the sites being summed have. Withholding one site's
-   * contribution from a total that is still published is not withholding it.
-   * This is the same shape as the partial-aggregate rule on `RoundMetric`.
+   * n-1 opted-in contributors reconstructs the one that opted out, so the
+   * service serves `n_images` only when EVERY contributor on the roster has set
+   * the flag, not merely when the ones being summed have. Withholding one
+   * contributor from a total that is still published is not withholding it.
+   * This is the same shape as the partial-aggregate rule on `CampaignMetric`.
    */
   images_held: {
     n_images: number | null;
@@ -1933,21 +1815,6 @@ export interface TransportSummary {
 }
 
 export type CampaignStatus = 'open' | 'running' | 'completed' | 'closed';
-
-/**
- * Which arm-seed of an experiment this campaign is.
- *
- * Pinned because round numbers restart at 0 per arm and per seed, so `round` is
- * only unique once both are fixed. A campaign is one arm-seed, never a whole
- * run. Null for a campaign that is not a slice of a larger experiment.
- */
-export interface CampaignExperiment {
-  /** e.g. "fedavg". */
-  arm: string | null;
-  seed: number | null;
-  /** The parent experiment, when the campaign is one slice of it. */
-  run_id: string | null;
-}
 
 /**
  * Campaign-level policy, so components read a flag instead of hardcoding a
@@ -1984,23 +1851,36 @@ export interface CampaignPolicy {
    */
   outcomes_released: boolean | null;
   /**
-   * The minimum number of SCORING sites below which `RoundMetric.aggregate` is
+   * The minimum number of SCORING sites below which `CampaignMetric.aggregate` is
    * withheld. A campaign-level judgement, not a derivation, which is exactly
    * why it lives here and is not a constant in this repo: a page that supplied
    * its own value would present one consortium's disclosure threshold as a
    * property of the platform.
    *
-   * Checked against `RoundMetric.n_sites_scored` and deliberately NOT against
-   * `RoundRecord.eval_on`, which is the earlier reading and the reason for the
-   * rename. `eval_on` is who was asked. The aggregate is a mean over who
-   * answered. A round can invite six sites, hear from one, and the pooled figure
-   * is then that one site's own value: the exact disclosure this threshold
-   * exists to prevent, passing the threshold. Restoring `eval_on` here would
-   * reinstate it, so this sentence is the guard against that.
+   * Checked against `CampaignMetric.n_sites_scored`, the participants that
+   * ANSWERED, and deliberately never against a count of participants ASKED. That
+   * distinction is the whole reason for the current name. The aggregate is a
+   * mean over who answered, so a campaign that invites six and hears from one
+   * publishes that one participant's own value under a pooled label: the exact
+   * disclosure this threshold exists to prevent, passing the threshold. The
+   * field it used to read, `eval_on`, went with the synchronous arm. Nothing may
+   * reintroduce an asked-count operand here under any name.
+   *
+   * "Sites" is a STALE NOUN and is kept on purpose, unlike `RoundMetric`, which
+   * was renamed to `CampaignMetric` in the same version. The difference is that
+   * a round no longer exists in this contract at all, whereas the thing this
+   * counts, a participant that held data and returned a score, exists exactly as
+   * before and is now called a contributor. `per_site`, `per_site_basis`,
+   * `n_sites_scored` and `KeySpace` `'site'` are the same family and are all
+   * left alone for the same reason: renaming a live concept across roughly three
+   * hundred call sites in the middle of a mode removal makes both changes harder
+   * to review, and the noun is wrong rather than misleading. Read "site" as "a
+   * scoring participant" throughout.
    *
    * The long name is deliberate. A bare `min_scoring_sites` reads as a validity
-   * condition on the round, which would have the page drop the round entirely.
-   * This gates ONE outcome field and leaves every process field standing.
+   * condition on the whole record, which would have the page drop the record
+   * entirely. This gates ONE outcome field and leaves every process field
+   * standing.
    *
    * Readable regardless of `outcomes_released`, because it describes a rule and
    * not a result. That generalises: a gate's parameter must not be hidden by
@@ -2084,14 +1964,16 @@ export interface BaseModelRef {
    * against anything, so a truncated value has the appearance of content
    * identification without the substance, which is worse than omitting it.
    *
-   * WHY OPTIONAL RATHER THAN REQUIRED-NULLABLE, which is how `version` is
-   * modelled one field up. Required would force every existing producer and the
-   * fixture corpus to restate the field immediately, and two services are
-   * mid-re-pin against 0.13.0-draft. Optional is purely additive: it costs no
-   * re-pin, and it gives the backend a declared place to write the value today
-   * instead of populating into a void. It tightens to `string | null`, matching
-   * `version`, with the next change that already forces a re-pin and populates
-   * the fixture. Until then, absent and null both mean the service did not say.
+   * REQUIRED-NULLABLE SINCE 0.14.0-draft, matching `version` one field up.
+   *
+   * It shipped optional at 0.13.0-draft on the reasoning that required would
+   * force every producer and the fixture corpus to restate the field while two
+   * services were mid-re-pin, with the stated plan to tighten it on the next
+   * change that already forced a re-pin. Dropping the synchronous arm is that
+   * change, so the debt is paid here rather than carried further: an optional
+   * field lets a producer omit it indefinitely, and "absent" and "null" saying
+   * the same thing is one distinction too many for a field whose whole job is
+   * to be checkable.
    *
    * Note what this does and does not buy when populated. Showing a digest lets
    * a reader check; it is not itself a check, because the page has no
@@ -2099,7 +1981,7 @@ export interface BaseModelRef {
    * would be the same overclaim `resolveMergeActor` documents about
    * `decided_by`.
    */
-  sha256?: string | null;
+  sha256: string | null;
 }
 
 /**
@@ -2111,9 +1993,9 @@ export interface BaseModelRef {
  * The index is FIRST CONTACT with the campaign service. Until 0.2.4-draft only
  * `get_campaign` carried a version, so a service that had drifted rendered its
  * whole index correctly and failed only when a reader clicked into a detail.
- * The summaries carry `payload` and `round`, which is exactly where a renamed
- * unit turns a byte count into a megabyte count, so the argument for checking
- * the detail applies to the index with no weakening at all.
+ * The summaries carry `payload` and `progress`, which is exactly where a
+ * renamed unit turns a byte count into a megabyte count, so the argument for
+ * checking the detail applies to the index with no weakening at all.
  *
  * The version sits on the envelope because N copies can disagree with each
  * other, and a per-item version would invent a failure mode the page has no
@@ -2132,29 +2014,29 @@ export interface CampaignSummary {
   status: CampaignStatus;
   base_model: BaseModelRef | null;
   /**
-   * Mode-appropriate headline progress, discriminated exactly as the full
-   * record's is.
+   * Headline progress, discriminated exactly as the full record's is.
    *
-   * The index used to carry a bare `round: {current, total}`, which an async
+   * The index used to carry a bare `round: {current, total}`, which a soup
    * campaign has no honest value for. Sending `{current: null, total: null}`
    * would have rendered as an unreported round on a campaign that has no rounds
-   * to report, so the index would have shown every async campaign as a
-   * synchronous one with missing telemetry.
+   * to report, so the index would have shown every campaign as a lockstep one
+   * with missing telemetry. That is the reason the discriminant is here and the
+   * reason it stays now that there is one member: an index that flattens its
+   * shape is exactly where the next mode would be misread.
    */
-  progress:
-    | { mode: 'synchronous'; round: { current: number | null; total: number | null } }
-    | {
-        mode: 'asynchronous';
-        /** Contributions recorded so far. Stated by the service, not counted page-side. */
-        n_contributions: number | null;
-        /** Community model versions published so far, i.e. how many soups have run. */
-        n_versions: number | null;
-      };
+  progress: {
+    mode: 'asynchronous';
+    /** Contributions recorded so far. Stated by the service, not counted page-side. */
+    n_contributions: number | null;
+    /** Community model versions published so far, i.e. how many soups have run. */
+    n_versions: number | null;
+  };
   /**
-   * Active participants. Sites under 'synchronous', contributors under
-   * 'asynchronous'. One field because the index renders one count either way and
-   * the label is the page's business, unlike the detail record where the two
-   * participant types carry genuinely different fields.
+   * Active contributors. The name is inherited from the two-mode era, when this
+   * one field counted sites or contributors depending on the arm, and it is left
+   * alone with the rest of the site-noun family. See
+   * `CampaignPolicy.aggregate_min_scoring_sites` for why that family was not
+   * renamed here.
    */
   n_active_sites: number | null;
   payload: PayloadDescriptor | null;
@@ -2171,31 +2053,29 @@ export interface CampaignRecord {
    * is lowercase alphanumeric with hyphens and nothing else, and it is the only
    * thing in the campaign URL: `/campaigns/<campaign_id>`.
    *
-   * Arm and seed are carried in `experiment` rather than being URL segments on
-   * purpose. They identify a campaign but they are experiment-shaped, and
-   * baking them into the path would break every existing link the first time an
-   * experiment is re-cut.
+   * Nothing experiment-shaped belongs in this path. An arm, a seed or a sweep
+   * index identifies a campaign but is re-cut whenever the experiment is, and
+   * baking one into the URL breaks every existing link at that moment.
    */
   campaign_id: string;
   title: string;
   description: string | null;
   status: CampaignStatus;
-  /** Which arm-seed this campaign is. See CampaignExperiment for why it is pinned. */
-  experiment: CampaignExperiment | null;
   policy: CampaignPolicy | null;
   base_model: BaseModelRef | null;
   /**
    * How contributions become a shared model. Free text, rendered verbatim,
    * because the page must not be the thing that decides what counts as a method.
    *
-   * Synchronous campaigns say "FedAvg". Async model-soup campaigns say
-   * "uniform soup" or "sample-weighted soup", and would say "greedy soup" if
-   * that fork is taken. `weighting` is what tells a reader whether
+   * A model-soup campaign says "greedy soup" under the fork ruled on 12 Sep
+   * 2026, and said "uniform soup" or "sample-weighted soup" under the
+   * alternatives that were live until then. `weighting` is what tells a reader
+   * whether
    * `SoupRecord.weights` being null is a withhold or simply inapplicable:
    * uniform weighting has no per-contribution weight to publish.
    */
   aggregation: {
-    /** e.g. "FedAvg", "uniform soup". */
+    /** e.g. "greedy soup", "uniform soup". */
     method: string;
     /** e.g. "sample count", "uniform". */
     weighting: string;
@@ -2206,25 +2086,27 @@ export interface CampaignRecord {
     model_licence: string | null;
   };
   /**
-   * The progress model. Switch on `progress.mode` before reading anything in it.
-   *
-   * `round`, `rounds` and `sites` used to sit at this level. They are the
-   * synchronous arm's fields and they moved inside it in 0.8.0-draft, so a
-   * consumer written for lockstep campaigns cannot silently read them off an
-   * async record. See the two-modes note in the file header.
+   * The progress model. Switch on `progress.mode` before reading anything in it,
+   * even though there is one mode to switch on. See the one-mode note in the
+   * file header.
    */
   progress: CampaignProgressRecord;
   reporting: {
     /** How many reports the service knows it lost in flight, when it counts them. */
     dropped_reports: number | null;
     /**
-     * Whether the series has been checked against the driver's committed arm
-     * record. False or null while a campaign runs, because reconciliation only
-     * happens once the arm finishes. This is what lets a reader tell lost
-     * telemetry from a round the run genuinely skipped.
+     * Whether the reported series has been checked against an authoritative
+     * committed store.
+     *
+     * NO PRODUCER as of 0.14.0-draft. It was defined against the federated
+     * driver's end-of-arm record, which left this contract with the synchronous
+     * arm, and the soup backend has not stated an equivalent. Null therefore
+     * means nobody has said, NOT "not yet reconciled", and a page must not
+     * render the second reading. See the lossy-reporting note in the file
+     * header for why the field is kept rather than dropped.
      */
     reconciled: boolean | null;
-    /** ISO 8601. When reconciliation last ran. Null if it never has. */
+    /** ISO 8601. When reconciliation last ran. Null if it never has, which is always today. */
     reconciled_at: string | null;
   } | null;
   transport: TransportSummary | null;

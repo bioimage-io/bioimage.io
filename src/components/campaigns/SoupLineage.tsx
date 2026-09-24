@@ -69,9 +69,15 @@ function missingReasonFor(disposition: AggregateDisposition): MissingReason {
 }
 
 /**
- * Why a version is not on the curve. Same three-actor split as the round chart,
- * for the same reason: a gap that the campaign chose, a gap this page chose,
- * and a gap nobody chose are different facts about the record.
+ * Why a version is not on the curve. The three-actor split: a gap that the
+ * campaign chose, a gap this page chose, and a gap nobody chose are different
+ * facts about the record, and collapsing them into one "no score" would
+ * attribute a decision to whoever the reader happens to blame.
+ *
+ * The split originated in RoundChart, which drew the same notes for rounds and
+ * was deleted with the synchronous arm at 0.14.0-draft. It is stated here now
+ * rather than cross-referenced, because the chart that used to hold the
+ * canonical version of this reasoning no longer exists.
  */
 const LineageNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
   const service = Object.entries(tally.service).filter(([, n]) => n > 0);
@@ -113,8 +119,10 @@ const LineageNotes: React.FC<{ tally: DispositionTally }> = ({ tally }) => {
 export interface SoupLineageProps {
   soups: SoupRecord[];
   /**
-   * From `policy.aggregate_min_scoring_sites`. Never defaulted here, for the
-   * same reason the round chart does not default it.
+   * From `policy.aggregate_min_scoring_sites`. Never defaulted here. A floor
+   * this component invented would be a rule the campaign never declared, and
+   * the disposition would then refuse figures on the page's own authority while
+   * reporting them as the campaign's.
    */
   minScoringSites?: number | null;
   /** Gate from `disclosure.outcomesReleased`. False hides the curve and the column. */
@@ -148,7 +156,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
     const plotted: Array<{ key: string; ms: number; value: number; label: string }> = [];
     soups.forEach((soup) => {
       const disposition = aggregateDisposition(
-        { metric: soup.witness_metric, eval_on: null },
+        { metric: soup.witness_metric },
         minScoringSites
       );
       tallyInto(tallied, disposition);
@@ -170,7 +178,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
     // is the one the campaign is measured against.
     const witnessRef = soups.find((s) => s.witness_metric)?.witness_metric ?? null;
     const baselineDisposition = baselineMetric
-      ? aggregateDisposition({ metric: baselineMetric, eval_on: null }, minScoringSites)
+      ? aggregateDisposition({ metric: baselineMetric }, minScoringSites)
       : null;
     // Comparability, which the disposition function cannot check because it
     // sees one metric at a time. A line drawn across a curve asserts that the
@@ -275,6 +283,25 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
 
   return (
     <div>
+      {/* WHY THIS NOTE LIVES HERE AND NOT IN CampaignProgress. Through
+          0.13.0-draft it sat in a "Scores by round" section, as the else-branch
+          of the round chart, and the async arm had no equivalent: the lineage
+          simply dropped its curve and its metric column and said nothing. That
+          is the one kind of silence this page is not allowed, because a reader
+          cannot tell a campaign that has withheld its scores from one that has
+          not measured any. The arm that carried the note was removed at
+          0.14.0-draft, so the note moved in here, where it renders in exactly
+          the space the withheld chart would have occupied. */}
+      {!showMetric && (
+        <p className="mb-6 text-sm leading-relaxed text-gray-600">
+          No scores are published for this campaign yet. A score taken from a merge whose
+          contributions are still arriving is a partial observation, and once it is next to another
+          contributor&rsquo;s it reads as a comparison between datasets rather than between methods.
+          Scores appear here after this campaign&rsquo;s primary-metric rules resolve. Everything
+          above stays live in the meantime.
+        </p>
+      )}
+
       {showMetric && points.length > 1 && (
         <div className="mb-6">
           {metricName && (
@@ -446,7 +473,7 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
               <th scope="col" className="py-2 pr-4 font-semibold">Merged</th>
               <th scope="col" className="py-2 pr-4 font-semibold">Folded in</th>
               <th scope="col" className="py-2 pr-4 font-semibold">Contributions so far</th>
-              {/* The metric's own name, never the word "Score". `RoundMetric.name`
+              {/* The metric's own name, never the word "Score". `CampaignMetric.name`
                   says so and this column was the one place still breaking it.
                   It matters more here than anywhere: the record carries a
                   witness metric AND a gate metric, the chart caption above
@@ -466,14 +493,15 @@ const SoupLineage: React.FC<SoupLineageProps> = ({
           <tbody className="divide-y divide-gray-100">
             {ordered.map((soup) => {
               const disposition = aggregateDisposition(
-                { metric: soup.witness_metric, eval_on: null },
+                { metric: soup.witness_metric },
                 minScoringSites
               );
               const version = soup.community_model?.version ?? null;
               const url = soup.community_model?.url ?? null;
-              // Same coverage gate the round log uses. A sum over four of six
-              // sources is a real sum that is not this merge's transport, and
-              // the number cannot say which of the two it is.
+              // The coverage gate: a sum over four of six sources is a real sum
+              // that is not this merge's transport, and the number cannot say
+              // which of the two it is. `sources_complete` is the only field
+              // that distinguishes them, so an unset one withholds.
               const moved =
                 soup.transport?.sources_complete === true
                   ? formatBytes(soup.transport?.bytes_out)
