@@ -4,7 +4,29 @@ Read-once plumbing for getting an authenticated Hypha client before you set up a
 
 ## If you don't have a Hypha token yet
 
-When the user hasn't provided a `HYPHA_TOKEN` and you need one, walk them through the browser login flow rather than guessing. `hypha_rpc.login()` connects to the `public/hypha-login` service, prints a one-time URL, and blocks until the user finishes the OAuth flow in their browser:
+Everything below authenticates as the **user**, never as you. There are two ways to get their token, and the first works regardless of what you can execute.
+
+### 1. Send them the token page (works from anywhere)
+
+Build a link with the scope you need and ask the user to press Generate, then Copy, then paste the line back:
+
+```
+https://bioimage.io/#/bioengine/token?workspace=<ws>&permission=read_write&expires-in=43200
+```
+
+| parameter | meaning |
+|---|---|
+| `workspace` | omit for the user's own workspace; a token can only be minted for one they already have permission in |
+| `permission` | `read`, `read_write`, or `admin`. Ask for `read_write` unless you are **registering a new worker**, which needs `admin` |
+| `expires-in` | seconds. Prefer the shortest that outlasts the task |
+
+The page pre-fills itself from those parameters, and the user pastes back a single `HYPHA_TOKEN=…` line. If they lack rights in the named workspace, the page says so and names it, which is the answer you want rather than an opaque failure later.
+
+Use this whenever you cannot run Python yourself — a chat assistant, a shell without `hypha_rpc`, a sandbox with no egress to PyPI — and prefer it any time you would otherwise ask the user to run code on your behalf.
+
+### 2. Drive the browser login yourself (needs a Python interpreter)
+
+`hypha_rpc.login()` connects to the `public/hypha-login` service, prints a one-time URL, and blocks until the user finishes the OAuth flow in their browser:
 
 ```python
 from hypha_rpc import login
@@ -34,7 +56,7 @@ token = await login({
 
 The token returned is scoped to the **user's personal workspace** (`ws-user-<provider>|<uid>`, e.g. `ws-user-github|49943582`) with admin permission. That's enough to set up workers, create new workspaces, and mint scoped tokens for apps. Save it in `~/.env` as `HYPHA_TOKEN` so subsequent sessions don't re-trigger login.
 
-> **Interactive setup wizard** — the page at `https://bioimage.io/#/bioengine` ("Launch Your Own BioEngine Instance") wraps this same flow with a friendlier UI and auto-generates a 30-day admin token after Hypha login. For humans who'd rather click than type, send them there; agents working purely in code use `login()` directly.
+> **Interactive setup wizard** — `https://bioimage.io/#/bioengine/worker-setup?mode=human` walks a human through standing up a worker, and auto-generates a token after Hypha login. `?mode=ai-agent` on the same page instead hands them a prompt to give an agent. Agents working purely in code use `login()` directly.
 
 ## Create a new workspace
 

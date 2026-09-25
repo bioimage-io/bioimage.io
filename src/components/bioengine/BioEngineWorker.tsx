@@ -7,6 +7,7 @@ import DeploymentConfigModal from './DeploymentConfigModal';
 import BioEngineWorkerList from './BioEngineWorkerList';
 import AppDiskCache from './AppDiskCache';
 import ErrorDialog from '../ErrorDialog';
+import CopyableValue from './CopyableValue';
 
 // Auto-refresh cadence for the worker detail page. Each tick calls
 // get_app_status, which the worker expands server-side into one
@@ -222,9 +223,6 @@ const BioEngineWorker: React.FC = () => {
 
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
   const [currentTime, setCurrentTime] = useState(Date.now());
-  const [agentPromptCopied, setAgentPromptCopied] = useState(false);
-  const [isGeneratingAgentPrompt, setIsGeneratingAgentPrompt] = useState(false);
-  const [agentPromptError, setAgentPromptError] = useState<string | null>(null);
   const [showDeployConfig, setShowDeployConfig] = useState(false);
   const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string, manifest?: any} | null>(null);
 
@@ -1002,34 +1000,6 @@ const BioEngineWorker: React.FC = () => {
   // freshly generated 30-day read+write workspace token so the agent can act
   // without an extra auth round-trip. The prompt's scope adapts to whether
   // the current user has admin rights on this worker.
-  const handleCopyAgentSetupPrompt = async () => {
-    if (!serviceId) return;
-    if (!isLoggedIn || !server) {
-      setAgentPromptError('Log in to generate a workspace token for the prompt.');
-      return;
-    }
-    setIsGeneratingAgentPrompt(true);
-    setAgentPromptError(null);
-    try {
-      const thirtyDays = 30 * 24 * 3600;
-      const token = await server.generateToken({ permission: 'read_write', expires_in: thirtyDays });
-      const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
-      const scope = isWorkerAdmin
-        ? `Connect to my BioEngine worker at service id \`${serviceId}\`. You can inspect the cluster, manage deployed apps, and call services on those apps.`
-        : `Connect to the BioEngine worker at service id \`${serviceId}\` to discover the apps and datasets it hosts, and call services on those apps.`;
-      const prompt = `Read ${skillUrl} to learn how to use the BioEngine API. ${scope}
-
-Use this Hypha read+write token for my workspace (expires in 30 days):
-${token}`;
-      await navigator.clipboard.writeText(prompt);
-      setAgentPromptCopied(true);
-      setTimeout(() => setAgentPromptCopied(false), 2000);
-    } catch (err) {
-      setAgentPromptError(err instanceof Error ? err.message : String(err));
-    } finally {
-      setIsGeneratingAgentPrompt(false);
-    }
-  };
 
   // Helper function to format uptime from seconds
   const formatUptime = (seconds: number): string => {
@@ -1119,7 +1089,7 @@ ${token}`;
           <div>
             <div className="flex items-center mb-2">
               <button
-                onClick={() => navigate('/bioengine/worker')}
+                onClick={() => navigate('/bioengine/worker-admin')}
                 className="flex items-center text-blue-600 hover:text-blue-800 transition-colors duration-200 mr-4"
                 title="Back to BioEngine Workers"
               >
@@ -1177,13 +1147,10 @@ ${token}`;
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 <div className="space-y-4">
-                  {/* Service ID from URL */}
-                  {serviceId && (
-                    <div>
-                      <span className="text-xs font-medium text-gray-500 block">Service ID</span>
-                      <span className="text-sm font-semibold text-gray-900 font-mono break-all">{serviceId}</span>
-                    </div>
-                  )}
+                  {/* Service ID from URL. Click-to-copy: these identifiers are
+                      long, wrap awkwardly, and are exactly what gets pasted into
+                      a CLI or an agent prompt. */}
+                  {serviceId && <CopyableValue label="Service ID" value={serviceId} />}
 
                   {/* Workspace and Client ID (fallback to parsed service info when needed) */}
                   {(() => {
@@ -1195,18 +1162,8 @@ ${token}`;
 
                     return (
                       <>
-                        {workspace && (
-                          <div>
-                            <span className="text-xs font-medium text-gray-500 block">Workspace</span>
-                            <span className="text-sm font-semibold text-gray-900 font-mono break-all">{workspace}</span>
-                          </div>
-                        )}
-                        {clientId && (
-                          <div>
-                            <span className="text-xs font-medium text-gray-500 block">Client ID</span>
-                            <span className="text-sm font-semibold text-gray-900 font-mono break-all">{clientId}</span>
-                          </div>
-                        )}
+                        {workspace && <CopyableValue label="Workspace" value={workspace} />}
+                        {clientId && <CopyableValue label="Client ID" value={clientId} />}
                       </>
                     );
                   })()}
@@ -1301,73 +1258,27 @@ ${token}`;
                     </div>
                   </div>
                 )}
-                {/* Service Info + Copy AI Agent Setup Prompt */}
-                {(getWorkerServiceInfoUrl() || serviceId) && (
+                {/* Service Info. The "Copy AI Agent Prompt" button that used to
+                    sit beside this moved to /bioengine/worker-admin, where a
+                    prompt can name several workers at once instead of only the
+                    one whose dashboard you happen to be on. */}
+                {getWorkerServiceInfoUrl() && (
                   <div className="md:col-span-2 pt-3 border-t border-gray-100 flex flex-wrap gap-2 items-center">
-                    {getWorkerServiceInfoUrl() && (
-                      <a
-                        href={getWorkerServiceInfoUrl()!}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300"
-                        title="View service information"
-                      >
-                        <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
-                        </svg>
-                        Service Info
-                        <svg className="w-3 h-3 ml-1 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                          <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
-                        </svg>
-                      </a>
-                    )}
-                    {serviceId && (
-                      <button
-                        onClick={handleCopyAgentSetupPrompt}
-                        disabled={!isLoggedIn || isGeneratingAgentPrompt}
-                        className={`inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 ${
-                          agentPromptCopied
-                            ? 'bg-green-50 text-green-700 border-green-200'
-                            : isLoggedIn
-                              ? 'bg-purple-50 text-purple-700 border-purple-200 hover:bg-purple-100 hover:border-purple-300'
-                              : 'bg-gray-50 text-gray-400 border-gray-200 cursor-not-allowed'
-                        }`}
-                        title={
-                          isLoggedIn
-                            ? 'Copy a one-shot AI agent prompt that loads the BioEngine skill, pins the agent to this worker, and embeds a fresh 30-day read+write workspace token.'
-                            : 'Log in to generate a workspace token for the prompt.'
-                        }
-                      >
-                        {agentPromptCopied ? (
-                          <>
-                            <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                            </svg>
-                            Copied to clipboard
-                          </>
-                        ) : isGeneratingAgentPrompt ? (
-                          <>
-                            <svg className="w-3.5 h-3.5 mr-1.5 animate-spin" fill="none" viewBox="0 0 24 24">
-                              <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
-                              <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z" />
-                            </svg>
-                            Generating token...
-                          </>
-                        ) : (
-                          <>
-                            <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.663 17h4.673M12 3v1m6.364 1.636l-.707.707M21 12h-1M4 12H3m3.343-5.657l-.707-.707m2.828 9.9a5 5 0 117.072 0l-.548.547A3.374 3.374 0 0014 18.469V19a2 2 0 11-4 0v-.531c0-.895-.356-1.754-.988-2.386l-.548-.547z" />
-                            </svg>
-                            Copy AI Agent Prompt
-                          </>
-                        )}
-                      </button>
-                    )}
-                    {agentPromptError && (
-                      <span className="text-xs text-red-600 ml-1" role="alert">
-                        {agentPromptError}
-                      </span>
-                    )}
+                    <a
+                      href={getWorkerServiceInfoUrl()!}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center px-3 py-1.5 text-xs font-medium rounded-lg border transition-all duration-200 bg-blue-50 text-blue-700 border-blue-200 hover:bg-blue-100 hover:border-blue-300"
+                      title="View service information"
+                    >
+                      <svg className="w-3.5 h-3.5 mr-1.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 16h-1v-4h-1m1-4h.01M21 12a9 9 0 11-18 0 9 9 0 0118 0z" />
+                      </svg>
+                      Service Info
+                      <svg className="w-3 h-3 ml-1 opacity-60" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
+                      </svg>
+                    </a>
                   </div>
                 )}
               </div>

@@ -37,13 +37,22 @@ const parseMultipleServicesFromError = (errStr: string): string[] => {
   return ids;
 };
 
-const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
+// Exported so the admin page can seed its default selection by NAME. The
+// service id embeds a ReplicaSet hash that changes on every pod roll, so
+// matching on the id would go stale the first time the worker restarts.
+export const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
 
 const ServiceCard: React.FC<{
   service: BioEngineService;
   onNavigate: (serviceId: string) => void;
   featured?: boolean;
-}> = ({ service, onNavigate, featured }) => {
+  /** Present only on the admin page, where cards can be picked for the agent
+   *  prompt. Left undefined elsewhere so the card keeps its single-button
+   *  layout rather than growing an inert control. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (serviceId: string) => void;
+}> = ({ service, onNavigate, featured, selectable, selected, onToggleSelect }) => {
   const [copied, setCopied] = useState(false);
 
   const copyServiceId = async () => {
@@ -56,9 +65,16 @@ const ServiceCard: React.FC<{
     }
   };
 
+  // What the blue outline means depends on the screen. Where cards can be
+  // picked for the agent prompt it marks "included in the prompt", which is the
+  // state the user is actively managing; elsewhere it keeps marking the
+  // featured worker. The "Powers this website" badge is independent of both and
+  // always follows `featured`.
+  const highlighted = selectable ? !!selected : !!featured;
+
   return (
     <div className={`w-full max-w-[380px] backdrop-blur-sm rounded-2xl flex flex-col h-full transition-all duration-200 ${
-      featured
+      highlighted
         ? 'bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-300 shadow-md hover:shadow-lg hover:border-blue-400'
         : 'bg-white/80 border border-white/20 shadow-sm hover:shadow-md hover:border-blue-200'
     }`}>
@@ -130,7 +146,30 @@ const ServiceCard: React.FC<{
         </div>
       </div>
 
-      <div className="p-6 pt-0">
+      <div className="p-6 pt-0 space-y-2">
+        {selectable && (
+          <button
+            type="button"
+            aria-pressed={!!selected}
+            onClick={() => onToggleSelect?.(service.id)}
+            className={`w-full px-6 py-3 rounded-xl font-medium shadow-sm transition-all duration-200 flex items-center justify-center gap-2 ${
+              selected
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:border-blue-400 hover:text-blue-700'
+            }`}
+          >
+            {selected ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Selected for prompt
+              </>
+            ) : (
+              'Add to agent prompt'
+            )}
+          </button>
+        )}
         <button
           onClick={() => onNavigate(service.id)}
           className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
@@ -142,7 +181,24 @@ const ServiceCard: React.FC<{
   );
 };
 
-const BioEngineWorkerList: React.FC = () => {
+/**
+ * Worker discovery across the observed workspaces.
+ *
+ * Used bare on the admin page and, in `selectable` mode, as the picker that
+ * feeds the AI-agent prompt. Selection state is deliberately owned by the
+ * caller: the prompt needs it too, and keeping one copy avoids the two drifting
+ * apart. Discovery, enrichment and refresh stay here so there is a single
+ * implementation of the awkward parts (the "Multiple services found" fan-out in
+ * particular).
+ */
+const BioEngineWorkerList: React.FC<{
+  selectable?: boolean;
+  selectedIds?: string[];
+  onToggleSelect?: (serviceId: string) => void;
+  /** Fires whenever the discovered set changes, so a caller can seed a default
+   *  selection once workers actually appear. */
+  onServicesChange?: (services: BioEngineService[]) => void;
+}> = ({ selectable, selectedIds, onToggleSelect, onServicesChange }) => {
   const navigate = useNavigate();
   const { server, isLoggedIn } = useHyphaStore();
 
@@ -279,7 +335,7 @@ const BioEngineWorkerList: React.FC = () => {
   }, [server, observedWorkspaces, fetchWorkspaceServices]);
 
   const navigateToDashboard = (serviceId: string) => {
-    navigate(`/bioengine/worker?service_id=${serviceId}`);
+    navigate(`/bioengine/worker-admin?service_id=${serviceId}`);
   };
 
   const allServices = useMemo(() => {
@@ -296,6 +352,15 @@ const BioEngineWorkerList: React.FC = () => {
   }, [observedWorkspaces, workspaceServices]);
 
   const isAnyLoading = observedWorkspaces.some(ws => workspaceStatus[ws] === 'loading');
+
+  // Report the discovered set upward. Keyed on the id list rather than the
+  // array identity: the 10 s refresh rebuilds the objects every tick, so
+  // depending on `allServices` itself would fire this on every poll.
+  const serviceIdKey = allServices.map(s => s.id).join('|');
+  useEffect(() => {
+    onServicesChange?.(allServices);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceIdKey]);
 
   return (
     <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
@@ -434,6 +499,9 @@ const BioEngineWorkerList: React.FC = () => {
                 service={service}
                 onNavigate={navigateToDashboard}
                 featured={service.name === FEATURED_SERVICE_NAME}
+                selectable={selectable}
+                selected={selectedIds?.includes(service.id)}
+                onToggleSelect={onToggleSelect}
               />
             ))}
           </div>

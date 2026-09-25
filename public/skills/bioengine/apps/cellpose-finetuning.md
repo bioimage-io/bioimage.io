@@ -308,7 +308,7 @@ Raw brightfield baseline (without CLAHE): **0 cells detected**. CLAHE is require
 
 ## Deploying and updating the cellpose-finetuning app
 
-The `cellpose-finetuning` service is deployed on the BioEngine worker (`bioimage-io/bioengine-worker`) and runs in the `bioimage-io` workspace. It requires a `HYPHA_TOKEN` that has write access to that workspace.
+The `cellpose-finetuning` service is deployed on the BioEngine worker (`bioimage-io/bioengine-worker`) and runs in the `bioimage-io` workspace. It requires a `HYPHA_TOKEN` that has write access to that workspace. If the user does not have one to hand, send them to `https://bioimage.io/#/bioengine/token?workspace=bioimage-io&permission=read_write&expires-in=43200` and ask for the `HYPHA_TOKEN=…` line it produces; the page will tell them plainly if they lack access to the workspace.
 
 ### First-time deployment (no existing app)
 

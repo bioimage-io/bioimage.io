@@ -3,7 +3,6 @@ import ArtifactCard from './ArtifactCard';
 import BioEngineAppManager from './BioEngineAppManager';
 import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
 
-const BIOENGINE_SKILL_URL = 'https://bioimage.io/skills/bioengine/SKILL.md';
 
 type ArtifactType = {
   id: string;
@@ -93,11 +92,16 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     useObservedWorkspaces(pinnedWorkspaces);
   const [wsInput, setWsInput] = useState('');
 
+  // Which workspace's apps are on screen. The observed list stays, but the
+  // grid shows ONE workspace at a time: the merged view made it impossible to
+  // tell which workspace an app came from, and a name collision across two
+  // workspaces looked like a duplicate.
+  const [activeWorkspace, setActiveWorkspace] = useState<string>('');
+
   const [availableArtifacts, setAvailableArtifacts] = useState<ArtifactType[]>([]);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [artifactManager, setArtifactManager] = useState<any>(null);
-  const [skillCopied, setSkillCopied] = useState(false);
 
   const appManagerRef = React.useRef<{
     openCreateDialog: () => void;
@@ -269,25 +273,20 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
     setAvailableArtifacts(prev => prev.filter(a => !a.id.startsWith(`${ws}/`)));
   };
 
-  const handleCopySkill = async () => {
-    try {
-      await navigator.clipboard.writeText(BIOENGINE_SKILL_URL);
-      setSkillCopied(true);
-      setTimeout(() => setSkillCopied(false), 2500);
-    } catch {
-      // Fallback
-      const ta = document.createElement('textarea');
-      ta.value = BIOENGINE_SKILL_URL;
-      document.body.appendChild(ta);
-      ta.select();
-      document.execCommand('copy');
-      document.body.removeChild(ta);
-      setSkillCopied(true);
-      setTimeout(() => setSkillCopied(false), 2500);
-    }
-  };
 
   const allWorkspaces = [...new Set([...pinnedWorkspaces, ...selectedWorkspaces])].filter(Boolean);
+
+  // Fall back to the worker's own workspace, then whatever is first. Also
+  // recovers when the active one is removed.
+  const effectiveWorkspace =
+    activeWorkspace && allWorkspaces.includes(activeWorkspace)
+      ? activeWorkspace
+      : (workerWorkspace && allWorkspaces.includes(workerWorkspace) ? workerWorkspace : allWorkspaces[0] || '');
+
+  const shownArtifacts = React.useMemo(
+    () => availableArtifacts.filter(a => a.id.startsWith(`${effectiveWorkspace}/`)),
+    [availableArtifacts, effectiveWorkspace],
+  );
 
   return (
     <div className="space-y-5">
@@ -300,32 +299,6 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
           <h3 className="text-lg font-semibold text-gray-800">Available BioEngine Apps</h3>
         </div>
         <div className="flex flex-wrap gap-2 items-center">
-          {/* BioEngine AI Skill copy button */}
-          <button
-            onClick={handleCopySkill}
-            title="Copy the BioEngine AI coding skill URL to clipboard. Paste it into an AI agent (Claude Code, etc.) to get guided app creation"
-            className={`flex items-center gap-2 px-4 py-2 text-sm font-medium rounded-xl border transition-all duration-200 shadow-sm ${
-              skillCopied
-                ? 'bg-green-50 border-green-300 text-green-700'
-                : 'bg-white border-gray-200 text-gray-700 hover:bg-gray-50 hover:border-gray-300 hover:shadow-md'
-            }`}
-          >
-            {skillCopied ? (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
-                </svg>
-                Skill URL Copied!
-              </>
-            ) : (
-              <>
-                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9.75 3.104v5.714a2.25 2.25 0 01-.659 1.591L5 14.5M9.75 3.104c-.251.023-.501.05-.75.082m.75-.082a24.301 24.301 0 014.5 0m0 0v5.714c0 .597.237 1.17.659 1.591L19.8 15.3M14.25 3.104c.251.023.501.05.75.082M19.8 15.3l-1.57.393A9.065 9.065 0 0112 15a9.065 9.065 0 00-6.23-.693L5 14.5m14.8.8l1.402 1.402c1 1 .03 2.7-1.388 2.7H4.186c-1.418 0-2.389-1.7-1.388-2.7L4.2 15.3" />
-                </svg>
-                Copy AI Coding Skill
-              </>
-            )}
-          </button>
 
           <button
             onClick={() => appManagerRef.current?.openCreateDialog()}
@@ -350,24 +323,34 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
 
       {/* Workspace selector */}
       <div className="flex flex-wrap items-center gap-2 p-3 bg-gray-50 border border-gray-200 rounded-xl">
-        <span className="text-xs font-semibold text-gray-600 mr-1">Workspaces:</span>
+        <span className="w-full text-xs text-gray-600 mb-1">
+          Select a workspace to see the apps available in it. Only one is shown at a time.
+        </span>
         {selectedWorkspaces.map(ws => {
           const isPinned = pinnedWorkspaces.includes(ws);
+          const isActive = ws === effectiveWorkspace;
           return (
             <span
               key={ws}
-              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shadow-sm ${
-                isPinned
-                  ? 'bg-blue-50 border-blue-300 text-blue-700'
-                  : 'bg-white border-gray-300 text-gray-700'
+              role="button"
+              tabIndex={0}
+              onClick={() => setActiveWorkspace(ws)}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setActiveWorkspace(ws); } }}
+              aria-pressed={isActive}
+              className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium border shadow-sm cursor-pointer transition-colors ${
+                isActive
+                  ? 'bg-blue-600 border-blue-600 text-white'
+                  : isPinned
+                    ? 'bg-blue-50 border-blue-300 text-blue-700 hover:bg-blue-100'
+                    : 'bg-white border-gray-300 text-gray-700 hover:border-blue-300'
               }`}
               title={isPinned ? `${ws === workerWorkspace ? "Worker's" : ws === userWorkspace ? "Your" : 'Public'} workspace (cannot be removed)` : ws}
             >
               {ws}
               {!isPinned && (
                 <button
-                  onClick={() => handleRemoveWorkspace(ws)}
-                  className="text-gray-400 hover:text-red-500 transition-colors"
+                  onClick={e => { e.stopPropagation(); handleRemoveWorkspace(ws); }}
+                  className={`transition-colors ${isActive ? 'text-blue-200 hover:text-white' : 'text-gray-400 hover:text-red-500'}`}
                   title={`Remove ${ws}`}
                 >
                   <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -417,22 +400,22 @@ const AvailableBioEngineApps: React.FC<AvailableBioEngineAppsProps> = ({
         </div>
       )}
 
-      {loading && availableArtifacts.length === 0 && (
+      {loading && shownArtifacts.length === 0 && (
         <div className="flex justify-center p-8 text-gray-500 text-sm gap-2">
           <div className="w-4 h-4 border-2 border-gray-300 border-t-blue-600 rounded-full animate-spin" />
           Loading artifacts…
         </div>
       )}
 
-      {!loading && availableArtifacts.length === 0 && (
+      {!loading && shownArtifacts.length === 0 && (
         <div className="flex justify-center p-8 text-gray-500 text-sm">
           No deployable artifacts found. Click "Load Artifacts" or add a workspace.
         </div>
       )}
 
-      {availableArtifacts.length > 0 && (
+      {shownArtifacts.length > 0 && (
         <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-          {availableArtifacts.map(artifact => (
+          {shownArtifacts.map(artifact => (
             <ArtifactCard
               key={artifact.id}
               artifact={artifact}

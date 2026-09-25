@@ -424,7 +424,7 @@ After all checks pass, present a short summary table to the user with the worker
 
 Once all 7 checks pass:
 
-- Direct the user to the [BioEngine Dashboard](https://bioimage.io/#/bioengine) to manage their worker, or
+- Direct the user to the [BioEngine worker admin page](https://bioimage.io/#/bioengine/worker-admin) to manage their worker, or
 - If they asked for a branded dashboard (facility / lab), load **`custom_dashboard.md`** and follow it.
 - If they want to deploy an app, load the matching app subskill in `apps/` or follow the main SKILL.md app development sections.
 

@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { HYPHA_SERVER_URL } from '../../config/hypha';
@@ -230,13 +231,78 @@ const StartupApplicationRow: React.FC<{
   );
 };
 
+// Query parameter that selects the audience panel, e.g. `#/bioengine?mode=ai-agent`.
+const AUDIENCE_PARAM = 'mode';
+// Written to the URL in its spelled-out form. The internal state value stays
+// `agent`, which is what the rest of this component and its markup already use.
+const AUDIENCE_AGENT = 'ai-agent';
+const AUDIENCE_HUMAN = 'human';
+
+/**
+ * Read the audience out of a URL parameter.
+ *
+ * Only an explicit `human` selects the wizard. Everything else — absent, a
+ * typo, `ai-agent`, or the bare `agent` that a hand-written link might use —
+ * resolves to the agent panel, which is the default entry point for setting up
+ * a worker.
+ */
+function parseAudienceParam(raw: string | null): 'human' | 'agent' {
+  return (raw || '').trim().toLowerCase() === AUDIENCE_HUMAN ? 'human' : 'agent';
+}
+
 const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScrollToWorkers }) => {
   const { server, isLoggedIn, user } = useHyphaStore();
   const [os, setOS] = useState<OSType>('macos');
   const [mode, setMode] = useState<ModeType>('single-machine');
   // Top-level audience toggle: humans get the full configurator below;
   // agents get a compact panel that hands off to the BioEngine SKILL.md.
-  const [audience, setAudience] = useState<'human' | 'agent'>('human');
+  //
+  // The selection is addressable, so a link can drop someone straight into the
+  // mode it is written for: `#/bioengine?mode=ai-agent` for the agent panel,
+  // `#/bioengine?mode=human` (or no param) for the configurator. The app runs
+  // on a HashRouter, so the fragment is already the route and a bare
+  // `#ai-agent` is not available — the mode travels as a query parameter
+  // inside the hash instead, the same way the resource grid carries `?partner=`.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [audience, setAudience] = useState<'human' | 'agent'>(
+    () => parseAudienceParam(searchParams.get(AUDIENCE_PARAM)),
+  );
+
+  // URL -> state. Covers back/forward and a link pasted while the page is
+  // already open. Guarded on inequality so it cannot ping-pong with the
+  // state -> URL effect below.
+  const audienceParam = searchParams.get(AUDIENCE_PARAM);
+  useEffect(() => {
+    const fromUrl = parseAudienceParam(audienceParam);
+    setAudience(prev => (prev === fromUrl ? prev : fromUrl));
+  }, [audienceParam]);
+
+  // State -> URL. Both modes are written out explicitly, so the human wizard is
+  // addressable as `?mode=human` rather than only as a bare path — the URL then
+  // says which panel you are looking at in both directions. `replace` keeps the
+  // toggle out of the back-button history, where a segmented control does not
+  // belong.
+  const setAudienceAndUrl = useCallback((next: 'human' | 'agent') => {
+    setAudience(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set(AUDIENCE_PARAM, next === 'agent' ? AUDIENCE_AGENT : AUDIENCE_HUMAN);
+      return params;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Canonicalise a bare `/bioengine/worker-setup` to `?mode=ai-agent` on
+  // arrival: handing the job to an agent is the default way in, and the
+  // address bar then always names the mode so the URL can be copied as-is.
+  useEffect(() => {
+    if (audienceParam === null) {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev);
+        params.set(AUDIENCE_PARAM, AUDIENCE_AGENT);
+        return params;
+      }, { replace: true });
+    }
+  }, [audienceParam, setSearchParams]);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
@@ -818,7 +884,7 @@ spec:
                     type="button"
                     role="tab"
                     aria-selected={selected}
-                    onClick={() => setAudience(value)}
+                    onClick={() => setAudienceAndUrl(value)}
                     // The agent tab keeps a light blue tint while unselected so the
                     // "let an agent do this" route is noticed rather than looking
                     // like the inactive half of a plain toggle.
@@ -852,7 +918,6 @@ spec:
             return (
               <div className="space-y-4">
                 <div className="p-5 bg-blue-50 rounded-xl border border-blue-200">
-                  <h4 className="text-base font-semibold text-blue-900 mb-2">Set up your worker with an AI agent</h4>
                   <p className="text-sm text-blue-800">
                     Copy the prompt below into your AI agent (Claude Code, Codex, Gemini CLI, and so on). It will load the BioEngine skill, ask you about your environment, then guide you through the deployment and a readiness test.
                   </p>
@@ -895,6 +960,24 @@ spec:
                       {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
                     </span>
                   </label>
+
+                  {/* A worker only accepts an explicit list of admin users, so an
+                      agent working without a token cannot register one against
+                      your workspace. Warn rather than block: the agent can still
+                      walk the user through obtaining a token themselves. */}
+                  {!(includeAgentToken && token) && (
+                    <div className="mt-3 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                      </svg>
+                      <p className="text-xs text-amber-800">
+                        <span className="font-semibold">No Hypha token in this prompt.</span>{' '}
+                        {isLoggedIn
+                          ? 'A worker registers against a workspace and only admits the admin users it is configured with, so the agent will have to stop and ask you for a token part-way through. Tick the box above to include one.'
+                          : 'A worker registers against a workspace and only admits the admin users it is configured with. Log in to include a token, or be ready to supply one when the agent asks.'}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1974,16 +2057,20 @@ spec:
           </>)}
           {/* end human mode */}
 
-          {/* ── Need help (visible in both human and agent modes) ── */}
-          <div className="pt-4 flex justify-center">
-            <button
-              type="button"
-              onClick={() => { setAudience('agent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium underline"
-            >
-              Need help? Let an AI agent set it up
-            </button>
-          </div>
+          {/* ── Need help: human mode only. In agent mode the whole panel is
+                 already the agent route, so offering it again would point at
+                 the page you are on. ── */}
+          {audience === 'human' && (
+            <div className="pt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => { setAudienceAndUrl('agent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium underline"
+              >
+                Need help? Let an AI agent set it up
+              </button>
+            </div>
+          )}
 
           {/* ── Links (visible in both human and agent modes) ── */}
           <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-center gap-6 flex-wrap">

@@ -64,13 +64,33 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 **Environment**:
 ```bash
-export HYPHA_TOKEN=<your-token>                             # see references/hypha_setup.md if you don't have one
+export HYPHA_TOKEN=<your-token>                             # no token? see below, or send the user to /#/bioengine/token
 export BIOENGINE_SERVER_URL=<hypha-server>                  # CLI/skill env var — NOT the same name as below
-export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use
+export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use — see defaults below
 ```
+
+> **No worker given? Use the public ones.** A user who hands you nothing but this skill link almost always wants the already-running public deployment, not to stand up their own. Do **not** ask them to set up a worker, and do **not** ask which service id to use. Default to:
+>
+> | Task | App |
+> |---|---|
+> | Running a model, screening or testing models | `bioimage-io/model-runner` |
+> | Fine-tuning a foundation model | `bioimage-io/model-finetune` |
+>
+> Both live in the public `bioimage-io` workspace and need no worker of the user's own. Resolve the concrete callable id at run time (see [references/service_ids.md](references/service_ids.md)) rather than hardcoding one: the client id embeds a ReplicaSet hash that changes on every pod roll. Only fall back to asking about a worker when the user says they have their own, or when the task genuinely needs one (deploying a new app, changing worker configuration).
+>
+> The user can browse what else is deployed, and copy service ids, at `https://bioimage.io/#/bioengine/apps`.
+
 > **Env-var naming split.** The CLI and every command in this skill read `BIOENGINE_SERVER_URL` (`bioengine --help` documents it; default `https://hypha.aicell.io` if unset). If your shell environment instead provides `HYPHA_SERVER_URL` (a different variable — common when a harness or notebook sets up Hypha credentials generically), the CLI does **not** read it and will silently fall back to its own default. If your `HYPHA_SERVER_URL` differs from the CLI default, explicitly `export BIOENGINE_SERVER_URL="$HYPHA_SERVER_URL"` — don't assume the two are interchangeable.
 
-**Getting a token, workspace, and scoped credentials.** If you don't already have a `HYPHA_TOKEN`, or you need to create a dedicated workspace or mint worker/app tokens, **load [references/hypha_setup.md](references/hypha_setup.md)** — the browser login flow, `create_workspace`, the `generate_token` scheme, and the permission ladder. Most task runs only need this once.
+**Getting a token.** Every call in this skill authenticates as the **user**. When you do not already have a `HYPHA_TOKEN`, the shortest route is to send them a pre-scoped link and ask for the line they get back:
+
+```
+https://bioimage.io/#/bioengine/token?permission=read_write&expires-in=43200
+```
+
+Add `&workspace=<ws>` for a shared workspace, and ask for `permission=admin` only when registering a new worker. The user presses Generate, then Copy, and pastes back one `HYPHA_TOKEN=…` line. This works whatever you can execute, so reach for it before asking the user to run code on your behalf.
+
+For the programmatic browser-login flow, creating a dedicated workspace, minting scoped worker/app tokens, and the full permission ladder, **load [references/hypha_setup.md](references/hypha_setup.md)**. Most task runs only need this once.
 
 ### Service IDs — how to discover them (read carefully)
 
@@ -98,7 +118,7 @@ There are three deployment modes:
 
 If the user runs a **core facility, lab, or institutional deployment** that wants its own branded UI alongside (or instead of) https://bioimage.io/#/bioengine, **load [references/custom_dashboard.md](references/custom_dashboard.md)**. It publishes a static HTML+CSS dashboard as a Hypha artifact in the user's workspace, with worker discovery and the per-worker dashboard (status, deployed apps, cluster resources).
 
-> **What a custom dashboard is for, and what it isn't.** It is **read/render** — list workers, show cluster stats, list deployed apps, link to app frontends. It is **not** the BioEngine setup wizard (https://bioimage.io/#/bioengine has an interactive Docker/SLURM/K8s installer; do **not** rebuild that into a custom dashboard — facility admins use the canonical setup tool or the worker_onboarding flow above).
+> **What a custom dashboard is for, and what it isn't.** It is **read/render** — list workers, show cluster stats, list deployed apps, link to app frontends. It is **not** the BioEngine setup wizard (https://bioimage.io/#/bioengine/worker-setup has an interactive Docker/SLURM/K8s installer; do **not** rebuild that into a custom dashboard — facility admins use the canonical setup tool or the worker_onboarding flow above).
 
 > **After the worker is ready: leave a feedback report.** Worker setup is the single richest source of gaps in this skill — cluster-specific gotchas, undocumented flags, broken paths. If bringing your worker up required reading source, working around a bug, or more than ~3 trial-and-error cycles, file a report — see [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
 
