@@ -104,9 +104,13 @@ const ArtifactDetails = () => {
     /**
      * The model declares its own conda environment, so Run Model cannot serve
      * it: infer() spawns its child with the replica's own venv and never builds
-     * a conda env (that happens only on the test path). The button is correctly
-     * disabled, but this is a statement about the SERVICE, not a verdict on the
-     * model, and it must not be presented as a failure.
+     * a conda env (that happens only on the test path).
+     *
+     * The button stays clickable but never reaches handleRunModel, because
+     * canTestRun is false: clicking opens the explanation dialog instead. So the
+     * guard is already correct. What this flag changes is only the PRESENTATION,
+     * because a limit of the service is not a verdict on the model and must not
+     * be painted as a failure.
      */
     needsOwnEnvironment: boolean;
   } | null>(null);
