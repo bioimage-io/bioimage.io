@@ -65,3 +65,46 @@ describe('TestDetailsDialog inference check', () => {
     expect(screen.getByText(/Verifies the model runs in the standard bioimageio.core environment/)).toBeInTheDocument();
   });
 });
+
+// The recorded package list is not necessarily conda. A standard-environment run
+// records the serving venv as a pip freeze list, which carries no conda header.
+// Requiring that header rendered nothing for those, and pushed the producer to
+// synthesise a fake one just to satisfy the parser.
+describe('installed-package list', () => {
+  const withList = (saved: string) =>
+    render(
+      <TestDetailsDialog
+        open
+        onClose={() => {}}
+        data={{ ...report({ status: 'passed', error: null }), saved_conda_list: saved } as any}
+        isLoading={false}
+        type="test-report"
+      />,
+    );
+
+  it('renders a conda list and drops the stderr noise above the header', () => {
+    withList(
+      'WARNING conda.gateways.disk.delete: could not remove something\n'
+      + '# packages in environment at /opt/envs/abc123:\n'
+      + 'numpy                     1.26.4           pypi_0    pypi\n',
+    );
+    // The claim is that the parser produced a CLEAN block, not that the warning
+    // is absent from the page: "Raw Data" also dumps the whole report verbatim,
+    // warning and all, and that is correct because raw means raw. So assert that
+    // at least one rendered block carries the header WITHOUT the warning.
+    const blocks = screen.getAllByText(/packages in environment at \/opt\/envs\/abc123/);
+    const clean = blocks.filter(el => !/conda.gateways.disk.delete/.test(el.textContent || ''));
+    expect(clean.length).toBeGreaterThan(0);
+  });
+
+  it('renders a pip freeze list that has no conda header', () => {
+    withList('torch==2.1.0\nnumpy==1.26.4\n');
+    expect(screen.getAllByText(/torch==2\.1\.0/).length).toBeGreaterThan(0);
+  });
+
+  it('calls the section Installed packages, not Conda List', () => {
+    withList('torch==2.1.0\n');
+    expect(screen.getAllByText('Installed packages').length).toBeGreaterThan(0);
+    expect(screen.queryByText('Conda List')).toBeNull();
+  });
+});

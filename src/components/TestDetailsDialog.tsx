@@ -215,26 +215,32 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   }, [open, isLoading, isInvalidJson, data, rawErrorContent, type]);
   
   // Helper function to parse saved_conda_list
-  const parseSavedCondaList = (condaListString?: string): string => {
-    if (!condaListString) return '';
-    
-    // Find the start of "# packages in environment at"
-    const startMarker = '# packages in environment at';
-    const startIndex = condaListString.indexOf(startMarker);
-    
-    if (startIndex === -1) return '';
-    
-    // Get everything from this marker onwards
-    const relevantPart = condaListString.substring(startIndex);
-    
-    // Split into lines and process each line
-    const lines = relevantPart.split('\n');
-    const processedLines = lines.map(line => {
-      // Remove leading hashtags and spaces
-      return line.replace(/^[#\s]+/, '');
-    }).filter(line => line.length > 0); // Remove empty lines
-    
-    return processedLines.join('\n');
+  /**
+   * Render the recorded package list, whatever tool produced it.
+   *
+   * `conda list` writes its stderr into the same stream, so a real list can be
+   * preceded by WARNING noise. Seeking the conda header skips that, which is
+   * why this used to REQUIRE the header and return empty without it.
+   *
+   * That was too strict. The field is not necessarily conda: a standard-env run
+   * records the serving venv as a pip freeze list, which has no such header, and
+   * the old rule rendered nothing at all for it. Worse, it pushed the producer
+   * toward synthesising a fake conda header purely to satisfy this function.
+   * The header is now a hint used when present, not a precondition.
+   */
+  const parseSavedCondaList = (packageListString?: string): string => {
+    if (!packageListString) return '';
+
+    const lines = packageListString.split('\n');
+    const headerIdx = lines.findIndex(line => line.includes('# packages in environment at'));
+    const body = headerIdx >= 0
+      ? lines.slice(headerIdx)
+      : lines.filter(line => !/^\s*(WARNING|ERROR)\b/.test(line));
+
+    return body
+      .map(line => line.replace(/^[#\s]+/, ''))
+      .filter(line => line.length > 0)
+      .join('\n');
   };
   
   const getStatusIcon = (status: string) => {
@@ -794,7 +800,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                             <RecommendedEnv env={detail.recommended_env} />
                           )}
 
-                          {/* Conda List */}
+                          {/* Installed packages (conda list, or a pip freeze list for standard-env runs) */}
                           {data.saved_conda_list && (
                             <Accordion
                               sx={{
@@ -806,7 +812,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                             >
                               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                                  Conda List
+                                  Installed packages
                                 </Typography>
                               </AccordionSummary>
                               <AccordionDetails>
@@ -986,7 +992,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     </Paper>
                   )}
                   
-                  {/* Conda List accordion */}
+                  {/* Installed-packages accordion */}
                   {hasCondaList && (
                     <Accordion
                       sx={{
@@ -998,7 +1004,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     >
                       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                          Conda List
+                          Installed packages
                         </Typography>
                       </AccordionSummary>
                       <AccordionDetails>
