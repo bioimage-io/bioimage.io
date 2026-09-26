@@ -227,6 +227,22 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
    * the old rule rendered nothing at all for it. Worse, it pushed the producer
    * toward synthesising a fake conda header purely to satisfy this function.
    * The header is now a hint used when present, not a precondition.
+   *
+   * IF THIS EVER RENDERS SECTIONS: a model can have one environment per weight
+   * format, and model-runner joins them with a blank line:
+   *
+   *     # packages in environment at /.../envs/<hash-a>:
+   *     <packages>
+   *                                        <- blank line
+   *     # packages in environment at /.../envs/<hash-b>:
+   *     <packages>
+   *
+   * Split on the MARKER, never on the blank line: conda output contains blank
+   * lines of its own, the marker does not. Treating whatever precedes the first
+   * marker as its own unlabelled section also covers the pip case, which has no
+   * marker at all, without a special case. Agreed with even-clam, who produces
+   * this field; not implemented here because no report carries the multi-env
+   * shape yet (it needs model-runner 2.10.5).
    */
   const parseSavedCondaList = (packageListString?: string): string => {
     if (!packageListString) return '';
