@@ -368,17 +368,29 @@ const ArtifactDetails = () => {
         // (rather than failing it on a missing import) when the model declares
         // its own conda environment.
         let needsOwnEnvironment = false;
+        // When the verdict was produced. This used to be hardcoded to 0, which
+        // silently disabled both "Tested at" tooltips on the Test Run button,
+        // since they are written as `tested_at ? ... : ''`.
+        //
+        // It matters more than it looks. A verdict is reproducible for a given
+        // model, runner version and SOLVED conda environment, but a model with
+        // an unpinned environment.yaml gets a fresh solve whenever the runner's
+        // weekly sweep evicts the cached env, and can then change verdict with
+        // nothing in the model or the runner having changed. So the age of a
+        // verdict is part of reading it, and we were throwing it away.
+        let testedAt = 0;
         try {
           if (repResp && repResp.ok) {
             const rep = await repResp.json();
             message = rep?.inference_check?.error ?? '';
             needsOwnEnvironment = rep?.inference_check?.status === 'skipped';
+            testedAt = Number(rep?.tested_at) || 0;
           }
         } catch { /* report unreachable — leave the message empty */ }
         setBioengineStatus({
           status: inferencePassed ? 'passed' : 'failed',
           message,
-          tested_at: 0,
+          tested_at: testedAt,
           needsOwnEnvironment,
         });
       } catch (error) {
