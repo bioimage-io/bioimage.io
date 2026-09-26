@@ -21,6 +21,7 @@ import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
@@ -100,6 +101,14 @@ const ArtifactDetails = () => {
     status: 'passed' | 'failed' | 'timeout';
     message: string;
     tested_at: number;
+    /**
+     * The model declares its own conda environment, so Run Model cannot serve
+     * it: infer() spawns its child with the replica's own venv and never builds
+     * a conda env (that happens only on the test path). The button is correctly
+     * disabled, but this is a statement about the SERVICE, not a verdict on the
+     * model, and it must not be presented as a failure.
+     */
+    needsOwnEnvironment: boolean;
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
   const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
@@ -351,13 +360,23 @@ const ArtifactDetails = () => {
         if (typeof score !== 'number') { setBioengineStatus(null); return; }
         const inferencePassed = (score >= 3 && score <= 4) || (score >= 7 && score <= 8);
         let message = '';
+        // model-runner 2.10.4+ marks the default-env inference check `skipped`
+        // (rather than failing it on a missing import) when the model declares
+        // its own conda environment.
+        let needsOwnEnvironment = false;
         try {
           if (repResp && repResp.ok) {
             const rep = await repResp.json();
             message = rep?.inference_check?.error ?? '';
+            needsOwnEnvironment = rep?.inference_check?.status === 'skipped';
           }
         } catch { /* report unreachable — leave the message empty */ }
-        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message, tested_at: 0 });
+        setBioengineStatus({
+          status: inferencePassed ? 'passed' : 'failed',
+          message,
+          tested_at: 0,
+          needsOwnEnvironment,
+        });
       } catch (error) {
         console.error('Failed to derive bioengine status from score:', error);
         setBioengineStatus(null);
@@ -796,11 +815,14 @@ const ArtifactDetails = () => {
                   // log in, or explain that the model has no BioEngine inference
                   // report yet (the grey state). Mirrors the Review & Publish
                   // button's HintTooltip.
+                  const needsOwnEnv = !!bioengineStatus?.needsOwnEnvironment && !isCellpose3Model;
                   const testRunHint = !isLoggedIn
                     ? 'Please log in to test run models'
                     : (!bioengineStatus && !isCellpose3Model)
                       ? 'This model has not been validated on the BioEngine yet.'
-                      : undefined;
+                      : needsOwnEnv
+                        ? 'This model needs its own software environment, which the Run Model service does not provide.'
+                        : undefined;
                   return (
                   <HintTooltip hint={testRunHint}>
                     <div
@@ -834,7 +856,7 @@ const ArtifactDetails = () => {
                               <CheckCircleIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
-                        ) : (bioengineStatus && !cellpose3.loading) ? (
+                        ) : (bioengineStatus && !needsOwnEnv && !cellpose3.loading) ? (
                           // Held back while the cellpose3-runner probe is in
                           // flight: a Cellpose-3 model can carry a FAILED
                           // bioengineStatus, so showing the failure icon here
@@ -851,21 +873,21 @@ const ArtifactDetails = () => {
                         ) : undefined}
                         sx={{
                           borderRadius: '12px',
-                          backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
+                          backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.05)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
                           backdropFilter: 'blur(8px)',
-                          border: `2px solid ${canTestRun ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
-                          color: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
+                          border: `2px solid ${canTestRun ? '#22c55e' : ((bioengineStatus && !needsOwnEnv) ? '#ef4444' : '#3b82f6')}`,
+                          color: canTestRun ? '#16a34a' : ((bioengineStatus && !needsOwnEnv) ? '#dc2626' : '#3b82f6'),
                           fontWeight: 500,
                           px: 4,
                           py: 1.5,
                           fontSize: '0.95rem',
                           transition: 'all 0.3s ease',
                           '&:hover': {
-                            backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
-                            borderColor: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
+                            backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.1)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                            borderColor: canTestRun ? '#16a34a' : ((bioengineStatus && !needsOwnEnv) ? '#dc2626' : '#2563eb'),
                             color: canTestRun ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
                             transform: 'translateY(-2px) scale(1.02)',
-                            boxShadow: `0 8px 25px ${canTestRun ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
+                            boxShadow: `0 8px 25px ${canTestRun ? 'rgba(34, 197, 94, 0.2)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
                           },
                           '&.Mui-disabled': {
                             borderColor: 'rgba(0, 0, 0, 0.12)',
@@ -2221,8 +2243,14 @@ const ArtifactDetails = () => {
       >
         <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CancelIcon sx={{ color: '#ef4444' }} />
-            BioEngine Test Run Failed
+            {bioengineStatus?.needsOwnEnvironment ? (
+              <InfoOutlinedIcon sx={{ color: '#3b82f6' }} />
+            ) : (
+              <CancelIcon sx={{ color: '#ef4444' }} />
+            )}
+            {bioengineStatus?.needsOwnEnvironment
+              ? 'This model needs its own software environment'
+              : 'BioEngine Test Run Failed'}
           </Typography>
           <IconButton
             onClick={() => setIsBioengineErrorDialogOpen(false)}
@@ -2232,6 +2260,14 @@ const ArtifactDetails = () => {
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
+          {bioengineStatus?.needsOwnEnvironment && (
+            <Typography variant="body2" sx={{ mb: 2, color: '#374151' }}>
+              This model declares its own conda environment. The Run Model service runs every
+              model in one shared environment, so it cannot serve this one. That is a limit of
+              the service, not a problem with the model: the model was validated in its own
+              environment and its test report shows the result.
+            </Typography>
+          )}
           <Box sx={{ p: 2, backgroundColor: '#f9fafb', borderRadius: 2 }}>
             <pre style={{ 
               whiteSpace: 'pre-wrap', 
