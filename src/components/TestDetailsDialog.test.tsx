@@ -108,3 +108,55 @@ describe('installed-package list', () => {
     expect(screen.queryByText('Conda List')).toBeNull();
   });
 });
+
+// The two shapes the runner actually emits, excerpted verbatim from the live
+// 2.10.5 reports. Recorded as fixtures because the shape was described wrongly
+// once already: the marker is mamba's, not conda's, because the runner swaps
+// conda for mamba to get the libmamba solver.
+const MAMBA_REAL = [
+  'List of packages in environment: "/home/bioengine/apps/bioimage-io-model-runner/home/.bioengine/envs/abc123"',
+  '',
+  '  Name                                  Version       Build                              Channel',
+  '──────────────────────────────────────────────────────────────────────────────────────────────────',
+  '  _openmp_mutex                         4.5           20_gnu                             conda-forge',
+  '  empanada-dl                           0.1.7         pyhd8ed1ab_0                       conda-forge',
+].join('\n');
+
+const PIP_REAL = ['absl-py==2.5.0', 'adlfs==2023.8.0', 'torch==2.1.0'].join('\n');
+
+describe('package list: the shapes the runner really emits', () => {
+  const withList = (saved: string) =>
+    render(
+      <TestDetailsDialog
+        open
+        onClose={() => {}}
+        data={{ ...report({ status: 'passed', error: null }), saved_conda_list: saved } as any}
+        isLoading={false}
+        type="test-report"
+      />,
+    );
+
+  it('renders a mamba list, which carries no conda header at all', () => {
+    withList(MAMBA_REAL);
+    expect(MAMBA_REAL).not.toContain('# packages in environment at');
+    const blocks = screen.getAllByText(/List of packages in environment:/);
+    expect(blocks.length).toBeGreaterThan(0);
+    // the model's own declared dependency must survive the parse
+    expect(screen.getAllByText(/empanada-dl\s+0\.1\.7/).length).toBeGreaterThan(0);
+  });
+
+  it('keeps mamba column alignment by stripping the indent uniformly', () => {
+    withList(MAMBA_REAL);
+    const block = screen.getAllByText(/List of packages in environment:/)[0];
+    const lines = (block.textContent || '').split('\n');
+    const header = lines.find(l => l.startsWith('Name'))!;
+    const pkg = lines.find(l => l.startsWith('empanada-dl'))!;
+    // both rows were indented by the same amount, so the columns still line up
+    expect(pkg.indexOf('0.1.7')).toBe(header.indexOf('Version'));
+  });
+
+  it('renders a pip freeze list unchanged', () => {
+    withList(PIP_REAL);
+    expect(screen.getAllByText(/torch==2\.1\.0/).length).toBeGreaterThan(0);
+  });
+});

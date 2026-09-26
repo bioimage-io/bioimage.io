@@ -229,20 +229,27 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
    * The header is now a hint used when present, not a precondition.
    *
    * IF THIS EVER RENDERS SECTIONS: a model can have one environment per weight
-   * format, and model-runner joins them with a blank line:
+   * format, and model-runner joins them with a blank line.
    *
-   *     # packages in environment at /.../envs/<hash-a>:
-   *     <packages>
-   *                                        <- blank line
-   *     # packages in environment at /.../envs/<hash-b>:
-   *     <packages>
+   * The section marker is NOT conda's "# packages in environment at". The runner
+   * swaps conda for mamba to get the libmamba solver, and mamba prints its own
+   * header. Measured on the live 2.10.5 report for stupendous-sheep: zero
+   * occurrences of the conda form, one of the mamba form.
    *
-   * Split on the MARKER, never on the blank line: conda output contains blank
-   * lines of its own, the marker does not. Treating whatever precedes the first
-   * marker as its own unlabelled section also covers the pip case, which has no
-   * marker at all, without a special case. Agreed with even-clam, who produces
-   * this field; not implemented here because no report carries the multi-env
-   * shape yet (it needs model-runner 2.10.5).
+   *     List of packages in environment: "/home/.../envs/<hash>"
+   *     <blank>
+   *       Name            Version   Build     Channel
+   *       ...
+   *
+   * So split on `List of packages in environment:`, and note the path is quoted
+   * rather than colon-terminated. Never split on the blank line: mamba output
+   * contains blank lines of its own, the marker does not. Treating whatever
+   * precedes the first marker as its own unlabelled section also covers the pip
+   * case (standard-env runs record a pip freeze list with no header at all).
+   *
+   * Not implemented here: no report carries the multi-environment shape yet, so
+   * a renderer would be verified against a description rather than against data.
+   * Both live 2.10.5 reports are single-env.
    */
   const parseSavedCondaList = (packageListString?: string): string => {
     if (!packageListString) return '';
