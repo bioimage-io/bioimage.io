@@ -66,8 +66,15 @@ export interface DetailedTestReport {
   format_version: string;
   status: 'passed' | 'failed' | 'valid-format';
   metadata_completeness?: number;
-  /** Whether the model runs in the standard (default) environment. */
-  inference_check?: { status: 'passed' | 'failed'; error: string | null };
+  /**
+   * Whether the model runs in the standard (default) environment.
+   *
+   * `skipped` (model-runner 2.10.4+) means the check was deliberately not run
+   * because the model declares its own conda environment, where running it in
+   * the runner's venv could only ever fail on a missing import. It is NOT a
+   * failure. `error` carries the reason in that case, not a traceback.
+   */
+  inference_check?: { status: 'passed' | 'failed' | 'skipped'; error: string | null };
   details: TestDetail[];
   env: string[][];
   conda_list: any;

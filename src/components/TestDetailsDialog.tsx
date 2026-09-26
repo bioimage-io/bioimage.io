@@ -23,6 +23,7 @@ import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import StepTimeline, { TimelineStep } from './StepTimeline';
 import { RunnerStages, RunnerState, resolveStage, isTerminalRunnerState } from '../types/runStatus';
 
@@ -239,6 +240,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   const getStatusIcon = (status: string) => {
     return status === 'passed' ? (
       <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+    ) : status === 'skipped' ? (
+      <RemoveCircleOutlineIcon sx={{ color: '#6b7280', fontSize: 20 }} />
     ) : status === 'valid-format' ? (
       <CancelIcon sx={{ color: '#f97316', fontSize: 20 }} />
     ) : (
@@ -246,8 +249,13 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     );
   };
 
+  // A skipped check is NOT a failure and must not be painted as one. The runner
+  // skips the default-environment inference check for models that declare their
+  // own conda environment: run in the runner's venv it could only ever fail on a
+  // missing import, which says nothing about the model.
   const getStatusColor = (status: string) => {
     if (status === 'passed') return '#22c55e';
+    if (status === 'skipped') return '#6b7280';
     if (status === 'valid-format') return '#f97316';
     return '#ef4444';
   };
@@ -837,7 +845,18 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             {/* Inference check — can the model run in the standard (default) env?
                 A single expandable box like the per-test rows above. mt matches the
                 other section headers (e.g. Environment). */}
-            {data.inference_check && (
+            {data.inference_check && (() => {
+              // Three states, not two. `skipped` means the runner deliberately
+              // did not run the default-environment check because the model
+              // declares its own conda environment (model-runner 2.10.4+), so
+              // it must read neutral rather than red: painting it as a failure
+              // tells the user a perfectly good model is broken.
+              const inferenceSkipped = data.inference_check.status === 'skipped';
+              const inferenceTint = (alpha: number) =>
+                data.inference_check.status === 'passed' ? `rgba(34, 197, 94, ${alpha})`
+                  : inferenceSkipped ? `rgba(107, 114, 128, ${alpha})`
+                    : `rgba(239, 68, 68, ${alpha})`;
+              return (
               <Box sx={{ mt: 4, mb: 3 }}>
                 <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
                   Inference check
@@ -849,9 +868,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     borderRadius: '12px !important',
                     '&:before': { display: 'none' },
                     '&.Mui-expanded': {
-                      borderColor: data.inference_check.status === 'passed'
-                        ? 'rgba(34, 197, 94, 0.3)'
-                        : 'rgba(239, 68, 68, 0.3)',
+                      borderColor: inferenceTint(0.3),
                     },
                   }}
                 >
@@ -871,30 +888,31 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                         label={data.inference_check.status}
                         size="small"
                         sx={{
-                          backgroundColor: data.inference_check.status === 'passed'
-                            ? 'rgba(34, 197, 94, 0.1)'
-                            : 'rgba(239, 68, 68, 0.1)',
+                          backgroundColor: inferenceTint(0.1),
                           color: getStatusColor(data.inference_check.status),
                           borderRadius: '8px',
                           fontWeight: 500,
-                          border: `1px solid ${data.inference_check.status === 'passed'
-                            ? 'rgba(34, 197, 94, 0.2)'
-                            : 'rgba(239, 68, 68, 0.2)'}`,
+                          border: `1px solid ${inferenceTint(0.2)}`,
                         }}
                       />
                     </Box>
                   </AccordionSummary>
                   <AccordionDetails sx={{ pt: 0 }}>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: data.inference_check.error ? 2 : 0 }}>
-                      Verifies the model runs in the standard bioimageio.core environment
-                      (no custom conda environment).
+                      {inferenceSkipped
+                        ? 'This check was not run. It only applies to models that use the standard '
+                          + 'bioimageio.core environment, and this model declares its own conda '
+                          + 'environment. It is not a failure, and it says nothing about whether the '
+                          + 'model works.'
+                        : 'Verifies the model runs in the standard bioimageio.core environment '
+                          + '(no custom conda environment).'}
                     </Typography>
                     {data.inference_check.error && (
                       <Alert
-                        severity="error"
+                        severity={inferenceSkipped ? 'info' : 'error'}
                         sx={{
-                          backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          backgroundColor: inferenceTint(0.05),
+                          border: `1px solid ${inferenceTint(0.2)}`,
                           borderRadius: '12px',
                         }}
                       >
@@ -906,7 +924,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   </AccordionDetails>
                 </Accordion>
               </Box>
-            )}
+              );
+            })()}
 
             {/* Environment Information */}
             {(() => {
