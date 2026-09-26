@@ -247,9 +247,22 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
    * precedes the first marker as its own unlabelled section also covers the pip
    * case (standard-env runs record a pip freeze list with no header at all).
    *
-   * Not implemented here: no report carries the multi-environment shape yet, so
-   * a renderer would be verified against a description rather than against data.
-   * Both live 2.10.5 reports are single-env.
+   * DELIBERATELY NOT IMPLEMENTED, and do not implement it on spec. The shape
+   * does not occur. Measured across the collection (2026-09-26, 155 models whose
+   * rdf.yaml could be read): 34 models declare two or more weight formats, and
+   * of those, ZERO declare dependencies on more than one. Six declare them on
+   * exactly one format and 28 on none. The control matters: the zero is not
+   * because nothing has two formats, it is because nothing that has two formats
+   * uses them this way. Treat 34 and the zero as lower bounds, since a handful
+   * of rdf fetches failed and were excluded.
+   *
+   * The producer side is correspondingly defensive and unexercised: model-runner
+   * 2.10.5 does build one env per weight format and record all of them, but no
+   * published model reaches that branch, so it has never run in production.
+   *
+   * Consequence: a renderer written today could only be verified against a
+   * description of a shape nothing emits. If a genuine two-environment model
+   * ever appears, build it then, against that report.
    */
   const parseSavedCondaList = (packageListString?: string): string => {
     if (!packageListString) return '';
