@@ -116,7 +116,9 @@ Deploy a BioEngine application from artifact storage.
 
 Options:
   --app-id ID          Instance ID (pass same ID to update in-place)
-  --version VER        Specific artifact version (default: latest)
+  --version VER        Specific artifact version. Omitting it does NOT mean "latest"
+                       when --app-id names an already-running instance: that keeps the
+                       version it is on. See SKILL.md, "Which version you get".
   --no-gpu             Disable GPU
   --env KEY=VALUE      Environment variable (repeat for multiple)
   --hypha-token TOKEN  Token injected as HYPHA_TOKEN inside the Ray actor.

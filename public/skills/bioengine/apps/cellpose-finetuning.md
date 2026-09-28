@@ -332,6 +332,10 @@ result = await worker.deploy_app(
     application_id="cellpose-finetuning",
     hypha_token=os.environ["BIOIMAGE_IO_TOKEN"],  # bioimage-io workspace token from .env
 )
+# 0.16.29+ returns a mapping, earlier workers a bare string. See SKILL.md,
+# "What deploy_app returns".
+app_id = result if isinstance(result, str) else result["application_id"]
+
 ```
 
 The `hypha_token` parameter sets `HYPHA_TOKEN` in the Ray actor environment. Store it in `.env` as `BIOIMAGE_IO_TOKEN`. **cellpose-finetuning REQUIRES this token** — it raises `RuntimeError: HYPHA_TOKEN environment variable is not set.` at `__init__` without it. Pass `hypha_token=` on every `deploy_app` call; do not rely on the "previous-token preserved" fallback (see trap below).

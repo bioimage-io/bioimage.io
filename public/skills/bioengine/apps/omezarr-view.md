@@ -78,12 +78,16 @@ The client id is pinned (`OMEZARR_VIEW_CLIENT_ID`, default `omezarr-view`) preci
 Deploy the artifact with your own `datasets.yaml`, or run the server standalone. The app needs `hypha_token` on deploy: the replica registers its own ASGI service, and `__init__` raises without it.
 
 ```python
-app_id = await worker.deploy_app(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/omezarr-view",
     application_id="omezarr-view",
     version="0.2.4",
     hypha_token="<HYPHA_TOKEN>",
 )
+# 0.16.29+ returns a mapping, earlier workers a bare string. See SKILL.md,
+# "What deploy_app returns".
+app_id = result if isinstance(result, str) else result["application_id"]
+
 ```
 
 ```yaml

@@ -480,15 +480,57 @@ Equivalent path when you already have a Hypha client open (no separate CLI proce
 
 ```python
 worker = await server.get_service(f"{workspace}/bioengine-worker")
-app_id = await worker.deploy_app(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/cellpose-finetuning",
     application_id="cellpose-finetuning",   # stable id ⇒ stable, addressable service
     hypha_token=token,                      # apps that register back to Hypha need this
-    # version="0.0.28",                     # optional pin; default = latest version of the artifact
+    # version="0.0.28",                     # optional pin; read "Which version you get" below
 )
+
+# BioEngine 0.16.29+ returns a mapping; 0.16.28 and earlier return a bare string.
+# Workers are pinned individually and you generally cannot tell which one you are
+# talking to, so take the id from the value in hand rather than from a version check.
+app_id = result if isinstance(result, str) else result["application_id"]
 ```
 
-`deploy_app` returns the resolved `application_id`. The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
+The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
+
+#### What `deploy_app` returns
+
+**BioEngine 0.16.29 and later** return a mapping:
+
+```python
+{"application_id": str, "artifact_id": str, "version": str, "version_source": str}
+```
+
+`version_source` is one of `requested`, `latest`, or `inherited`. `artifact_id` comes back because a bare artifact name is expanded server-side, so the id you get is not always the id you passed.
+
+**BioEngine 0.16.28 and earlier** return the resolved `application_id` as a bare string. Use the `isinstance` shim above until every worker you target is on 0.16.29+, then drop it.
+
+#### Which version you get
+
+**If you want the newest published version, omit `version` and then require `version_source == "latest"`.**
+
+```python
+if not isinstance(result, str) and result["version_source"] == "inherited":
+    raise RuntimeError(
+        f"expected to deploy the newest version, got {result['version']} "
+        "because that application_id was already running"
+    )
+```
+
+That check can fail, so it protects you. `inherited` means the `application_id` was already running and **you got the version it was already on, not the artifact's newest**. This is the trap: omitting `version` does *not* mean "latest" for an application_id that already exists. `bioengine apps deploy` aborts on `inherited` for exactly this reason.
+
+**Do not check `version_source` when you passed an explicit `version`.** It is always `requested` on that path, so a guard like `if result["version_source"] != "requested"` can never fire, and comparing `result["version"]` against what you asked for is vacuous for the same reason: the value is echoed back. A version that cannot be served **raises** instead, so the protection on that path is `try` / `except`, not a field check.
+
+| you passed | you get | `version_source` |
+|---|---|---|
+| a version that exists | that version, rolling forward **or back** | `requested` |
+| a version that does not exist | `ValueError` | (raises) |
+| nothing, application_id already running | the running version | `inherited` |
+| nothing, fresh application_id | the artifact head | `latest` |
+
+> **Known limit.** If the artifact has an **open uncommitted stage**, Hypha's `read()` returns the published state without consulting the version index, so your requested version is silently ignored while `version_source` still reports `requested`. This is the one case where `requested` is actively misleading rather than merely uninformative, it is pre-existing in the artifact layer, and it is not detectable from the return value.
 
 ### Per-deployment scaling
 

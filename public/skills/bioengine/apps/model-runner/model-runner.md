@@ -921,12 +921,18 @@ s = await connect_to_server({"server_url": "https://hypha.aicell.io",
                              "workspace": my_workspace})
 worker = await s.get_service(f"{my_workspace}/bioengine-worker")
 
-app_id = await worker.deploy_app(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/model-runner",
     application_id="model-runner",            # stable app id ⇒ stable service id
     hypha_token=admin_token,                  # required: model-runner registers Hypha services internally
-    # version="1.2.3",                        # optional: pin a specific artifact version (default: latest)
+    # version="1.2.3",                        # optional pin. Omitting it does NOT mean "latest" when
+    #                                         # this application_id is already running: see SKILL.md,
+    #                                         # "Which version you get".
 )
+# 0.16.29+ returns a mapping, earlier workers a bare string. See SKILL.md,
+# "What deploy_app returns".
+app_id = result if isinstance(result, str) else result["application_id"]
+
 ```
 
 Or via the CLI:
