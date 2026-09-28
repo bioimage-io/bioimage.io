@@ -3,6 +3,7 @@ import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineGitHubLink from './BioEngineGitHubLink';
 import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
+import { requestLogin } from '../../utils/loginRequest';
 
 type GeoLocation = {
   region?: string;
@@ -466,8 +467,21 @@ const BioEngineWorkerList: React.FC<{
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <p className="text-gray-600 font-medium mb-1">Not connected</p>
-              <p className="text-gray-500 text-sm">Please log in to view BioEngine instances</p>
+              {/* Not an error: no session yet is the normal state for a first
+                  visit or an expired one. Say what logging in gets you, and put
+                  the action here rather than making the user hunt for the
+                  navbar button. */}
+              <p className="text-gray-700 font-medium mb-1">Log in to see BioEngine workers</p>
+              <p className="text-gray-500 text-sm mb-4">
+                Worker status is only available to users with access to a worker.
+              </p>
+              <button
+                type="button"
+                onClick={requestLogin}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Log in
+              </button>
             </div>
           </div>
         ) : allServices.length === 0 && isAnyLoading ? (
