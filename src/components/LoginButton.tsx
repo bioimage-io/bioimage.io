@@ -7,6 +7,7 @@ import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { getIsReviewer } from '../utils/roles';
+import { REQUEST_LOGIN_EVENT } from '../utils/loginRequest';
 
 interface User {
   email: string;
@@ -228,6 +229,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
     // Update dependencies: include location and connect
   }, [connect, location.pathname, location.search, location.hash, navigate, login, isConnected, server, user?.email]);
 
+
+  // Let any page ask for the login flow without reaching into this component.
+  // Used by screens that would otherwise have to tell the user to go and find
+  // this button, e.g. a shared BioEngine dashboard link opened while logged out.
+  useEffect(() => {
+    const onRequest = () => { void handleLogin(); };
+    window.addEventListener(REQUEST_LOGIN_EVENT, onRequest);
+    return () => window.removeEventListener(REQUEST_LOGIN_EVENT, onRequest);
+  }, [handleLogin]);
 
   // Auto-login on component mount if token exists and not connected/connecting
   useEffect(() => {

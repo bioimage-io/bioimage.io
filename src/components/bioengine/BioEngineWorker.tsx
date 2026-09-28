@@ -7,6 +7,8 @@ import DeploymentConfigModal from './DeploymentConfigModal';
 import BioEngineWorkerList from './BioEngineWorkerList';
 import AppDiskCache from './AppDiskCache';
 import ErrorDialog from '../ErrorDialog';
+import BioEngineLoginDialog from './BioEngineLoginDialog';
+import BioEnginePageHeader from './BioEnginePageHeader';
 import CopyableValue from './CopyableValue';
 
 // Auto-refresh cadence for the worker detail page. Each tick calls
@@ -222,6 +224,9 @@ const BioEngineWorker: React.FC = () => {
   const [manifestCache, setManifestCache] = useState<Record<string, any>>({});
 
   const [loginErrorTimeout, setLoginErrorTimeout] = useState<NodeJS.Timeout | null>(null);
+  // Being logged out is an ordinary state, not a failure, so it is tracked
+  // separately from `error` and surfaced as a dialog rather than a red screen.
+  const [needsLogin, setNeedsLogin] = useState(false);
   const [currentTime, setCurrentTime] = useState(Date.now());
   const [showDeployConfig, setShowDeployConfig] = useState(false);
   const [pendingDeployment, setPendingDeployment] = useState<{artifactId: string, mode: string | null, applicationId?: string, manifest?: any} | null>(null);
@@ -247,7 +252,7 @@ const BioEngineWorker: React.FC = () => {
       const timeout = setTimeout(() => {
         // Double-check login status when timeout fires
         if (!isLoggedIn) {
-          setError('Please log in to view BioEngine instances');
+          setNeedsLogin(true);
           setLoading(false);
         }
       }, 3000); // 3 second delay
@@ -260,6 +265,7 @@ const BioEngineWorker: React.FC = () => {
 
     // User is logged in - clear any existing error
     setError(null);
+    setNeedsLogin(false);
 
     const initArtifactManager = async () => {
       try {
@@ -342,7 +348,9 @@ const BioEngineWorker: React.FC = () => {
 
   const fetchStatus = async (showLoading = true) => {
     if (!serviceId || !isLoggedIn) {
-      setError(serviceId ? 'Please log in to view BioEngine status' : 'No service ID provided');
+      // Missing service id really is a broken link. Being logged out is not.
+      if (serviceId) setNeedsLogin(true);
+      else setError('No service ID provided');
       setLoading(false);
       return;
     }
@@ -1060,6 +1068,21 @@ const BioEngineWorker: React.FC = () => {
 
   if (loading) {
     return <LoadingOverlay />;
+  }
+
+  // Logged out on a shared or bookmarked dashboard link. Ask, do not scold: the
+  // user did nothing wrong, and the dialog carries the only action that helps.
+  if (needsLogin) {
+    return (
+      <div className="max-w-[1400px] mx-auto px-4 py-8">
+        <BioEnginePageHeader backTo="/bioengine/worker-admin" />
+        <BioEngineLoginDialog
+          open
+          serviceId={serviceId || undefined}
+          onDismiss={() => navigate('/bioengine/worker-admin')}
+        />
+      </div>
+    );
   }
 
   if (error) {
