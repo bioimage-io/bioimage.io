@@ -2,6 +2,7 @@ import React from 'react';
 import { Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography, Box } from '@mui/material';
 import LockOutlinedIcon from '@mui/icons-material/LockOutlined';
 import { requestLogin } from '../../utils/loginRequest';
+import CopyableValue from './CopyableValue';
 
 /**
  * Shown when a BioEngine worker dashboard is opened without being logged in.
@@ -23,14 +24,20 @@ interface BioEngineLoginDialogProps {
 }
 
 const BioEngineLoginDialog: React.FC<BioEngineLoginDialogProps> = ({ open, serviceId, onDismiss }) => {
-  // `<workspace>/<client-id>:<service>` is unreadable in a sentence. The
-  // workspace and the worker name are the parts that identify it to a person.
-  const readableWorker = React.useMemo(() => {
+  // Split `<workspace>/<client-id>:<service>` into its two meaningful halves and
+  // label each, rather than reprinting the raw id. Shown the same way as the
+  // dashboard's own Service Information box, so the identifiers a user needs for
+  // a CLI or an agent prompt read the same in both places and copy the same way.
+  const worker = React.useMemo(() => {
     if (!serviceId) return null;
-    const [workspace, rest] = serviceId.split('/');
-    if (!rest) return serviceId;
-    const clientId = rest.split(':')[0];
-    return `${workspace} / ${clientId}`;
+    const slash = serviceId.indexOf('/');
+    if (slash === -1) return { workspace: null, clientId: serviceId };
+    const rest = serviceId.slice(slash + 1);
+    const colon = rest.indexOf(':');
+    return {
+      workspace: serviceId.slice(0, slash),
+      clientId: colon === -1 ? rest : rest.slice(0, colon),
+    };
   }, [serviceId]);
 
   return (
@@ -42,18 +49,17 @@ const BioEngineLoginDialog: React.FC<BioEngineLoginDialogProps> = ({ open, servi
         </Typography>
       </DialogTitle>
       <DialogContent>
-        <Typography variant="body2" sx={{ color: '#374151', mb: readableWorker ? 2 : 0 }}>
+        <Typography variant="body2" sx={{ color: '#374151', mb: worker ? 2 : 0 }}>
           A worker dashboard shows live status for a specific machine, so it is only available to
           users who have access to it. Log in to continue, or go back to the list of workers.
         </Typography>
-        {readableWorker && (
-          <Box sx={{ p: 1.5, backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 2 }}>
-            <Typography variant="caption" sx={{ color: '#6b7280', display: 'block', mb: 0.25 }}>
-              Worker
-            </Typography>
-            <Typography variant="body2" sx={{ fontFamily: 'monospace', wordBreak: 'break-all' }}>
-              {readableWorker}
-            </Typography>
+        {worker && (
+          <Box
+            sx={{ p: 1.5, backgroundColor: '#f9fafb', border: '1px solid #e5e7eb', borderRadius: 2 }}
+            className="space-y-2"
+          >
+            {worker.workspace && <CopyableValue label="Workspace" value={worker.workspace} />}
+            <CopyableValue label="Client ID" value={worker.clientId} />
           </Box>
         )}
       </DialogContent>
