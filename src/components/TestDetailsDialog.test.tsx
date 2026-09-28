@@ -160,3 +160,46 @@ describe('package list: the shapes the runner really emits', () => {
     expect(screen.getAllByText(/torch==2\.1\.0/).length).toBeGreaterThan(0);
   });
 });
+
+// svamp #0052: a partner tool that PASSES records no detail payload, and the
+// dialog used to drop the whole Test Details section, leaving a dialog that read
+// as "never tested". The models where a tool works looked like the models where
+// it was never tried.
+describe('compatibility report with no details', () => {
+  const compat = (status: string, details: unknown) =>
+    render(
+      <TestDetailsDialog
+        open
+        onClose={() => {}}
+        data={{ status, details, env: [], conda_list: null } as any}
+        isLoading={false}
+        type="compatibility"
+        partnerName="biapy"
+        partnerVersion="3.7.1"
+      />,
+    );
+
+  it('says a detail-less pass passed, rather than showing nothing', () => {
+    compat('passed', []);
+    expect(screen.getByText(/This version passed/)).toBeInTheDocument();
+    expect(screen.getByText(/no further detail, which is normal for a pass/)).toBeInTheDocument();
+  });
+
+  it('does not fabricate a test count for an empty details array', () => {
+    compat('passed', []);
+    expect(screen.queryByText(/Test Details \(0/)).toBeNull();
+    expect(screen.getByText('Test Details')).toBeInTheDocument();
+  });
+
+  it('handles a null details payload too', () => {
+    compat('passed', null);
+    expect(screen.getByText(/This version passed/)).toBeInTheDocument();
+  });
+
+  it('still renders real detail rows when they exist', () => {
+    compat('failed', [{ name: 'shape check', status: 'failed', errors: [{ msg: 'bad shape', loc: [] }], warnings: [] }]);
+    expect(screen.getByText('Test Details (1 test)')).toBeInTheDocument();
+    expect(screen.getByText('shape check')).toBeInTheDocument();
+    expect(screen.queryByText(/no further detail/)).toBeNull();
+  });
+});

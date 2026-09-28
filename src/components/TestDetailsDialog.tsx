@@ -647,7 +647,43 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   ? detailsData.details 
                   : null);
               
-              if (!detailsArray || detailsArray.length === 0) return null;
+              // A partner tool that PASSES records no detail payload, because there
+              // is nothing to report. Returning null here dropped the whole
+              // section, leaving a dialog with a heading, a version, the word
+              // "passed" and nothing else, which reads as "never tested". That is
+              // the worst place for the ambiguity: the models where a tool works
+              // look like the models where it was never tried.
+              //
+              // So say it. Do NOT fabricate detail rows, and do not ask the
+              // producer to emit filler: the absence of detail on a pass is
+              // correct, it just has to be stated rather than implied.
+              // Scoped to compatibility reports on purpose. A bioimageio.core test
+              // report with no details is a different situation, and the wording
+              // below ("the tool", "this version") belongs to a partner result.
+              if (!detailsArray || detailsArray.length === 0) {
+                if (type !== 'compatibility') return null;
+                return (
+                  <>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                      Test Details
+                    </Typography>
+                    <Alert
+                      severity={data?.status === 'passed' ? 'success' : 'info'}
+                      sx={{
+                        backgroundColor: data?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : 'rgba(59, 130, 246, 0.05)',
+                        border: `1px solid ${data?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}`,
+                        borderRadius: '12px',
+                      }}
+                    >
+                      <Typography variant="body2">
+                        {data?.status === 'passed'
+                          ? 'This version passed. The tool reported no further detail, which is normal for a pass.'
+                          : 'The tool reported no further detail for this version.'}
+                      </Typography>
+                    </Alert>
+                  </>
+                );
+              }
               
               return (
                 <>
