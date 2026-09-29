@@ -1,6 +1,7 @@
 import React, { useEffect, useState, useCallback, useRef } from 'react';
 import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useHyphaStore } from '../store/hyphaStore';
+import { partnerService } from '../services/partnerService';
 import SearchBar from './SearchBar';
 import ArtifactCard from './ArtifactCard';
 import ArtifactCardSkeleton from './ArtifactCardSkeleton';
@@ -32,9 +33,16 @@ const CENTRAL_HOSTED_PARTNERS = ['stardist', 'qupath'];
 // Build the link string a model declares to claim compatibility with the
 // given partner. Used both for the click handler and for restoring the
 // filter from a `?partner=...` URL param on first mount.
-const partnerLinkFromId = (partnerId: string): string => {
+const partnerLinkFromId = (partnerId: string, workspace?: string): string => {
   const id = partnerId.toLowerCase();
-  return CENTRAL_HOSTED_PARTNERS.includes(id) ? `bioimageio/${id}` : `${id}/${id}`;
+  // Prefer the workspace the partner manifest declares. It is absent for all 13
+  // partners today, so the hardcoded list below still carries stardist and
+  // qupath; the moment the manifest gains the key, that list stops being
+  // consulted for whichever partners set it. Default is the partner id, as
+  // decided on #0031.
+  const ws = (workspace || '').trim().toLowerCase()
+    || (CENTRAL_HOSTED_PARTNERS.includes(id) ? 'bioimageio' : id);
+  return `${ws}/${id}`;
 };
 
 // Search-bar placeholder per resource type. The grid is rendered on
@@ -179,6 +187,22 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
   const [searchQuery, setSearchQuery] = useState(() => searchParams.get('q') || '');
   const [serverSearchQuery, setServerSearchQuery] = useState(() => searchParams.get('q') || '');
   const [partnerId, setPartnerId] = useState<string>(() => searchParams.get('partner') || '');
+  // The partner's own manifest entry, for its declared workspace and tags.
+  // Looked up rather than passed from the click handler, because the filter is
+  // also restored from a `?partner=` URL where no click happened.
+  const [partnerEntry, setPartnerEntry] = useState<{ workspace?: string; tags?: string[] } | null>(null);
+  useEffect(() => {
+    if (!partnerId) { setPartnerEntry(null); return; }
+    let cancelled = false;
+    partnerService.fetchPartners()
+      .then(list => {
+        if (cancelled) return;
+        const hit = list.find(p => String(p.id).toLowerCase() === partnerId.toLowerCase());
+        setPartnerEntry(hit ? { workspace: hit.workspace, tags: hit.tags } : null);
+      })
+      .catch(() => { /* partners unreachable: fall back to id-derived values */ });
+    return () => { cancelled = true; };
+  }, [partnerId]);
   const [selectedTags, setSelectedTags] = useState<string[]>(() => {
     const tags = searchParams.get('tags');
     return tags ? tags.split(',').filter(Boolean) : [];
@@ -243,8 +267,11 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
         setLoading(true);
         await fetchResources(currentPage, serverSearchQuery, {
           tags: selectedTags,
-          partnerLink: partnerId ? partnerLinkFromId(partnerId) : undefined,
-          partnerId: partnerId || undefined
+          partnerLink: partnerId ? partnerLinkFromId(partnerId, partnerEntry?.workspace) : undefined,
+          // The partner's declared tags, not its id. biapy declares ["BiaPy"],
+          // so assuming id == tag only works by coincidence of case-folding.
+          partnerId: partnerId || undefined,
+          partnerTags: partnerEntry?.tags
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {

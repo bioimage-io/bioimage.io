@@ -66,6 +66,7 @@ interface FilterOptions {
   manifest?: Record<string, string>;
   partnerLink?: string; // For keyword search by partner links (e.g., "stardist/stardist")
   partnerId?: string;   // The bare partner id, matched against tags as well as links
+  partnerTags?: string[]; // Tags the partner DECLARES (biapy declares ["BiaPy"])
 }
 
 export interface HyphaState {
@@ -514,9 +515,15 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           if (filterOptions?.partnerLink) {
             const links = (m.links || []).map((l: any) => String(l).toLowerCase());
             const wantLink = filterOptions.partnerLink.toLowerCase();
-            const wantId = (filterOptions.partnerId || '').toLowerCase();
+            // Prefer the partner's declared tags; fall back to its id when the
+            // manifest lists none. Both lower-cased: the manifest says "BiaPy"
+            // and the models say "biapy".
+            const wantTags = (filterOptions.partnerTags && filterOptions.partnerTags.length
+              ? filterOptions.partnerTags
+              : [filterOptions.partnerId || '']
+            ).map(t => String(t).toLowerCase()).filter(Boolean);
             const byLink = links.includes(wantLink);
-            const byTag = Boolean(wantId) && tags.includes(wantId);
+            const byTag = wantTags.some(t => tags.includes(t));
             if (!byLink && !byTag) return false;
             // A partner click with no free-text query filters on the partner alone.
             if (!q) return true;
