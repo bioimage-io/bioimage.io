@@ -36,7 +36,13 @@ from pathlib import Path
 
 AM = "https://hypha.aicell.io/public/services/artifact-manager"
 COLLECTION_ID = "bioimage-io/issues"
-WATERMARK = Path(".svamp/report-sweep-watermark.json")
+# Anchored to the repo root via __file__, NOT the working directory. A
+# scheduled run does not start in the repo, and a CWD-relative path there
+# reads as "no watermark", which re-files every open report on every run.
+# That is not hypothetical: it happened on the first scheduled sweep and
+# duplicated an issue that had already been filed by hand.
+REPO_ROOT = Path(__file__).resolve().parent.parent
+WATERMARK = REPO_ROOT / ".svamp" / "report-sweep-watermark.json"
 OPEN_TYPES = ("skill-issue", "website-issue")
 
 
