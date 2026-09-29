@@ -65,6 +65,7 @@ interface FilterOptions {
   tags?: string[];
   manifest?: Record<string, string>;
   partnerLink?: string; // For keyword search by partner links (e.g., "stardist/stardist")
+  partnerId?: string;   // The bare partner id, matched against tags as well as links
 }
 
 export interface HyphaState {
@@ -482,7 +483,19 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
       // by its memorable id, which the server keyword index does not cover. This
       // sources from the model collection (rich data) and surfaces any published
       // model. partnerLink searches fall through to the keyword path below.
-      if (resourceType === 'model' && hasQuery && !filterOptions?.partnerLink) {
+      // Partner searches take this client-side path too. They used to fall
+      // through to the server keyword path, which matches the declared `links`
+      // string and nothing else, and a partner whose models never declared that
+      // link returned an empty page. Measured on the live collection: ZERO
+      // models carry a `biapy` link and 50 carry it as a TAG, so the links-only
+      // filter could not have worked for BiaPy however it was spelled.
+      //
+      // Nils's decision: links OR tags, accepting that a tagged model shows on a
+      // partner page without having formally claimed the partner. Both halves
+      // are evaluated here because Hypha cannot OR across two filter keys in one
+      // query (same-key filters are AND, and a top-level $or throws), so merging
+      // client-side is the only way to express it.
+      if (resourceType === 'model' && (hasQuery || filterOptions?.partnerLink)) {
         const q = (searchQuery || '').trim().toLowerCase();
         const tagFilters = (filterOptions?.tags || []).map(t => String(t).toLowerCase());
         const searchUrl = `${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?pagination=true&limit=2000&stage=false&filters=${encodeURIComponent(JSON.stringify({ type: 'model' }))}&order_by=created_at>`;
@@ -494,6 +507,21 @@ export const useHyphaStore = create<HyphaState>((set, get) => ({
           if (HIDDEN.includes(m.status)) return false;
           const tags = (m.tags || []).map((t: any) => String(t).toLowerCase());
           if (tagFilters.length && !tagFilters.every(t => tags.includes(t))) return false;
+
+          // Partner filter: a declared link OR a tag naming the partner.
+          // Compared lower-case because collection tags are case-inconsistent
+          // (both "ZeroCostDL4Mic" and "zerocostdl4mic" occur).
+          if (filterOptions?.partnerLink) {
+            const links = (m.links || []).map((l: any) => String(l).toLowerCase());
+            const wantLink = filterOptions.partnerLink.toLowerCase();
+            const wantId = (filterOptions.partnerId || '').toLowerCase();
+            const byLink = links.includes(wantLink);
+            const byTag = Boolean(wantId) && tags.includes(wantId);
+            if (!byLink && !byTag) return false;
+            // A partner click with no free-text query filters on the partner alone.
+            if (!q) return true;
+          }
+
           const alias = (it.id || '').split('/').pop().toLowerCase();
           return (
             alias.includes(q) ||

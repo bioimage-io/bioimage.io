@@ -243,7 +243,8 @@ export const ArtifactGrid: React.FC<ResourceGridProps> = ({ type }) => {
         setLoading(true);
         await fetchResources(currentPage, serverSearchQuery, {
           tags: selectedTags,
-          partnerLink: partnerId ? partnerLinkFromId(partnerId) : undefined
+          partnerLink: partnerId ? partnerLinkFromId(partnerId) : undefined,
+          partnerId: partnerId || undefined
         });
       } catch (error) {
         if (error instanceof Error && error.name === 'AbortError') {
