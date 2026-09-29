@@ -39,6 +39,8 @@ The public model grid on bioimage.io is ordered by a **score** the BioEngine tes
 2. **Standard-runtime compatibility.** The model can be *served* on the shared BioEngine runtime via `infer()` — i.e. a TorchScript/ONNX export, or a `pytorch_state_dict` whose architecture imports only the fixed runtime packages. Test-only models that require a custom conda environment (`dependencies: environment.yaml`) still validate and can be published, but they cannot be served on the shared runtime, so they rank below servable models.
 3. **Metadata completeness (0..1).** Authors, license, documentation, tags, covers, citations, and the other RDF fields filled in with real information.
 
+> **Do not chase a completeness of 1.0: it is not reachable, and for a single-weight-format model roughly 0.5 is the ceiling.** `bioimageio.spec` computes it as `len(given_keys) / len(full_keys)` over a full dump of the schema (`_internal/common_nodes.py:_get_metadata_completeness`). The denominator therefore contains one slot for *every* weight format (`pytorch_state_dict`, `onnx`, `torchscript`, `keras_hdf5`, `keras_v3`, `tensorflow_js`, `tensorflow_saved_model_bundle`) plus server-managed fields you cannot set yourself (`parent`, `id`, `id_emoji`, `version`, `uploader`). A model that ships one weight format is counted as missing the other six. One contributor filled in every meaningful `config.bioimageio.*` field (modality, task, training data, bias and limitations, parameter count, out-of-scope use) and moved the number from 0.262 to 0.476. That is a good score. Fill the fields because the next reader needs them, not to move this number, and **never add a redundant converted weight format purely to raise it**.
+
 Raise all three **honestly** (see the integrity rules above). The score is a proxy for "will this model be useful and trustworthy to the next person" — gaming it produces a model that ranks high but disappoints its first real user.
 
 > **How to load the linked reference files.** Every `references/...` and `scripts/...` link below resolves to a raw file served from this same site (e.g. `https://bioimage.io/skills/bioimageio-models/references/example-rdf.yaml`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if you have a local clone of the repo. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest that strips the exact YAML fields, SHA256 lines, and code you need to copy verbatim. Treat each reference file as canonical source, not as a webpage.
@@ -555,6 +557,13 @@ config:
 - `_get_tolerance` takes the **first** matching entry, so list specific entries before any catch-all.
   An entry with empty `output_ids` / `weights_formats` matches everything.
 - `mismatched_elements_per_million` defaults to 100 and is capped at 5000.
+- **This whole block is read for `format_version: 0.5.x` models ONLY.** `bioimageio.core` gates on
+  `isinstance(model, v0_5.ModelDescr)` (`_resource_tests.py:791`); every other path falls through to
+  a hardcoded `mismatched_tol = 0` (`:833`). So on a **0.4.x** RDF a declared
+  `reproducibility_tolerance` is silently inert and ANY single mismatching element fails the check,
+  with no way to say otherwise. If you are packaging new, you are on 0.5.x and this does not affect
+  you. If you are patching an existing 0.4.x model, do not add a tolerance block and expect it to
+  work: it will validate, be stored, and change nothing.
 - For **integer / label outputs, `relative_tolerance` and `absolute_tolerance` do nothing useful** —
   a boundary pixel flipping from `0` to label `23` is arbitrarily far in both — so use the ppm knob
   alone and leave the other two at their defaults.
