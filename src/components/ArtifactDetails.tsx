@@ -87,6 +87,10 @@ const ArtifactDetails = () => {
   const modelContainerRef = useRef<HTMLDivElement>(null);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   const [isStaged, setIsStaged] = useState(false);
+  // Core version of the model's PUBLISHED report, fetched only while viewing a
+  // staged one. A reviewer sees which bioimageio.core produced a staged verdict
+  // (it is already rendered) but has no way to tell that version is behind.
+  const [publishedCoreVersion, setPublishedCoreVersion] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
@@ -402,6 +406,32 @@ const ArtifactDetails = () => {
     fetchBioengineStatus();
   }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
 
+  // The comparand for the staleness badge. Deliberately the model's own published
+  // report rather than a hardcoded "current" version (which rots silently on the
+  // next core bump, the exact failure this badge exists to catch) or a collection
+  // -wide modal version (a heuristic, and wrong mid re-test run). This is an exact
+  // measurement of two real reports, at the cost of only flagging staleness the
+  // model's own history can prove.
+  useEffect(() => {
+    if (!isStaged || selectedResource?.manifest?.type !== 'model' || !selectedResource?.id) {
+      setPublishedCoreVersion(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${resolveTestReportUrl(selectedResource.id, false)}&t=${Date.now()}`);
+        if (!res.ok) return;
+        const published = await res.json();
+        const ver = published?.env?.find((pkg: any[]) => pkg[0] === 'bioimageio.core')?.[1];
+        if (!cancelled && typeof ver === 'string') setPublishedCoreVersion(ver);
+      } catch {
+        /* advisory only: no published report, or unreachable. No badge, no error. */
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
+
   // Validation function to check if parsed JSON is a valid test report
   const isValidTestReport = (data: any): data is DetailedTestReport => {
     return (
@@ -468,15 +498,34 @@ const ArtifactDetails = () => {
   // test-reports collection (testReportData), NOT the deprecated manifest
   // `test_summary`. The collection stores one DetailedTestReport per model, so
   // this yields a single summary row.
+  /** Numeric-segment compare, so 0.10.4 sorts after 0.9.6 rather than before it. */
+  const isOlderVersion = (a: string, b: string): boolean => {
+    const seg = (v: string) => v.split(/[.+-]/).map(n => (/^\d+$/.test(n) ? Number(n) : NaN));
+    const x = seg(a), y = seg(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      const p = x[i] ?? 0, q = y[i] ?? 0;
+      if (Number.isNaN(p) || Number.isNaN(q)) return false;  // unparseable: never claim stale
+      if (p !== q) return p < q;
+    }
+    return false;
+  };
+
   const getTestReports = (): TestReport[] | null => {
     if (!testReportData) return null;
     const coreVer = testReportData.env?.find(
       (pkg: any[]) => pkg[0] === 'bioimageio.core'
     )?.[1];
+    // Only ever set while viewing a staged report that has a published one to
+    // compare against. Absent comparand means no claim, not "fresh".
+    const staleCore = Boolean(
+      coreVer && publishedCoreVersion && isOlderVersion(coreVer, publishedCoreVersion)
+    );
     return [{
       name: testReportData.name || 'BioEngine test',
       status: testReportData.status === 'passed' ? 'passed' : testReportData.status,
       runtime: coreVer ? `bioimageio.core ${coreVer}` : (testReportData.status || ''),
+      staleCore,
+      staleAgainst: staleCore ? publishedCoreVersion ?? undefined : undefined,
     }];
   };
 
@@ -972,6 +1021,19 @@ const ArtifactDetails = () => {
                                   <Typography variant="caption" sx={{ color: '#6b7280', fontSize: '0.75rem', display: 'block', mt: 0.5 }}>
                                     {testReport.runtime}
                                   </Typography>
+                                  {/* A reviewer can already see WHICH core produced this verdict.
+                                      What they cannot see is that it is behind, which is what makes
+                                      a stale staged verdict look like a current one. */}
+                                  {testReport.staleCore && (
+                                    <Typography
+                                      variant="caption"
+                                      sx={{ color: '#b45309', fontSize: '0.75rem', display: 'block', mt: 0.25, fontWeight: 500 }}
+                                    >
+                                      Produced by an older runtime than this model's published report
+                                      {testReport.staleAgainst ? ` (bioimageio.core ${testReport.staleAgainst})` : ''}.
+                                      Re-test before relying on this verdict.
+                                    </Typography>
+                                  )}
                                 </Box>
                                 <Chip
                                   label={testReport.status}

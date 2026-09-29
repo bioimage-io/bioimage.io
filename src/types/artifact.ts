@@ -29,6 +29,14 @@ export interface TestReport {
   name: string;
   status: string;
   runtime: string;
+  /**
+   * The staged verdict was produced by an older bioimageio.core than the model's
+   * own published report. Only ever true when both reports exist, so absence
+   * means "no claim", not "current".
+   */
+  staleCore?: boolean;
+  /** The newer core version it was compared against, for the badge text. */
+  staleAgainst?: string;
 }
 
 export interface TestReports {
