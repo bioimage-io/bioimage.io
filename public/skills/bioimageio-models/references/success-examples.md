@@ -99,7 +99,7 @@ weights:
    torch.save(data['model'], 'weights.pt')
    ```
 
-2. **`softmax` is not a valid bioimageio postprocessing operation** — the spec docs suggested it was, but bioimageio.spec 0.5.4.3 rejects it. Fix: embed `F.softmax(logits, dim=1)` inside the model's `forward()` so the ONNX/state-dict output is already probabilities.
+2. **`softmax` was rejected by bioimageio.spec 0.5.4.3** — the version pinned at the time of this run. Fix applied then: embed `F.softmax(logits, dim=1)` inside the model's `forward()` so the ONNX/state-dict output is already probabilities. **This no longer applies.** `softmax` is a genuine built-in postprocessing op on the 0.5 line (`v0_5.py` lists it in both the preprocessing and postprocessing id sets) and is in the table in [model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md). Only `format_version: 0.4.x` has no softmax op. Do not copy this workaround into a new 0.5 model: declare the op instead.
 
 3. **Python 3.8 incompatibility in bioimageio.core 0.9.0** — `TemporaryDirectory(ignore_cleanup_errors=True)` was added in Python 3.10 and causes a `TypeError` on 3.8 when importing the model architecture. Applied a one-line patch to the installed library. Issue should be reported to core-bioimage-io-python.
 
@@ -108,7 +108,7 @@ weights:
 ### What worked
 
 - Using `smp.Unet` (segmentation_models_pytorch) directly as the architecture class
-- Embedding softmax inside `forward()` instead of relying on postprocessing spec
+- Embedding softmax inside `forward()` instead of relying on postprocessing spec (necessary on 0.5.4.3; on the current spec line, declare the `softmax` op instead)
 - Normalization via `scale_linear` preprocessing (gain = 1/std ≈ 26.08, offset = −mean/std ≈ −2.35)
 - The `connect_to_server` call requires a config **dict** (not keyword args):
   ```python
@@ -117,7 +117,7 @@ weights:
 
 ### Issues filed / fixed in this repo
 
-- `references/model-spec-reference.md`: removed `softmax` from postprocessing table, added note and workaround
+- `references/model-spec-reference.md`: removed `softmax` from postprocessing table, added note and workaround (SINCE REVERSED: softmax is back in the table, because it is valid on the 0.5 line)
 - `references/model-spec-reference.md`: added warning about pure state-dict requirement for weights files
 - `references/submission-guide.md`: removed all `_rkwargs=True`, fixed `connect_to_server` to use dict, added `__pycache__` exclusion filter
 
