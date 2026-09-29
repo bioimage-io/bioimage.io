@@ -490,10 +490,37 @@ const Edit: React.FC = () => {
     // "Artifact must be in staging mode to commit" assertion (already committed /
     // nothing staged) as a no-op. This preserves the auto-stage race-tolerance
     // (handleSave / onDrop / the setTimeout recursion may have already committed).
+    // Name the Hypha version after the model's own RDF version, so the two stop
+    // drifting apart. Forward only: existing artifacts keep the version names
+    // they already have, and migrating them is a separate decision (#0015).
+    //
+    // Only on a NEW version. An in-place edit_version must keep the name of the
+    // version it is overwriting, and renaming it would silently move a published
+    // identifier.
+    //
+    // The RDF version is used VERBATIM, not normalised and never invented. The
+    // collection carries `0.1.0`, `1`, `1.2` and `1.0.0`, and the point of this
+    // change is that the Hypha version mirrors whatever the model declares.
+    const rdfVersion = String((artifactInfo?.manifest as any)?.version ?? '').trim();
+    const existingVersionNames = (artifactInfo?.versions ?? []).map((v: any) => String(v?.version));
+    const namingNewVersion = stagingIntent === 'new_version' && Boolean(rdfVersion);
+
+    // The bump guard. Committing a new version while the RDF still declares the
+    // version already published would either collide or silently produce two
+    // Hypha versions claiming to be the same model version.
+    if (namingNewVersion && existingVersionNames.includes(rdfVersion)) {
+      throw new Error(
+        `This model already has a published version ${rdfVersion}. ` +
+          `Bump the \`version\` field in the RDF before publishing a new one, ` +
+          `so the published version and the model's own version stay in step.`,
+      );
+    }
+
     try {
       await artifactManager.commit({
         artifact_id: artifactId,
         comment,
+        ...(namingNewVersion ? { version: rdfVersion } : {}),
         _rkwargs: true
       });
     } catch (err) {
