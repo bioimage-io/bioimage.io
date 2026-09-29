@@ -518,7 +518,7 @@ weights:
 - bioimage.io [#94](https://github.com/bioimage-io/bioimage.io/issues/94) — skill gaps and two items stale vs spec 0.5.12
 
 Full narrative: `report-2026-09-03-bioimageio-models-large-custom-env-model` in the
-`bioimage-io/skill-issues` collection.
+`bioimage-io/issues` collection.
 
 ### rdf.yaml snippet (mode selector + integer-output tolerance)
 

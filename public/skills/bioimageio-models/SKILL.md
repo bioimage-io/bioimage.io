@@ -612,7 +612,7 @@ python "$SKILL_DIR"/scripts/submit_for_review.py <artifact_id>   # e.g. bioimage
 - **7c — Website / submission issues** (upload flow, Hypha API, bioimage.io UI) → file against `bioimage-io/bioimage.io`.
 - **7d — Skill improvements** — if these instructions were confusing or missing steps, file against `bioimage-io/bioimage.io` with a concrete draft of the improved text. Skill source lives at `public/skills/bioimageio-models/`.
 - **7e — Success example** — on a successful submission, append the model to [references/success-examples.md](https://bioimage.io/skills/bioimageio-models/references/success-examples.md) so future runs can learn from what worked. Use the append template in `audit-templates.md`.
-- **7f — Skill feedback (shared Hypha collection)** — if *this skill itself* was confusing, stale, or contradicted the live system (distinct from the spec/core/website bugs in 7a–7c), also file a structured report in the shared **`bioimage-io/skill-issues`** collection, tagged `skill: "bioimageio-models"`. Maintainers triage that collection across every bioimage.io skill. Any authenticated Hypha token works (the collection grants `@: r+`); do **not** include secrets — reports are public.
+- **7f — Skill feedback (shared Hypha collection)** — if *this skill itself* was confusing, stale, or contradicted the live system (distinct from the spec/core/website bugs in 7a–7c), also file a structured report in the **`bioimage-io/issues`** collection, tagged `skill: "bioimageio-models"`, with type `skill-issue`. Maintainers triage that collection across every bioimage.io skill, and flip the type to `skill-issue-solved` once a fix lands. Anyone may file, **including without a token**. Reports are **not** publicly readable, so a log buffer or a traceback is safe to attach. One caveat that is not obvious: the collection MANIFEST listing is open to everyone and cannot be closed, so keep free text out of the manifest and put it in `report.md`.
 
 ```python
 import datetime, os, httpx
@@ -624,11 +624,14 @@ async def submit_skill_feedback(report_md_path, slug, title, summary, tags=None)
     am = await server.get_service("public/artifact-manager")
     date = datetime.date.today().isoformat()
     report = await am.create(
-        parent_id="bioimage-io/skill-issues",
-        alias=f"report-{date}-bioimageio-models-{slug}",
-        type="report",
-        manifest={"name": title, "description": summary,
-                  "skill": "bioimageio-models", "tags": tags or []},
+        parent_id="bioimage-io/issues",
+        alias=f"skill-{date}-bioimageio-models-{slug}",
+        type="skill-issue",                       # "website-issue" for the site itself
+        # Structural fields only: `list` is open to everyone and returns manifests.
+        # `title` and `summary` are free text and go at the top of report.md instead.
+        manifest={"name": f"skill-{date}-bioimageio-models-{slug}",
+                  "skill": "bioimageio-models", "tags": tags or [],
+                  "reported_at": date},
         stage=True,
     )
     put_url = await am.put_file(report.id, file_path="report.md")
@@ -639,7 +642,7 @@ async def submit_skill_feedback(report_md_path, slug, title, summary, tags=None)
     return report.id
 ```
 
-The `report.md` section structure + the full tag list live on the collection manifest — `am.read("bioimage-io/skill-issues").manifest` — fetch from there if this section looks stale.
+The `report.md` section structure + the full tag list live on the collection manifest — `am.read("bioimage-io/issues").manifest` — fetch from there if this section looks stale.
 
 ---
 
