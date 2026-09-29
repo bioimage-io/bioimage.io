@@ -576,6 +576,22 @@ The first call probes whether `apps_workdir` is shared across Ray nodes (writes 
 >
 > **Subtle trap: the "previous-token" fallback.** When `application_id` matches an already-running instance, `deploy_app` silently reuses the previously stored token if `--hypha-token` is omitted. So a redeploy on a worker that *already has the app running* will "succeed" without it — while the same redeploy on a worker *without a prior instance* fails. **Always pass it.** Don't rely on the fallback; agents that test on one worker and then deploy to another get bitten by exactly this.
 
+#### Per-deployment tokens
+
+Each `deploy_app` call can carry its OWN token, and each is independently revocable. The token you pass is written into the deployment's secrets and merged into every replica's runtime env at bind time, so user code reading `os.getenv("HYPHA_TOKEN")` in `__init__` receives it.
+
+```python
+await worker.deploy_app(artifact_id=..., application_id="app-a", hypha_token=token_a)
+await worker.deploy_app(artifact_id=..., application_id="app-b", hypha_token=token_b)
+```
+
+CLI: `--hypha-token`.
+
+**Do not reach for `--env HYPHA_TOKEN=...`.** The `hypha_token` parameter takes precedence and OVERWRITES an env-supplied value, so a token passed that way is not what the replica ends up using. On the one path where the env value does reach the replica (an explicitly empty `--hypha-token ''`, which the CLI does not do by default) it still does not survive a worker restart, because `HYPHA_TOKEN` is stripped from the recovery blob. The CLI's own warning calls this "silently ignored", which is the wrong mental model: the value is not filtered out, it is overwritten, and the practical question a reader has is where the token they are seeing came from.
+
+**The limit, stated rather than implied.** Per-deployment tokens give you REVOCABILITY, not least privilege. Any token that can write a shared artifact in workspace W carries W's scope, so two deployments writing the same artifact hold equivalent power even with different tokens. Narrowing scope is not available today and the block is in Hypha, not BioEngine: `extra_scopes` is additive, grants nothing on its own, and marks the token specialized so it cannot open an app's startup RPC connection. So there is no artifact-scoped credential an app can actually use. Revoking one deployment's token without touching the others is achievable now; giving one deployment less authority than another is not.
+
+
 > **CRITICAL — artifact ≠ app, `--app-id` is required to update.** One artifact can be deployed many times with different `--app-id`s. Running `bioengine apps run <artifact>` **without `--app-id` always creates a new instance with a random ID** — it never updates an existing running one. To update a running app, you MUST pass `--app-id <running-app-id>` (which you find via `bioengine apps status`).
 >
 > ```bash
