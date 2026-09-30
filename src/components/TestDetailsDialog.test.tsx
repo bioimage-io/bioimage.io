@@ -203,3 +203,45 @@ describe('compatibility report with no details', () => {
     expect(screen.queryByText(/no further detail/)).toBeNull();
   });
 });
+
+// svamp #0017/#0059. A reviewer opening a STAGED model sees which
+// bioimageio.core produced the verdict but not that the version is behind.
+// The first attempt put this warning inside a Popover that nothing can open
+// (dead since 302ea59, 2026-02-23), so it shipped without ever rendering.
+// It now lives in the report dialog, which is the surface reviewers actually
+// reach, and these cases assert it renders AND that it discriminates.
+//
+// The caller owns the comparison: the prop is the published version and is set
+// only when the staged report is behind it. Absent means "make no claim",
+// which is NOT the same as "current".
+describe('stale-core chip on a staged report', () => {
+  const openWith = (stale: string | null) =>
+    render(
+      <TestDetailsDialog
+        open
+        onClose={() => {}}
+        data={report({ status: 'passed', error: null }) as any}
+        isLoading={false}
+        type="test-report"
+        staleAgainstCoreVersion={stale}
+      />,
+    );
+
+  it('flags a staged verdict produced by an older core', () => {
+    // fixture report is on 0.11.0; the model's published report moved to 0.12.0
+    openWith('0.12.0');
+    expect(screen.getByText('Older than published v0.12.0')).toBeInTheDocument();
+  });
+
+  it('says nothing when the caller passes no comparand', () => {
+    openWith(null);
+    expect(screen.queryByText(/Older than published/)).toBeNull();
+  });
+
+  it('still shows the core version itself, which the chip only qualifies', () => {
+    openWith('0.12.0');
+    expect(screen.getByText('bioimageio.core')).toBeInTheDocument();
+    // the staged report's OWN version stays visible next to the chip
+    expect(screen.getByText('v0.11.0')).toBeInTheDocument();
+  });
+});

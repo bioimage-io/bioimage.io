@@ -70,6 +70,14 @@ interface TestDetailsDialogProps {
   partnerName?: string; // For compatibility reports
   partnerVersion?: string; // For compatibility reports
   /**
+   * svamp #0017/#0059. The core version of the model's PUBLISHED report, set
+   * ONLY when the report being shown is a staged one produced by an older core.
+   * The caller owns the comparison; absent means "make no claim", which is not
+   * the same as "current". A reviewer can already see which core produced a
+   * staged verdict, so what this adds is that the version is behind.
+   */
+  staleAgainstCoreVersion?: string | null;
+  /**
    * When false (default true), a finished test keeps showing the step timeline
    * with a "View Test Report" button instead of jumping straight to the report,
    * letting the user review the steps first. Clicking the button calls
@@ -173,6 +181,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   type,
   partnerName,
   partnerVersion,
+  staleAgainstCoreVersion = null,
   showReport = true,
   onViewReport,
   onCancel,
@@ -346,6 +355,25 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
           <Typography variant="body2" color="text.secondary">
             v{version}
           </Typography>
+        )}
+        {/* Sits beside the version it qualifies, because the version alone is
+            what reads as current. See svamp #0017. */}
+        {staleAgainstCoreVersion && (
+          <Tooltip
+            title={`This model's published report was produced by bioimageio.core v${staleAgainstCoreVersion}. A newer runtime can reach a different verdict, so treat this result as provisional.`}
+          >
+            <Chip
+              size="small"
+              label={`Older than published v${staleAgainstCoreVersion}`}
+              sx={{
+                backgroundColor: 'rgba(180, 83, 9, 0.1)',
+                color: '#b45309',
+                fontWeight: 500,
+                fontSize: '0.7rem',
+                height: 22,
+              }}
+            />
+          </Tooltip>
         )}
       </>
     );

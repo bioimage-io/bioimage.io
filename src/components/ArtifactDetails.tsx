@@ -1021,19 +1021,11 @@ const ArtifactDetails = () => {
                                   <Typography variant="caption" sx={{ color: '#6b7280', fontSize: '0.75rem', display: 'block', mt: 0.5 }}>
                                     {testReport.runtime}
                                   </Typography>
-                                  {/* A reviewer can already see WHICH core produced this verdict.
-                                      What they cannot see is that it is behind, which is what makes
-                                      a stale staged verdict look like a current one. */}
-                                  {testReport.staleCore && (
-                                    <Typography
-                                      variant="caption"
-                                      sx={{ color: '#b45309', fontSize: '0.75rem', display: 'block', mt: 0.25, fontWeight: 500 }}
-                                    >
-                                      Produced by an older runtime than this model's published report
-                                      {testReport.staleAgainst ? ` (bioimageio.core ${testReport.staleAgainst})` : ''}.
-                                      Re-test before relying on this verdict.
-                                    </Typography>
-                                  )}
+                                  {/* The stale-core warning used to live here. This whole Popover
+                                      is unreachable (svamp #0059): its `open` gate reads an anchor
+                                      that nothing has assigned since 302ea59, so the warning never
+                                      rendered. It now sits in the report dialog, which reviewers
+                                      actually open. Do not add UI here without restoring a trigger. */}
                                 </Box>
                                 <Chip
                                   label={testReport.status}
@@ -2310,6 +2302,17 @@ const ArtifactDetails = () => {
         isLoading={isLoadingTestReport}
         rawErrorContent={rawErrorContent}
         isInvalidJson={isInvalidJson}
+        /* svamp #0017/#0059. publishedCoreVersion is only ever populated while
+           viewing a staged report, so the staged-only gating is already in the
+           state itself. Null comparand means no claim, not "current". */
+        staleAgainstCoreVersion={(() => {
+          const coreVer = (detailedTestReport as any)?.env?.find(
+            (pkg: any[]) => pkg[0] === 'bioimageio.core'
+          )?.[1];
+          return coreVer && publishedCoreVersion && isOlderVersion(coreVer, publishedCoreVersion)
+            ? publishedCoreVersion
+            : null;
+        })()}
       />
 
       {/* BioEngine Error Dialog */}
