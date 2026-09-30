@@ -422,7 +422,7 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 >
 > **That skew has a user-facing consequence, so deploy defensively.** The static site serves the artifact head while the replica serves whatever version it is actually on. A redeploy that changes both can therefore put a new UI in front of users while the old backend is still answering, and the UI asks for a field the backend cannot return. Two habits make this survivable. Land the Python change and confirm it behaviourally *before* shipping frontend code that depends on it. And render new fields defensively — `o.newMetric != null ? fmt(o.newMetric) : "—"` degrades to a dash instead of `undefined` across the window where the two disagree.
 
-> **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...` — it is silently ignored by the app builder.
+> **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...`. It is not ignored: the `hypha_token` parameter takes precedence and **overwrites** it, so a token passed that way is not what the replica ends up using. See [Per-deployment tokens](#per-deployment-tokens) for the one path where the env value does reach a replica, and why it is not durable there either.
 
 After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 

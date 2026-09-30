@@ -89,7 +89,7 @@ Options:
   --token TOKEN        Auth token (or HYPHA_TOKEN)
 ```
 
-> **Important**: `--env HYPHA_TOKEN=...` is silently ignored — always use `--hypha-token` to inject the token.
+> **Important**: always use `--hypha-token` to inject the token. `--env HYPHA_TOKEN=...` is not ignored, it is **overwritten** by the `hypha_token` parameter, so it is not what the replica ends up using.
 
 ```bash
 bioengine apps deploy ./my-app/
@@ -127,7 +127,7 @@ Options:
                        Pass --hypha-token '' to deploy without a token.
 ```
 
-> **Important**: `--env HYPHA_TOKEN=...` is silently ignored — always use `--hypha-token` to inject the token.
+> **Important**: always use `--hypha-token` to inject the token. `--env HYPHA_TOKEN=...` is not ignored, it is **overwritten** by the `hypha_token` parameter, so it is not what the replica ends up using.
 
 ```bash
 bioengine apps run bioimage-io/my-app
