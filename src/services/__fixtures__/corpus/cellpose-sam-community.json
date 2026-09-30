@@ -1,0 +1,1435 @@
+{
+  "_synthetic": {
+    "pins": "format",
+    "since": "0.14.0-draft",
+    "source": "src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io",
+    "warning": "The figures in this file are invented. No campaign described here has run. Every count, byte total, timestamp and metric value is a shape chosen to exercise the wire format, not a measurement. Vendoring this file pins the FORMAT. Quoting its values as evidence is a misread."
+  },
+  "aggregation": {
+    "method": "greedy soup",
+    "weighting": "uniform"
+  },
+  "base_model": {
+    "id": "bioimage-io/cellpose-sam",
+    "name": "Cellpose-SAM",
+    "sha256": "0f1cc3f7ecdd8a037a57c6c48d9d8921391be4cbce3fa9f13c3e3a2e1253c667",
+    "url": "#/models/cellpose-sam",
+    "version": "0.2.0"
+  },
+  "campaign_id": "cellpose-sam-community",
+  "description": "An open community fine-tunes Cellpose-SAM on microscopy archives that are too large to move. Each contributor trains locally, whenever it suits them, and the checkpoints that come back are periodically averaged into a community model that everyone can use. Each merge tries the checkpoints it has received one at a time and keeps the ones that improve the pooled model.",
+  "generated_at": "2026-09-12T15:00:00.000Z",
+  "licence_policy": {
+    "accepted_data_licences": [
+      "CC0-1.0",
+      "CC-BY-4.0"
+    ],
+    "model_licence": "CC-BY-4.0"
+  },
+  "payload": {
+    "bytes_per_contribution": 1300000000,
+    "kind": "full_state_dict",
+    "label": "Full Cellpose-SAM checkpoint"
+  },
+  "policy": {
+    "aggregate_min_scoring_sites": 3,
+    "outcomes_released": true,
+    "public_data_campaign": false,
+    "roster_attested": false
+  },
+  "progress": {
+    "baseline_metric": {
+      "aggregate": 0.6412,
+      "aggregate_basis": "Cellpose-SAM 0.2.0 as published, scored on the campaign holdout before the first merge",
+      "aggregate_scope": "campaign_holdout",
+      "aggregate_withheld": null,
+      "higher_is_better": true,
+      "n_datasets_scored": null,
+      "n_sites_scored": null,
+      "name": "mean instance F1 at IoU 0.5",
+      "per_site": null,
+      "per_site_basis": null,
+      "role": "witness"
+    },
+    "contributions": [
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-0",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 41200,
+        "received_at": "2026-06-15T18:00:00.000Z"
+      },
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "rivermouth-0",
+        "contributor_id": "rivermouth",
+        "dataset_name": "rivermouth-cyto",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-0",
+        "n_train_images": 28400,
+        "received_at": "2026-06-15T22:00:00.000Z"
+      },
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "kestrel-0",
+        "contributor_id": "kestrel",
+        "dataset_name": "kestrel-organoids",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 19800,
+        "received_at": "2026-06-18T16:00:00.000Z"
+      },
+      {
+        "base_version": "v1",
+        "bytes_out": 1300000000,
+        "contribution_id": "saltmarsh-0",
+        "contributor_id": "saltmarsh",
+        "dataset_name": "saltmarsh-plankton",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-1",
+        "n_train_images": 12600,
+        "received_at": "2026-06-27T20:00:00.000Z"
+      },
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-1",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-2",
+        "n_train_images": 41200,
+        "received_at": "2026-07-02T18:00:00.000Z"
+      },
+      {
+        "base_version": "v2",
+        "bytes_out": 1300000000,
+        "contribution_id": "highvale-0",
+        "contributor_id": "highvale",
+        "dataset_name": "highvale-tissue",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-2",
+        "n_train_images": 22500,
+        "received_at": "2026-07-04T13:00:00.000Z"
+      },
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "rivermouth-1",
+        "contributor_id": "rivermouth",
+        "dataset_name": "rivermouth-cyto",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-3",
+        "n_train_images": 28400,
+        "received_at": "2026-07-06T22:00:00.000Z"
+      },
+      {
+        "base_version": null,
+        "bytes_out": 1300000000,
+        "contribution_id": "kestrel-1",
+        "contributor_id": "kestrel",
+        "dataset_name": "kestrel-organoids",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-4",
+        "n_train_images": 19800,
+        "received_at": "2026-07-14T16:00:00.000Z"
+      },
+      {
+        "base_version": "v1",
+        "bytes_out": 1300000000,
+        "contribution_id": "saltmarsh-1",
+        "contributor_id": "saltmarsh",
+        "dataset_name": "saltmarsh-plankton",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-4",
+        "n_train_images": 12600,
+        "received_at": "2026-07-16T20:00:00.000Z"
+      },
+      {
+        "base_version": "v4",
+        "bytes_out": 1300000000,
+        "contribution_id": "thornbury-0",
+        "contributor_id": "thornbury",
+        "dataset_name": "thornbury-roots",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-4",
+        "n_train_images": 31700,
+        "received_at": "2026-07-18T17:00:00.000Z"
+      },
+      {
+        "base_version": "v2",
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-2",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-4",
+        "n_train_images": 41200,
+        "received_at": "2026-07-19T18:00:00.000Z"
+      },
+      {
+        "base_version": "v2",
+        "bytes_out": 1300000000,
+        "contribution_id": "highvale-1",
+        "contributor_id": "highvale",
+        "dataset_name": "highvale-tissue",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 22500,
+        "received_at": "2026-07-27T13:00:00.000Z"
+      },
+      {
+        "base_version": "v3",
+        "bytes_out": 1300000000,
+        "contribution_id": "rivermouth-2",
+        "contributor_id": "rivermouth",
+        "dataset_name": "rivermouth-cyto",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 28400,
+        "received_at": "2026-07-27T22:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "copperlake-0",
+        "contributor_id": "copperlake",
+        "dataset_name": "copperlake-neurons",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 17300,
+        "received_at": "2026-08-01T14:00:00.000Z"
+      },
+      {
+        "base_version": "v4",
+        "bytes_out": 1300000000,
+        "contribution_id": "thornbury-1",
+        "contributor_id": "thornbury",
+        "dataset_name": "thornbury-roots",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-5",
+        "n_train_images": 31700,
+        "received_at": "2026-08-03T17:00:00.000Z"
+      },
+      {
+        "base_version": "v4",
+        "bytes_out": 1300000000,
+        "contribution_id": "saltmarsh-2",
+        "contributor_id": "saltmarsh",
+        "dataset_name": "saltmarsh-plankton",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 12600,
+        "received_at": "2026-08-04T20:00:00.000Z"
+      },
+      {
+        "base_version": "v4",
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-3",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 41200,
+        "received_at": "2026-08-05T18:00:00.000Z"
+      },
+      {
+        "base_version": "v4",
+        "bytes_out": 1300000000,
+        "contribution_id": "kestrel-2",
+        "contributor_id": "kestrel",
+        "dataset_name": "kestrel-organoids",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-5",
+        "n_train_images": 19800,
+        "received_at": "2026-08-09T16:00:00.000Z"
+      },
+      {
+        "base_version": "v6",
+        "bytes_out": 1300000000,
+        "contribution_id": "driftwood-0",
+        "contributor_id": "driftwood",
+        "dataset_name": "driftwood-diatoms",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-6",
+        "n_train_images": 9400,
+        "received_at": "2026-08-15T21:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "rivermouth-3",
+        "contributor_id": "rivermouth",
+        "dataset_name": "rivermouth-cyto",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-7",
+        "n_train_images": 28400,
+        "received_at": "2026-08-17T22:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "highvale-2",
+        "contributor_id": "highvale",
+        "dataset_name": "highvale-tissue",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 22500,
+        "received_at": "2026-08-19T13:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "thornbury-2",
+        "contributor_id": "thornbury",
+        "dataset_name": "thornbury-roots",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-7",
+        "n_train_images": 31700,
+        "received_at": "2026-08-19T17:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-4",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-7",
+        "n_train_images": 41200,
+        "received_at": "2026-08-22T18:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "saltmarsh-3",
+        "contributor_id": "saltmarsh",
+        "dataset_name": "saltmarsh-plankton",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-7",
+        "n_train_images": 12600,
+        "received_at": "2026-08-23T20:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "copperlake-1",
+        "contributor_id": "copperlake",
+        "dataset_name": "copperlake-neurons",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "included",
+        "merged_into": "soup-8",
+        "n_train_images": 17300,
+        "received_at": "2026-08-25T14:00:00.000Z"
+      },
+      {
+        "base_version": "v8",
+        "bytes_out": 1300000000,
+        "contribution_id": "ashgrove-0",
+        "contributor_id": "ashgrove",
+        "dataset_name": "ashgrove-embryos",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 26100,
+        "received_at": "2026-08-29T12:00:00.000Z"
+      },
+      {
+        "base_version": "v5",
+        "bytes_out": 1300000000,
+        "contribution_id": "kestrel-3",
+        "contributor_id": "kestrel",
+        "dataset_name": "kestrel-organoids",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 19800,
+        "received_at": "2026-09-04T16:00:00.000Z"
+      },
+      {
+        "base_version": "v7",
+        "bytes_out": 1300000000,
+        "contribution_id": "thornbury-3",
+        "contributor_id": "thornbury",
+        "dataset_name": "thornbury-roots",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 31700,
+        "received_at": "2026-09-04T17:00:00.000Z"
+      },
+      {
+        "base_version": "v6",
+        "bytes_out": 1300000000,
+        "contribution_id": "driftwood-1",
+        "contributor_id": "driftwood",
+        "dataset_name": "driftwood-diatoms",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "excluded",
+        "merged_into": null,
+        "n_train_images": 9400,
+        "received_at": "2026-09-04T21:00:00.000Z"
+      },
+      {
+        "base_version": "v7",
+        "bytes_out": 1300000000,
+        "contribution_id": "rivermouth-4",
+        "contributor_id": "rivermouth",
+        "dataset_name": "rivermouth-cyto",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "pending",
+        "merged_into": null,
+        "n_train_images": 28400,
+        "received_at": "2026-09-07T22:00:00.000Z"
+      },
+      {
+        "base_version": "v7",
+        "bytes_out": 1300000000,
+        "contribution_id": "northfield-5",
+        "contributor_id": "northfield",
+        "dataset_name": "northfield-nuclei",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "pending",
+        "merged_into": null,
+        "n_train_images": 41200,
+        "received_at": "2026-09-08T18:00:00.000Z"
+      },
+      {
+        "base_version": "v7",
+        "bytes_out": 1300000000,
+        "contribution_id": "highvale-3",
+        "contributor_id": "highvale",
+        "dataset_name": "highvale-tissue",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "pending",
+        "merged_into": null,
+        "n_train_images": 22500,
+        "received_at": "2026-09-11T13:00:00.000Z"
+      },
+      {
+        "base_version": "v7",
+        "bytes_out": 1300000000,
+        "contribution_id": "saltmarsh-4",
+        "contributor_id": "saltmarsh",
+        "dataset_name": "saltmarsh-plankton",
+        "declared": [
+          "n_train_images",
+          "dataset_name"
+        ],
+        "disposition": "pending",
+        "merged_into": null,
+        "n_train_images": 12600,
+        "received_at": "2026-09-11T20:00:00.000Z"
+      }
+    ],
+    "contributors": [
+      {
+        "accelerator": "NVIDIA A100",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "northfield",
+        "contributor_name": "Northfield Imaging Centre",
+        "country": "Sweden",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 4120,
+            "n_train": 41200,
+            "n_val": 4944,
+            "name": "northfield-nuclei",
+            "objects": "fluorescence nuclei",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-06-15T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-08T18:00:00.000Z",
+        "n_contributions": 6,
+        "n_train_images": 41200
+      },
+      {
+        "accelerator": "NVIDIA A100",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "rivermouth",
+        "contributor_name": "Rivermouth Bioimaging Facility",
+        "country": "Germany",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 2840,
+            "n_train": 28400,
+            "n_val": 3408,
+            "name": "rivermouth-cyto",
+            "objects": "cytoplasm, brightfield",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-06-15T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-07T22:00:00.000Z",
+        "n_contributions": 5,
+        "n_train_images": 28400
+      },
+      {
+        "accelerator": "NVIDIA L40S",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "kestrel",
+        "contributor_name": "Kestrel Institute Microscopy Core",
+        "country": "Netherlands",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 1980,
+            "n_train": 19800,
+            "n_val": 2376,
+            "name": "kestrel-organoids",
+            "objects": "organoid cross-sections",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-06-18T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-04T16:00:00.000Z",
+        "n_contributions": 4,
+        "n_train_images": 19800
+      },
+      {
+        "accelerator": "NVIDIA A40",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "saltmarsh",
+        "contributor_name": "Saltmarsh Marine Station",
+        "country": "Portugal",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 1260,
+            "n_train": 12600,
+            "n_val": 1512,
+            "name": "saltmarsh-plankton",
+            "objects": "plankton, phase contrast",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-06-27T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-11T20:00:00.000Z",
+        "n_contributions": 5,
+        "n_train_images": 12600
+      },
+      {
+        "accelerator": "NVIDIA A100",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "highvale",
+        "contributor_name": "Highvale Pathology Unit",
+        "country": "Ireland",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 2250,
+            "n_train": 22500,
+            "n_val": 2700,
+            "name": "highvale-tissue",
+            "objects": "H&E tissue sections",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-07-04T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-11T13:00:00.000Z",
+        "n_contributions": 4,
+        "n_train_images": 22500
+      },
+      {
+        "accelerator": "NVIDIA L40S",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "thornbury",
+        "contributor_name": "Thornbury Plant Phenotyping Lab",
+        "country": "France",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 3170,
+            "n_train": 31700,
+            "n_val": 3804,
+            "name": "thornbury-roots",
+            "objects": "root tips, brightfield",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-07-18T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-04T17:00:00.000Z",
+        "n_contributions": 4,
+        "n_train_images": 31700
+      },
+      {
+        "accelerator": "NVIDIA A40",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "copperlake",
+        "contributor_name": "Copperlake Neuroimaging Group",
+        "country": "Canada",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 1730,
+            "n_train": 17300,
+            "n_val": 2076,
+            "name": "copperlake-neurons",
+            "objects": "cultured neurons",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-08-01T09:00:00.000Z",
+        "latest_contribution_at": "2026-08-25T14:00:00.000Z",
+        "n_contributions": 2,
+        "n_train_images": 17300
+      },
+      {
+        "accelerator": "NVIDIA T4",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "driftwood",
+        "contributor_name": "Driftwood Coastal Ecology Unit",
+        "country": "Australia",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 940,
+            "n_train": 9400,
+            "n_val": 1128,
+            "name": "driftwood-diatoms",
+            "objects": "diatoms, darkfield",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-08-15T09:00:00.000Z",
+        "latest_contribution_at": "2026-09-04T21:00:00.000Z",
+        "n_contributions": 2,
+        "n_train_images": 9400
+      },
+      {
+        "accelerator": "NVIDIA A100",
+        "bioengine_version": "0.7.2",
+        "contributor_id": "ashgrove",
+        "contributor_name": "Ashgrove Developmental Biology Unit",
+        "country": "Japan",
+        "datasets": [
+          {
+            "licence": "CC-BY-4.0",
+            "n_test": 2610,
+            "n_train": 26100,
+            "n_val": 3132,
+            "name": "ashgrove-embryos",
+            "objects": "embryo cross-sections",
+            "source": "Local facility archive",
+            "split_fingerprint": null
+          }
+        ],
+        "declared": [
+          "contributor_name",
+          "country",
+          "datasets",
+          "n_train_images"
+        ],
+        "joined_at": "2026-08-29T09:00:00.000Z",
+        "latest_contribution_at": "2026-08-29T12:00:00.000Z",
+        "n_contributions": 1,
+        "n_train_images": 26100
+      }
+    ],
+    "empty_merges": [
+      {
+        "assessed": [],
+        "merged_at": "2026-07-27T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6985,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "transport": {
+          "bytes_in": 0,
+          "bytes_out": 0,
+          "n_transfers": 0,
+          "sources_complete": true
+        }
+      },
+      {
+        "assessed": [
+          "rivermouth-2",
+          "highvale-1",
+          "copperlake-0"
+        ],
+        "merged_at": "2026-08-03T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6985,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "transport": {
+          "bytes_in": 3900000000,
+          "bytes_out": 0,
+          "n_transfers": 3,
+          "sources_complete": true
+        }
+      },
+      {
+        "assessed": [
+          "kestrel-3",
+          "thornbury-3",
+          "driftwood-1"
+        ],
+        "merged_at": "2026-09-07T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7677,
+          "aggregate_basis": "the score the greedy gate required a contribution to beat, which none of the assessed contributions did",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "transport": {
+          "bytes_in": 3900000000,
+          "bytes_out": 0,
+          "n_transfers": 3,
+          "sources_complete": true
+        }
+      }
+    ],
+    "merge_trigger": {
+      "agent": null,
+      "contributions_per_merge": null,
+      "decided_by": null,
+      "kind": null,
+      "next_merge_at": null
+    },
+    "mode": "asynchronous",
+    "soups": [
+      {
+        "assessed": [
+          "northfield-0",
+          "rivermouth-0",
+          "kestrel-0"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 1,
+          "url": "#/models/cellpose-sam-community?version=v1",
+          "version": "v1"
+        },
+        "contributions": [
+          "rivermouth-0"
+        ],
+        "global_sha256": "be7b64b2be7b64b2be7b64b2be7b64b2",
+        "index": 0,
+        "merged_at": "2026-06-22T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6293,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-0",
+        "transport": {
+          "bytes_in": 3900000000,
+          "bytes_out": 3900000000,
+          "n_transfers": 6,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.7235,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "saltmarsh-0"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 2,
+          "url": "#/models/cellpose-sam-community?version=v2",
+          "version": "v2"
+        },
+        "contributions": [
+          "saltmarsh-0"
+        ],
+        "global_sha256": "bd7b631fbd7b631fbd7b631fbd7b631f",
+        "index": 1,
+        "merged_at": "2026-06-29T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6466,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-1",
+        "transport": {
+          "bytes_in": 1300000000,
+          "bytes_out": 5200000000,
+          "n_transfers": 5,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.7361,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "northfield-1",
+          "highvale-0"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 4,
+          "url": "#/models/cellpose-sam-community?version=v3",
+          "version": "v3"
+        },
+        "contributions": [
+          "northfield-1",
+          "highvale-0"
+        ],
+        "global_sha256": "bc7b618cbc7b618cbc7b618cbc7b618c",
+        "index": 2,
+        "merged_at": "2026-07-06T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6639,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-2",
+        "transport": {
+          "bytes_in": 2600000000,
+          "bytes_out": 6500000000,
+          "n_transfers": 7,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.7587,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "rivermouth-1"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 5,
+          "url": "#/models/cellpose-sam-community?version=v4",
+          "version": "v4"
+        },
+        "contributions": [
+          "rivermouth-1"
+        ],
+        "global_sha256": "bb7b5ff9bb7b5ff9bb7b5ff9bb7b5ff9",
+        "index": 3,
+        "merged_at": "2026-07-13T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6812,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-3",
+        "transport": {
+          "bytes_in": 1300000000,
+          "bytes_out": 6500000000,
+          "n_transfers": 6,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.7689,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "kestrel-1",
+          "saltmarsh-1",
+          "thornbury-0",
+          "northfield-2"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 9,
+          "url": "#/models/cellpose-sam-community?version=v5",
+          "version": "v5"
+        },
+        "contributions": [
+          "kestrel-1",
+          "saltmarsh-1",
+          "thornbury-0",
+          "northfield-2"
+        ],
+        "global_sha256": "ba7b5e66ba7b5e66ba7b5e66ba7b5e66",
+        "index": 4,
+        "merged_at": "2026-07-20T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.6985,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-4",
+        "transport": {
+          "bytes_in": 5200000000,
+          "bytes_out": 7800000000,
+          "n_transfers": 10,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.8029,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "thornbury-1",
+          "saltmarsh-2",
+          "northfield-3",
+          "kestrel-2"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 11,
+          "url": "#/models/cellpose-sam-community?version=v6",
+          "version": "v6"
+        },
+        "contributions": [
+          "thornbury-1",
+          "kestrel-2"
+        ],
+        "global_sha256": "b97b5cd3b97b5cd3b97b5cd3b97b5cd3",
+        "index": 5,
+        "merged_at": "2026-08-10T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7158,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-5",
+        "transport": {
+          "bytes_in": 5200000000,
+          "bytes_out": 9100000000,
+          "n_transfers": 11,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.8167,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "driftwood-0"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 12,
+          "url": "#/models/cellpose-sam-community?version=v7",
+          "version": "v7"
+        },
+        "contributions": [
+          "driftwood-0"
+        ],
+        "global_sha256": "b87b5b40b87b5b40b87b5b40b87b5b40",
+        "index": 6,
+        "merged_at": "2026-08-17T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7331,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-6",
+        "transport": {
+          "bytes_in": 1300000000,
+          "bytes_out": 10400000000,
+          "n_transfers": 9,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.8228,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "rivermouth-3",
+          "highvale-2",
+          "thornbury-2",
+          "northfield-4",
+          "saltmarsh-3"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 16,
+          "url": "#/models/cellpose-sam-community?version=v8",
+          "version": "v8"
+        },
+        "contributions": [
+          "rivermouth-3",
+          "thornbury-2",
+          "northfield-4",
+          "saltmarsh-3"
+        ],
+        "global_sha256": "c77b72ddc77b72ddc77b72ddc77b72dd",
+        "index": 7,
+        "merged_at": "2026-08-24T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7504,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-7",
+        "transport": {
+          "bytes_in": 6500000000,
+          "bytes_out": 10400000000,
+          "n_transfers": 13,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.8435,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      },
+      {
+        "assessed": [
+          "copperlake-1",
+          "ashgrove-0"
+        ],
+        "community_model": {
+          "artifact_id": "bioimage-io/cellpose-sam-community",
+          "n_contributions_cumulative": 17,
+          "url": "#/models/cellpose-sam-community?version=v9",
+          "version": "v9"
+        },
+        "contributions": [
+          "copperlake-1"
+        ],
+        "global_sha256": "c67b714ac67b714ac67b714ac67b714a",
+        "index": 8,
+        "merged_at": "2026-08-31T11:00:00.000Z",
+        "selection_metric": {
+          "aggregate": 0.7677,
+          "aggregate_basis": "the score the greedy gate admitted contributions against, on the split it selects on",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "pooled AP50 on the selection split",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "selection"
+        },
+        "soup_id": "soup-8",
+        "transport": {
+          "bytes_in": 2600000000,
+          "bytes_out": 11700000000,
+          "n_transfers": 11,
+          "sources_complete": true
+        },
+        "weights": null,
+        "witness_metric": {
+          "aggregate": 0.8478,
+          "aggregate_basis": "scored on the campaign holdout, which is held back from the selection split and from every contributor",
+          "aggregate_scope": "campaign_holdout",
+          "aggregate_withheld": null,
+          "higher_is_better": true,
+          "n_datasets_scored": null,
+          "n_sites_scored": null,
+          "name": "mean instance F1 at IoU 0.5",
+          "per_site": null,
+          "per_site_basis": null,
+          "role": "witness"
+        }
+      }
+    ],
+    "started_at": "2026-06-15T09:00:00.000Z"
+  },
+  "published_model": {
+    "artifact_id": "bioimage-io/cellpose-sam-community",
+    "version": "v9"
+  },
+  "reporting": {
+    "dropped_reports": 0,
+    "reconciled": false,
+    "reconciled_at": null
+  },
+  "schema_version": "0.14.0-draft",
+  "status": "open",
+  "stewards": [
+    {
+      "name": "Campaign steward",
+      "workspace": "bioimage-io"
+    }
+  ],
+  "title": "Community Cellpose-SAM fine-tuning",
+  "transport": {
+    "computed": null,
+    "declared_data_bytes": 11400000000000,
+    "images_held": {
+      "n_images": 124500
+    },
+    "images_moved_bytes": 0,
+    "kinds_transferred": [
+      "model_weights"
+    ],
+    "observed": {
+      "driver": {
+        "bytes_in": 72800000000,
+        "bytes_out": 114400000000,
+        "n_transfers": 111
+      },
+      "invalid_reason": null,
+      "per_site": null,
+      "per_site_basis": null,
+      "valid": true,
+      "windows": [
+        {
+          "first_seq": 0,
+          "last_seq": 110,
+          "n_transfers": 111,
+          "source": "driver"
+        }
+      ]
+    },
+    "only_weights_left_site": true
+  }
+}
