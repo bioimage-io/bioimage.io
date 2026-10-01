@@ -21,6 +21,7 @@ import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
 import { logFailure } from '../utils/failureLog';
+import { mintZenodoVersion } from '../utils/zenodoMint';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -449,6 +450,30 @@ const Edit: React.FC = () => {
   // already committed the same staging area. Reading first turns that race
   // from an `AssertionError: Artifact must be in staging mode to commit` into
   // a no-op, since the changes have already landed in the committed version.
+  /**
+   * Mint a Zenodo version for the artifact just committed.
+   *
+   * Real Zenodo is refused unless opted in, because a DOI is permanent: see
+   * utils/zenodoMint. The outcome is logged rather than surfaced, except for a
+   * genuine failure, which goes to the failure log so it can reach a report.
+   */
+  const mintAfterCommit = async (step: string) => {
+    const outcome = await mintZenodoVersion({
+      artifactManager,
+      artifactId: artifactId!,
+      config: (artifactInfo as any)?.config,
+    });
+    if (outcome.status === 'failed') {
+      logFailure(outcome.error, {
+        operation: 'edit',
+        step: `zenodo-mint (${step}, target ${outcome.target})`,
+        artifactId,
+      });
+    } else {
+      console.log(`[zenodo-mint:${step}]`, JSON.stringify(outcome));
+    }
+  };
+
   const commitIfStaged = async (comment: string): Promise<void> => {
     if (!artifactManager || !artifactId) return;
 
@@ -529,7 +554,12 @@ const Edit: React.FC = () => {
       if (/staging mode to commit|must be in staging/i.test(msg)) return;
       throw err;
     }
+    // svamp #0062: every model-change commit mints a Zenodo version. Runs AFTER
+    // the commit succeeded and deliberately cannot fail it: the artifact state is
+    // already correct, so a Zenodo outage must not read as a failed save.
+    await mintAfterCommit('commit');
   };
+
 
   const handleStageForEditing = async () => {
     if (!artifactManager || !artifactId) return;
@@ -1396,6 +1426,10 @@ const Edit: React.FC = () => {
           comment: `Published by ${user?.email}`,
           _rkwargs: true
         });
+        // svamp #0062: mint a Zenodo version for this commit too. Only on the
+        // branch that actually committed; the else branch below just re-reads
+        // state and changed nothing, so there is nothing to mint for.
+        await mintAfterCommit('publish-flow');
       } else {
         // Already committed, just read the current state
         artifact = await artifactManager?.read({
