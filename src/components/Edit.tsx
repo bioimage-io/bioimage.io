@@ -20,6 +20,7 @@ import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRd
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
+import { logFailure } from '../utils/failureLog';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -481,7 +482,7 @@ const Edit: React.FC = () => {
         });
       }
     } catch (permErr) {
-      console.error('Could not sync author/maintainer permissions before commit:', permErr);
+      logFailure(permErr, { operation: 'edit', step: 'sync-contributor-permissions', artifactId });
     }
 
     // Don't gate on a client-side `staging` field: the default (committed) read
@@ -537,7 +538,7 @@ const Edit: React.FC = () => {
       await artifactManager.edit({ artifact_id: artifactId, stage: true, _rkwargs: true });
       navigate(`/edit/${encodeURIComponent(artifactId)}/stage`);
     } catch (error) {
-      console.error('Error staging artifact:', error);
+      logFailure(error, { operation: 'edit', step: 'edit(stage=true)', artifactId });
       setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
       showError('Failed to stage artifact for editing', error, artifactId);
     }
@@ -550,7 +551,7 @@ const Edit: React.FC = () => {
       await commitIfStaged('Updated model');
       navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
-      console.error('Error committing staged changes:', error);
+      logFailure(error, { operation: 'edit', step: 'commit', artifactId });
       setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
       showError('Failed to commit changes', error, artifactId);
     }
@@ -570,7 +571,7 @@ const Edit: React.FC = () => {
       await artifactManager.discard({ artifact_id: artifactId, _rkwargs: true });
       navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
-      console.error('Error discarding staged changes:', error);
+      logFailure(error, { operation: 'edit', step: 'discard', artifactId });
       setUploadStatus({ message: 'Failed to discard changes', severity: 'error' });
     }
   };
