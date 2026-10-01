@@ -61,6 +61,32 @@ If the user has already done the login and has a token, skip the whole flow and 
 
 Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/pkgs/container/bioengine-worker`. The examples below use `:0.10.1` — substitute the current tag.
 
+**Two images to choose between.** Both run the same worker with the same flags; they differ only in what is already installed.
+
+| Image | Use when |
+|---|---|
+| `ghcr.io/aicell-lab/bioengine-worker:<version>` | The default. Each app's environment is built by Ray on first deploy, so the first model takes minutes before it serves. |
+| `ghcr.io/aicell-lab/model-runner:2.10.6` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
+
+Swap the image name and change nothing else:
+
+```bash
+docker run -d --name bioengine-worker \
+  --restart unless-stopped --shm-size=8g --gpus=all \
+  -v $HOME/.bioengine:/.bioengine \
+  -e HYPHA_TOKEN \
+  ghcr.io/aicell-lab/model-runner:2.10.6 \
+  python -m bioengine.worker --mode single-machine --head-num-cpus 4 --head-num-gpus 1
+```
+
+Pass `-e HYPHA_TOKEN` with no value so the token comes from your environment — a token written as `-e HYPHA_TOKEN=<value>` is world-readable in `/proc/<pid>/cmdline` for the container's whole life.
+
+Two things to know before you pick it.
+
+Each tag bakes **one** BioEngine version, recorded in the image's `io.bioengine.version` label and its `BIOENGINE_VERSION` env var. The tag itself is the *model-runner app* version, so it tells you nothing about which worker you get — read the label. A tag is immutable, so a newer worker release only reaches this image when someone rebuilds, and that rebuild needs a new app version to be publishable at all.
+
+And `test(custom_environment=True)` does not work in single-machine mode in either image, because `mamba` is absent. Pass `custom_environment=False` explicitly: `None` inherits from the model's published report, which silently routes foundation models down the custom path.
+
 **Foreground (interactive — good for first runs, easy to Ctrl+C):**
 
 ```bash

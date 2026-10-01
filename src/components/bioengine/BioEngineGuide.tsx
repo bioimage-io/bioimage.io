@@ -114,6 +114,73 @@ const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
+const PREBUILT_MODEL_RUNNER_VERSION = '2.10.6';
+const PREBUILT_MODEL_RUNNER_IMAGE = `ghcr.io/aicell-lab/model-runner:${PREBUILT_MODEL_RUNNER_VERSION}`;
+
+// The standard worker builds each app's environment on first deploy; the prebuilt
+// model-runner image ships those dependencies, so a model serves without that wait.
+const IMAGE_PRESETS = [
+  {
+    label: 'Standard worker',
+    image: '',
+    hint: `${DEFAULT_IMAGE} — builds each app's environment on first deploy`,
+  },
+  {
+    label: 'Prebuilt model runner',
+    image: PREBUILT_MODEL_RUNNER_IMAGE,
+    hint: `${PREBUILT_MODEL_RUNNER_IMAGE} — model-runner dependencies preinstalled, no environment build on first deploy`,
+  },
+];
+
+// Apps people most often want a worker to come up already running. Selecting one
+// offers its prebuilt image, which is otherwise buried in the advanced options.
+// prebuiltImage null = no image published yet; the offer is skipped until there is
+// one, so adding a tag here is the only change needed when it ships.
+interface SuggestedStartupApp {
+  artifactId: string;
+  applicationId: string;
+  label: string;
+  blurb: string;
+  prebuiltImage: string | null;
+}
+
+const SUGGESTED_STARTUP_APPS: SuggestedStartupApp[] = [
+  {
+    artifactId: 'bioimage-io/model-runner',
+    applicationId: 'model-runner',
+    label: 'Model Runner',
+    blurb: 'Run, test and compare bioimage.io models',
+    prebuiltImage: PREBUILT_MODEL_RUNNER_IMAGE,
+  },
+  {
+    artifactId: 'bioimage-io/model-finetune',
+    applicationId: 'model-finetune',
+    label: 'Model Finetune',
+    blurb: 'Fine-tune models on your own data',
+    prebuiltImage: null,
+  },
+];
+
+const ImagePresetPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className="flex flex-wrap gap-2 mb-2">
+    {IMAGE_PRESETS.map((preset) => (
+      <button
+        key={preset.label}
+        type="button"
+        title={preset.hint}
+        onClick={() => onChange(preset.image)}
+        className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${
+          value === preset.image
+            ? 'border-blue-500 bg-blue-50 text-blue-700'
+            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+        }`}
+      >
+        {preset.label}
+      </button>
+    ))}
+  </div>
+);
+
 // One entry of --startup-applications. `config` is the payload the shared deploy
 // dialog emits (the deploy_app kwargs), or null while the box is still unconfigured.
 interface StartupApplication {
@@ -324,6 +391,13 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   const [editingStartupUid, setEditingStartupUid] = useState<string | null>(null);
   const startupUidCounter = useRef(0);
 
+  // Prebuilt-image offer: the suggestion awaiting a yes/no, then the image to
+  // apply once the advanced section is open and the field can be scrolled to.
+  const [prebuiltOffer, setPrebuiltOffer] = useState<SuggestedStartupApp | null>(null);
+  const [pendingPrebuiltImage, setPendingPrebuiltImage] = useState<string | null>(null);
+  const [imageFieldFlash, setImageFieldFlash] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
+
   // Advanced options
   const [workspace, setWorkspace] = useState('');
   const [serverUrl, setServerUrl] = useState('');
@@ -484,6 +558,47 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     // box is exactly the state the row warns about.
     setEditingStartupUid(uid);
   };
+
+  // Unlike addStartupApp this does NOT open the settings dialog: the suggestion
+  // already carries a working config, so the next thing worth asking about is
+  // the image rather than fields the user does not need to touch.
+  const addSuggestedStartupApp = (suggestion: SuggestedStartupApp) => {
+    startupUidCounter.current += 1;
+    const uid = `startup-app-${startupUidCounter.current}`;
+    setStartupApps(prev => [
+      ...prev,
+      { uid, config: { artifact_id: suggestion.artifactId, application_id: suggestion.applicationId } },
+    ]);
+    if (suggestion.prebuiltImage && customImage !== suggestion.prebuiltImage) {
+      setPrebuiltOffer(suggestion);
+    }
+  };
+
+  const acceptPrebuiltImage = () => {
+    if (!prebuiltOffer?.prebuiltImage) return;
+    setPendingPrebuiltImage(prebuiltOffer.prebuiltImage);
+    setPrebuiltOffer(null);
+    setShowAdvanced(true);
+  };
+
+  // Runs once the accordion is actually open, so the field exists to scroll to.
+  // The short delay lets the expansion settle before measuring its position.
+  useEffect(() => {
+    if (!pendingPrebuiltImage || !showAdvanced) return;
+    const timer = window.setTimeout(() => {
+      setCustomImage(pendingPrebuiltImage);
+      setImageFieldFlash(true);
+      imageInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setPendingPrebuiltImage(null);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [pendingPrebuiltImage, showAdvanced]);
+
+  useEffect(() => {
+    if (!imageFieldFlash) return;
+    const timer = window.setTimeout(() => setImageFieldFlash(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [imageFieldFlash]);
 
   const removeStartupApp = (uid: string) => {
     setStartupApps(prev => prev.filter(app => app.uid !== uid));
@@ -865,6 +980,65 @@ spec:
           Add startup application
         </button>
       </div>
+
+      {(() => {
+        const chosen = new Set(
+          startupApps.map(app => (app.config?.artifact_id || '').trim()).filter(Boolean),
+        );
+        const available = SUGGESTED_STARTUP_APPS.filter(s => !chosen.has(s.artifactId));
+        if (available.length === 0) return null;
+        return (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <p className="text-xs text-gray-500 mb-2">Suggested</p>
+            <div className="flex flex-wrap gap-2">
+              {available.map(suggestion => (
+                <button
+                  key={suggestion.artifactId}
+                  type="button"
+                  onClick={() => addSuggestedStartupApp(suggestion)}
+                  title={suggestion.artifactId}
+                  className="flex items-start gap-2 px-3 py-2 text-left bg-white border border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <span className="text-blue-500 mt-0.5">+</span>
+                  <span>
+                    <span className="block text-sm font-medium text-gray-800">{suggestion.label}</span>
+                    <span className="block text-xs text-gray-500">{suggestion.blurb}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {prebuiltOffer && prebuiltOffer.prebuiltImage && (
+        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-900">
+            Use the prebuilt <strong>{prebuiltOffer.label}</strong> image?
+          </p>
+          <p className="text-xs text-blue-800 mt-1">
+            It ships this app's dependencies, so the first deploy skips the environment build and the app
+            serves in well under a minute instead of minutes. This sets the Container Image under Advanced
+            Options to <code className="bg-white/70 px-1 rounded">{prebuiltOffer.prebuiltImage}</code>.
+          </p>
+          <div className="flex gap-2 mt-2.5">
+            <button
+              type="button"
+              onClick={acceptPrebuiltImage}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Yes, use it
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrebuiltOffer(null)}
+              className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              No, keep the standard worker
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -1223,10 +1397,13 @@ spec:
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
-                      <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                      <ImagePresetPicker value={customImage} onChange={setCustomImage} />
+                      <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                         placeholder={DEFAULT_IMAGE}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
+                          imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
+                        }`} />
+                      <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}. The prebuilt model runner ships the model-runner dependencies, so a model serves without waiting for an environment build on first deploy.</p>
                     </div>
 
                     <div>
@@ -1813,10 +1990,13 @@ spec:
                   {/* ── Container / runtime ── */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
-                    <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                    <ImagePresetPicker value={customImage} onChange={setCustomImage} />
+                    <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                       placeholder={DEFAULT_IMAGE}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
+                        imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
+                      }`} />
+                    <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}. The prebuilt model runner ships the model-runner dependencies, so a model serves without waiting for an environment build on first deploy.</p>
                   </div>
 
                   {mode === 'single-machine' && (
