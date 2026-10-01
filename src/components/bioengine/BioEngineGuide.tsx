@@ -123,12 +123,12 @@ const IMAGE_PRESETS = [
   {
     label: 'Standard worker',
     image: '',
-    hint: `${DEFAULT_IMAGE} — builds each app's environment on first deploy`,
+    hint: `${DEFAULT_IMAGE}: builds each app's environment on first deploy`,
   },
   {
     label: 'Prebuilt model runner',
     image: PREBUILT_MODEL_RUNNER_IMAGE,
-    hint: `${PREBUILT_MODEL_RUNNER_IMAGE} — model-runner dependencies preinstalled, no environment build on first deploy`,
+    hint: `${PREBUILT_MODEL_RUNNER_IMAGE}: model-runner dependencies preinstalled, so there is no environment build on first deploy`,
   },
 ];
 
