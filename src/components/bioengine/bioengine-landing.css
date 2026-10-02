@@ -1,0 +1,277 @@
+/*
+ * Motion for the BioEngine landing page (`BioEngineHome`), scoped to the three
+ * step illustrations and the architecture diagram.
+ *
+ * Why a CSS file rather than Tailwind: keyframes and custom properties cannot be
+ * expressed as utilities without touching the shared `tailwind.config.js` or the
+ * global `index.css`, and this motion is used by exactly one page.
+ *
+ * Two conventions worth knowing before editing:
+ *
+ * 1. The reveals are transition-driven, not keyframe-driven. The base rule holds
+ *    the resting state *and* the exit timing (fast, no stagger); the hover rule
+ *    holds the end state and the stagger delays. Leaving the card mid-reveal
+ *    therefore reverses smoothly from wherever the animation got to, instead of
+ *    snapping back the way a keyframe would.
+ * 2. Every resting value is a custom property. That lets the reduced-motion block
+ *    flip the whole set to the end state in one place rather than re-declaring
+ *    each rule, which is what "show the finished illustration, never animate it"
+ *    needs.
+ */
+
+.be-illu {
+  --be-dim: 0.22; /* resting opacity of parts the reveal brightens */
+  --be-off: 0; /* resting opacity of parts that only exist after the reveal */
+  --be-rest: 0.08; /* resting horizontal scale of a resource bar */
+  --be-slide: 34px; /* resting x offset of the app block that slides in */
+  --be-pop: 0.55; /* resting scale of the badge that pops in */
+  --be-draw: 1; /* 1 = outline fully undrawn, 0 = fully drawn */
+}
+
+/* ---- resting states + exit timing ---------------------------------------- */
+
+.be-fade {
+  opacity: var(--be-dim);
+  transition: opacity 180ms ease-out;
+}
+
+.be-reveal {
+  opacity: var(--be-off);
+  transition: opacity 180ms ease-out;
+}
+
+.be-bar-fill {
+  transform: scaleX(var(--be-rest));
+  transform-box: fill-box;
+  transform-origin: 0 50%;
+  transition: transform 220ms ease-out;
+}
+
+.be-block {
+  opacity: var(--be-off);
+  transform: translateX(var(--be-slide));
+  transition: opacity 200ms ease-out, transform 200ms ease-out;
+}
+
+.be-badge {
+  opacity: var(--be-off);
+  transform: scale(var(--be-pop));
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  transition: opacity 160ms ease-out, transform 160ms ease-out;
+}
+
+/* Segmentation outlines are revealed by drawing the stroke, not by fading it.
+   The dash length only has to exceed the longest blob perimeter (~170 units). */
+.be-cell {
+  stroke-dasharray: 300;
+  stroke-dashoffset: calc(300px * var(--be-draw));
+  transition: stroke-dashoffset 220ms ease-out;
+}
+
+.be-scan {
+  opacity: 0;
+}
+
+/* Chassis fan. Two animations off one keyframe: a slower first turn that reads
+   as spin-up, then a steady turn. Both end at 360deg, so the handover is seamless.
+   Pausing rather than restarting means a second hover resumes at speed, which is
+   what a machine that is already running should do. */
+.be-fan {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  animation: be-spin 900ms cubic-bezier(0.45, 0, 0.9, 1) 150ms both,
+    be-spin 1.5s linear 1050ms infinite;
+  animation-play-state: paused;
+}
+
+/* Ring breathing outward from the power button. */
+.be-pulse {
+  transform-box: fill-box;
+  transform-origin: 50% 50%;
+  opacity: 0;
+  animation: be-pulse 1.8s ease-out 250ms infinite;
+  animation-play-state: paused;
+}
+
+/* ---- the reveal ----------------------------------------------------------- */
+
+/* Hover and keyboard focus run the same sequence. There is no `(hover: hover)`
+   guard because a tap on a touch device is also the tap that navigates away, so
+   a stale hover state cannot linger. */
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-fade,
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-reveal {
+  opacity: 1;
+  transition-duration: 280ms;
+}
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-bar-fill {
+  transform: scaleX(var(--be-full));
+  transition-duration: 520ms;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-block {
+  opacity: 1;
+  transform: translateX(0);
+  transition-duration: 420ms;
+  transition-timing-function: cubic-bezier(0.23, 1, 0.32, 1);
+}
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-badge {
+  opacity: 1;
+  transform: scale(1);
+  transition-duration: 320ms;
+  transition-timing-function: cubic-bezier(0.34, 1.56, 0.64, 1);
+}
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-cell {
+  stroke-dashoffset: 0;
+  transition-duration: 420ms;
+}
+
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-fan,
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-pulse {
+  animation-play-state: running;
+}
+
+/* The sweep is a one-shot pass that has to fade out at the far edge, which a
+   transition cannot express, so this one is a keyframe. */
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-scan {
+  animation: be-sweep 1300ms linear both;
+}
+
+/* Stagger ladder. Delays only ever apply on the way in. */
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d1 {
+  transition-delay: 0ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d2 {
+  transition-delay: 90ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d3 {
+  transition-delay: 180ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d4 {
+  transition-delay: 300ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d5 {
+  transition-delay: 420ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d6 {
+  transition-delay: 540ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d7 {
+  transition-delay: 680ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d8 {
+  transition-delay: 820ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d9 {
+  transition-delay: 960ms;
+}
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-d10 {
+  transition-delay: 1080ms;
+}
+
+/* ---- architecture diagram ------------------------------------------------- */
+
+/* Ambient flow along the connectors. Slow enough to read as traffic rather than
+   as something asking for attention. */
+.be-flow {
+  stroke-dasharray: 7 8;
+  animation: be-flow 1.8s linear infinite;
+}
+
+@keyframes be-flow {
+  to {
+    stroke-dashoffset: -15;
+  }
+}
+
+/* The stacked rendering's connectors are only ~30px long, where the wide
+   diagram's dash period would fit barely two dashes and read as a broken line.
+   Same idea, tighter pitch. */
+.be-flow-v {
+  stroke-dasharray: 4 5;
+  animation: be-flow-v 1.2s linear infinite;
+}
+
+@keyframes be-flow-v {
+  to {
+    stroke-dashoffset: -9;
+  }
+}
+
+@keyframes be-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes be-pulse {
+  0% {
+    transform: scale(0.8);
+    opacity: 0;
+  }
+  25% {
+    opacity: 0.5;
+  }
+  100% {
+    transform: scale(2);
+    opacity: 0;
+  }
+}
+
+@keyframes be-sweep {
+  0% {
+    opacity: 0;
+    transform: translateX(0);
+  }
+  8% {
+    opacity: 1;
+  }
+  88% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(268px);
+  }
+}
+
+/* ---- reduced motion ------------------------------------------------------- */
+
+/* Nothing moves. The illustrations render their finished state so the page still
+   says the same thing it says to everyone else. */
+@media (prefers-reduced-motion: reduce) {
+  .be-illu {
+    --be-dim: 1;
+    --be-off: 1;
+    --be-slide: 0px;
+    --be-pop: 1;
+    --be-draw: 0;
+  }
+
+  .be-illu,
+  .be-illu *,
+  .be-arch,
+  .be-arch * {
+    animation: none !important;
+    transition: none !important;
+  }
+
+  .be-bar-fill {
+    transform: scaleX(var(--be-full));
+  }
+
+  /* The sweep has no meaningful end state, so it is simply absent. */
+  .be-scan {
+    display: none;
+  }
+
+  .be-flow,
+  .be-flow-v {
+    stroke-dashoffset: 0;
+  }
+}
