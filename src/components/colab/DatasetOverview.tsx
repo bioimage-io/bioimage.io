@@ -26,18 +26,25 @@ import {
   BrokerErrorCode,
   BrokerRole,
   DatasetWithRole,
+  ImageState,
   SplitDoc,
   SplitSummary,
   createSplit,
   deleteAnnotation,
+  forgetRemoteImage,
   getDataset,
   getDatasetIndex,
+  getImageUrl,
   getSplit,
+  imageSourceRefFor,
   listSplits,
   resetBrokerServiceCache,
   splitDocToSummary,
+  syncImageManifest,
   updateSplit,
 } from './brokerApi';
+import { openImageSource, ImageSourceHandle } from './imageSource';
+import ImportRemoteSourceModal from './ImportRemoteSourceModal';
 import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
 import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
 import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
@@ -68,11 +75,26 @@ export interface DatasetOverviewProps {
   onOpenGuide?: () => void;
 }
 
+// The preview panel is ~360 px tall and at most a few hundred wide, so a
+// pyramidal source only ever needs a level around this size. Generous on
+// purpose: overshooting costs one pyramid level, undershooting shows a
+// visibly soft image on a high-DPI screen.
+const PREVIEW_LONG_AXIS_PX = 1024;
+
+// Shown on the remote-image icon and reused by the finetune-view note, so the
+// two never say different things about what "remote" costs the user.
+const REMOTE_IMAGE_HINT =
+  'Remote source. It can be viewed and annotated, but it holds no pixels in this dataset, so it cannot be used for training yet.';
+
 interface ImageRow {
   stem: string;
   name: string;
   format?: string;
   isCloud: boolean;
+  // Only meaningful for a cloud row. 'remote' is an imported OME-Zarr source:
+  // the dataset references it, holds no pixels for it, and cannot train on it
+  // until it is materialised (colab-c-ometiff-design.md §8).
+  state?: ImageState;
   // Round-31 follow-up: from the broker's dataset index (annotation-broker
   // 0.8.0+), absent when unreadable/non-PNG or not indexed yet. Never treat
   // absence as "small" -- isSmallImageDims already returns false for 0/undefined.
@@ -246,6 +268,7 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
 
   const [showAnnotateDialog, setShowAnnotateDialog] = useState(false);
   const [showShareModal, setShowShareModal] = useState(false);
+  const [showImportRemoteModal, setShowImportRemoteModal] = useState(false);
   const [showDeleteDatasetModal, setShowDeleteDatasetModal] = useState(false);
   const [deleteLabelTarget, setDeleteLabelTarget] = useState<string | null>(null);
   const [uploadProgress, setUploadProgress] = useState<{ current: number; total: number } | null>(null);
@@ -722,8 +745,12 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       try {
         const imgs = await listImages(artifactManager, artifactId);
         setImages((prev) => {
-          const prevKey = (prev ?? []).map((i) => i.stem).sort().join(',');
-          const nextKey = imgs.map((i) => i.stem).sort().join(',');
+          // Keyed on state too, not just the stem: materialising a remote
+          // image keeps its stem and only flips its state, and that has to
+          // reach the row.
+          const key = (list: DatasetImage[]) => list.map((i) => `${i.stem}:${i.state}`).sort().join(',');
+          const prevKey = key(prev ?? []);
+          const nextKey = key(imgs);
           return prevKey === nextKey ? prev : imgs;
         });
 
@@ -804,18 +831,37 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
       return;
     }
     let active = true;
+    // The handle owns the object URL that `<img src>` ends up pointing at for
+    // a non-browser format, so it lives until this effect is torn down.
+    let source: ImageSourceHandle | null = null;
     setImageLoading(true);
     (async () => {
       try {
-        const url = await withStageRetry(() =>
-          artifactManager.get_file({
-            artifact_id: artifactId,
-            file_path: `images/${image.name}`,
-            stage: true,
-            _rkwargs: true,
-          }),
-        );
-        if (active) setImageUrl(url);
+        // A remote image has no file to presign, so the broker answers where
+        // to read it from instead. Everything after that is the same seam.
+        const ref =
+          image.state === 'remote'
+            ? imageSourceRefFor(await getImageUrl(server, artifactId, image.stem))
+            : await withStageRetry(() =>
+                artifactManager.get_file({
+                  artifact_id: artifactId,
+                  file_path: image.path ?? `images/${image.name}`,
+                  stage: true,
+                  _rkwargs: true,
+                }),
+              );
+        // A PNG comes straight back out as `url`; only a format the <img> tag
+        // can't read pays for a rasterised object URL here.
+        const opened = await openImageSource(ref);
+        if (!active) {
+          opened.close();
+          return;
+        }
+        source = opened;
+        // This is a preview pane, so a pyramidal source renders a level sized
+        // for it rather than its full-resolution base, which for a remote
+        // store can be far larger than anything the panel could show.
+        setImageUrl(await opened.displayUrl(PREVIEW_LONG_AXIS_PX));
       } catch {
         if (active) setImageUrl('');
       } finally {
@@ -824,8 +870,9 @@ const DatasetOverview: React.FC<DatasetOverviewProps> = ({
     })();
     return () => {
       active = false;
+      source?.close();
     };
-  }, [artifactManager, artifactId, selectedStem, images, canManage]);
+  }, [server, artifactManager, artifactId, selectedStem, images, canManage]);
 
   // --- Mask URL for the currently browsed annotation pair ---
   // browserIndex 0 has no pair (it's the raw image); 1..pairs.length map to
@@ -1050,14 +1097,26 @@ print("Service registered successfully", end='')
   // by the row's own upload-outstanding icon or by selecting the row (i.e.
   // "opening" it) to preview it.
   const uploadSingleImage = useCallback(async (item: { stem: string; format: string }) => {
-    if (!dataServiceRef.current) return;
+    if (!dataServiceRef.current) return false;
     setUploadingStems((prev) => new Set(prev).add(item.stem));
     try {
-      await dataServiceRef.current.upload_image(`${item.stem}.${item.format}`);
+      const result = await dataServiceRef.current.upload_image(`${item.stem}.${item.format}`);
       setLocalImages((prev) => prev.filter((i) => i.stem !== item.stem));
-      setImages((prev) => [...(prev ?? []), { stem: item.stem, name: `${item.stem}.png` }]);
+      // Take the stored name from the service rather than reconstructing it.
+      // The upload transcodes to OME-TIFF, so the uploaded extension is not
+      // the local one and is no longer always `.png` either; a guess here
+      // would put a row in the list pointing at a file that does not exist.
+      setImages((prev) => {
+        const name = result?.name || `${item.stem}.tif`;
+        return [
+          ...(prev ?? []),
+          { stem: item.stem, name, state: 'local' as const, path: `images/${name}` },
+        ];
+      });
+      return true;
     } catch (err) {
       setError(`Failed to upload "${item.stem}": ${(err as Error).message || 'unknown error'}`);
+      return false;
     } finally {
       setUploadingStems((prev) => {
         const next = new Set(prev);
@@ -1067,28 +1126,70 @@ print("Service registered successfully", end='')
     }
   }, []);
 
+  // Reconcile `images/manifest.json` after the set of image files changes
+  // (broker v0.10.0). The broker unions the manifest with the `images/`
+  // listing on every read, so this only tops up per-image metadata: a
+  // failure costs those stems their manifest entry, never their visibility.
+  // Log and carry on rather than surfacing an error over an upload or a
+  // delete that already succeeded. Manager-min role, hence the guard.
+  const reconcileImageManifest = useCallback(async () => {
+    if (!canManage) return;
+    try {
+      await syncImageManifest(server, artifactId);
+    } catch (err) {
+      console.warn('[colab] image manifest sync failed:', err);
+    }
+  }, [server, artifactId, canManage]);
+
+  // Single-image entry point for the row's upload button and for opening an
+  // unuploaded row. `handleUploadAll` deliberately does not go through this:
+  // it syncs once after its loop instead of once per image.
+  const uploadImageAndSync = useCallback(
+    async (item: { stem: string; format: string }) => {
+      if (await uploadSingleImage(item)) await reconcileImageManifest();
+    },
+    [uploadSingleImage, reconcileImageManifest],
+  );
+
   const handleUploadAll = async () => {
     if (!dataServiceRef.current || localImages.length === 0) return;
     const items = [...localImages];
     setUploadProgress({ current: 0, total: items.length });
+    let uploaded = 0;
     for (let i = 0; i < items.length; i++) {
-      await uploadSingleImage(items[i]);
+      if (await uploadSingleImage(items[i])) uploaded++;
       setUploadProgress({ current: i + 1, total: items.length });
     }
     setUploadProgress(null);
+    if (uploaded > 0) await reconcileImageManifest();
   };
 
   const handleSelectImage = (row: ImageRow) => {
     setSelectedStem(row.stem);
     if (!row.isCloud && !uploadingStems.has(row.stem)) {
-      uploadSingleImage({ stem: row.stem, format: row.format! });
+      uploadImageAndSync({ stem: row.stem, format: row.format! });
     }
   };
 
-  const performDeleteCloudImage = async (stem: string) => {
+  const performDeleteCloudImage = async (stem: string, state?: ImageState) => {
     try {
+      // Annotations and embeddings go either way. Only the pixels differ:
+      // a local image has a file to remove, a remote one has a manifest
+      // entry that only the broker can drop (a sync never prunes one).
+      //
+      // The manifest entry goes *first* for a remote image. Neither order is
+      // atomic, so the question is which half-done state is recoverable: an
+      // entry with no annotations left is silent data loss, while annotations
+      // whose entry is already gone are orphaned files the user can re-delete
+      // by re-importing. Delete the thing that is cheap to lose last.
+      if (state === 'remote') {
+        await forgetRemoteImage(server, artifactId, stem);
+      }
       await deleteImageEverywhere(artifactManager, artifactId, stem);
       if (selectedStem === stem) setSelectedStem(null);
+      // Before the refresh, so the reloaded index no longer carries the
+      // deleted stem's manifest entry.
+      await reconcileImageManifest();
       handleRefresh();
     } catch (err) {
       setError((err as Error).message || 'Failed to delete image.');
@@ -1099,7 +1200,7 @@ print("Service registered successfully", end='')
   // there is no clean "remove from split" path. A stem that's a member of
   // any split, for any label, simply cannot be deleted, hence a live
   // all-labels lookup instead of the old single dataset-global split state.
-  const handleDeleteCloudImage = async (stem: string, e: React.MouseEvent) => {
+  const handleDeleteCloudImage = async (stem: string, state: ImageState | undefined, e: React.MouseEvent) => {
     e.stopPropagation();
     try {
       // `listSplits` only returns compact summaries (no membership arrays),
@@ -1116,8 +1217,12 @@ print("Service registered successfully", end='')
       setError((err as Error).message || 'Failed to check dataset splits.');
       return;
     }
-    if (!window.confirm(`Delete image "${stem}" and all of its annotations? This cannot be undone.`)) return;
-    await performDeleteCloudImage(stem);
+    const question =
+      state === 'remote'
+        ? `Remove "${stem}" and all of its annotations from this dataset? The remote source itself is not touched. This cannot be undone.`
+        : `Delete image "${stem}" and all of its annotations? This cannot be undone.`;
+    if (!window.confirm(question)) return;
+    await performDeleteCloudImage(stem, state);
   };
 
   const imageRows: ImageRow[] = useMemo(() => {
@@ -1125,6 +1230,7 @@ print("Service registered successfully", end='')
       stem: img.stem,
       name: img.name,
       isCloud: true,
+      state: img.state,
       width: imageDims[img.stem]?.width,
       height: imageDims[img.stem]?.height,
     }));
@@ -1142,9 +1248,24 @@ print("Service registered successfully", end='')
   // Finetune view (colab-rework-plan.md §23.2): the image list is filtered
   // to cloud images with >0 annotation files for the selected label,
   // reusing the annotatedStems set already fetched for the Labels box.
+  //
+  // Remote images drop out here too. The broker refuses them in a split
+  // anyway (there is no file for training to read), so offering one would
+  // only produce a rejection at save time, which is a worse way to learn it.
   const displayedImageRows = useMemo(
-    () => (finetuneViewOpen ? cloudImageRows.filter((r) => annotatedStems.has(r.stem)) : imageRows),
+    () =>
+      finetuneViewOpen
+        ? cloudImageRows.filter((r) => r.state !== 'remote' && annotatedStems.has(r.stem))
+        : imageRows,
     [finetuneViewOpen, cloudImageRows, annotatedStems, imageRows],
+  );
+
+  // Only counted for the note below: annotated work that the finetune view is
+  // hiding. Zero for every dataset with no remote images, which is all of them
+  // until someone imports one.
+  const hiddenRemoteAnnotatedCount = useMemo(
+    () => cloudImageRows.filter((r) => r.state === 'remote' && annotatedStems.has(r.stem)).length,
+    [cloudImageRows, annotatedStems],
   );
 
   // Drop the selection if it falls outside the finetune-filtered list, e.g.
@@ -1331,12 +1452,29 @@ print("Service registered successfully", end='')
   };
 
   const renderImageRow = (row: ImageRow) => {
+    // The state icons carry their meaning in a <title>, which an `aria-hidden`
+    // SVG never delivers and a non-hidden one would splice into the row's
+    // accessible *name*. Neither is right: "remote source" describes the row,
+    // it does not name it. So the hints go into a description instead, leaving
+    // the name the bare stem.
+    const hints = [
+      row.state === 'remote' ? REMOTE_IMAGE_HINT : null,
+      isSmallImageDims(row.width ?? 0, row.height ?? 0) ? SMALL_IMAGE_WARNING_TEXT : null,
+    ].filter(Boolean);
+    const hintId = hints.length ? `image-row-hint-${row.stem}` : undefined;
     return (
       <div
         key={row.stem}
         ref={(el) => { imageRowRefs.current[row.stem] = el; }}
         className="group relative"
       >
+        {/* Referenced by aria-describedby, so it is read out even though it is
+            display:none for sighted users, who get the icons instead. */}
+        {hintId && (
+          <span id={hintId} className="hidden">
+            {hints.join(' ')}
+          </span>
+        )}
         {/* The row carries its own controls (upload, and the split pill while
             the finetune view is open), so it cannot itself be a <button> —
             a button inside a button is invalid markup that the browser
@@ -1346,6 +1484,7 @@ print("Service registered successfully", end='')
         <div
           role="button"
           tabIndex={0}
+          aria-describedby={hintId}
           onClick={() => handleSelectImage(row)}
           onKeyDown={(e) => {
             if (e.key === 'Enter' || e.key === ' ') {
@@ -1361,9 +1500,27 @@ print("Service registered successfully", end='')
         >
           <div className="flex items-center flex-1 min-w-0 gap-2">
             {row.isCloud ? (
-              <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
-              </svg>
+              row.state === 'remote' ? (
+                <svg
+                  className="w-4 h-4 text-indigo-500 shrink-0"
+                  fill="none"
+                  stroke="currentColor"
+                  viewBox="0 0 24 24"
+                  aria-hidden="true"
+                >
+                  <title>{REMOTE_IMAGE_HINT}</title>
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
+                  />
+                </svg>
+              ) : (
+                <svg className="w-4 h-4 text-blue-500 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 15a4 4 0 004 4h9a5 5 0 10-.1-9.999 5.002 5.002 0 10-9.78 2.096A4.001 4.001 0 003 15z" />
+                </svg>
+              )
             ) : uploadingStems.has(row.stem) ? (
               <Spinner className="w-4 h-4 text-purple-500 shrink-0" />
             ) : (
@@ -1372,7 +1529,7 @@ print("Service registered successfully", end='')
                 className="shrink-0 cursor-pointer text-gray-400 hover:text-blue-500 active:scale-90 transition-all"
                 onClick={(e) => {
                   e.stopPropagation();
-                  uploadSingleImage({ stem: row.stem, format: row.format! });
+                  uploadImageAndSync({ stem: row.stem, format: row.format! });
                 }}
                 title="Upload to the dataset"
                 aria-label="Upload to the dataset"
@@ -1420,9 +1577,9 @@ print("Service registered successfully", end='')
         </div>
         {row.isCloud && (
           <button
-            onClick={(e) => handleDeleteCloudImage(row.stem, e)}
-            title="Delete image from the dataset"
-            aria-label="Delete image from the dataset"
+            onClick={(e) => handleDeleteCloudImage(row.stem, row.state, e)}
+            title={row.state === 'remote' ? 'Remove this source from the dataset' : 'Delete image from the dataset'}
+            aria-label={row.state === 'remote' ? 'Remove this source from the dataset' : 'Delete image from the dataset'}
             className="absolute right-2 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-1 hover:bg-red-100 rounded transition-opacity"
           >
             <svg className="w-4 h-4 text-red-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1713,6 +1870,23 @@ print("Service registered successfully", end='')
             )}
           </button>
         )}
+        {!finetuneViewOpen && (
+          <button
+            onClick={() => setShowImportRemoteModal(true)}
+            title="Link an image that stays where it is, without copying it here"
+            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-indigo-300 hover:bg-indigo-50 text-sm font-medium text-gray-700 transition-colors flex items-center gap-1.5"
+          >
+            <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13.19 8.688a4.5 4.5 0 011.242 7.244l-4.5 4.5a4.5 4.5 0 01-6.364-6.364l1.757-1.757m13.35-.622l1.757-1.757a4.5 4.5 0 00-6.364-6.364l-4.5 4.5a4.5 4.5 0 001.242 7.244"
+              />
+            </svg>
+            Link OME-Zarr
+          </button>
+        )}
         {selectedLabel && (
           <button
             onClick={() => setStatsViewOpen((v) => !v)}
@@ -1806,6 +1980,16 @@ print("Service registered successfully", end='')
               </svg>
             </button>
           </div>
+          {finetuneViewOpen && hiddenRemoteAnnotatedCount > 0 && (
+            <p className="px-4 py-2 text-xs text-indigo-700 bg-indigo-50 border-b border-indigo-100">
+              {hiddenRemoteAnnotatedCount} annotated image{hiddenRemoteAnnotatedCount === 1 ? ' is' : 's are'} not
+              listed here because {hiddenRemoteAnnotatedCount === 1 ? 'it is a remote source' : 'they are remote sources'}.
+              Training reads the pixels from the dataset, which a remote source does not have.
+              Opening one in the annotator normally copies it in. If that did not happen,
+              the source is over the size the browser can copy, and linking a region of it
+              instead will work.
+            </p>
+          )}
           <div className="overflow-y-auto flex-1">
             {images === null ? (
               <div className="flex items-center justify-center py-8">
@@ -2052,6 +2236,22 @@ print("Service registered successfully", end='')
             setSelectedLabel(l);
             setShowFinetuneLabelDialog(false);
             setFinetuneViewOpen(true);
+          }}
+        />
+      )}
+
+      {showImportRemoteModal && (
+        <ImportRemoteSourceModal
+          server={server}
+          artifactId={artifactId}
+          onClose={() => setShowImportRemoteModal(false)}
+          onImported={(result) => {
+            // The broker has already written and committed the manifest
+            // entry, so a plain refresh is enough to pick it up. Selecting it
+            // means the preview opens the source right away, which is also
+            // the first real proof that the link works.
+            setSelectedStem(result.stem);
+            handleRefresh();
           }}
         />
       )}
