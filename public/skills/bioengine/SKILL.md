@@ -766,7 +766,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | Service | Subskill | Load when |
 |---|---|---|
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
-| Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | Running the Cellpose-3-and-earlier zoo models — which model-runner cannot serve |
+| Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | RETIRED for new work. model-runner 2.11.2+ serves Cellpose-3 natively; read this only when targeting a worker pinned below 2.11.2 |
 | Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
 | OME-Zarr View | [apps/omezarr-view.md](apps/omezarr-view.md) | Serving existing OME-TIFF / CZI files as OME-Zarr without converting them — for a viewer, an annotation UI, or a training loader |
 

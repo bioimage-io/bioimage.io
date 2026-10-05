@@ -33,7 +33,7 @@ const TOKEN_LIFETIME_LABEL = '12 hours';
 // `?apps=` names the selected apps, so a link can be handed to a colleague or
 // produced by an agent and reopened with the same apps ticked. Short ids only,
 // comma-separated:
-//   /#/bioengine/apps?apps=bioimage-io/model-runner,bioimage-io/cellpose3-runner
+//   /#/bioengine/apps?apps=bioimage-io/model-runner,bioimage-io/cellpose-finetuning
 //
 // Individual deployments are deliberately NOT representable here. The URL names
 // which APPS are of interest; where they happen to be deployed is a detail of

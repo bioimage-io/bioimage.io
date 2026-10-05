@@ -49,7 +49,6 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { useCellpose3Runner } from '../hooks/useCellpose3Runner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
 // The BioEngine inference-check status is derived from the model's test-report
@@ -120,15 +119,13 @@ const ArtifactDetails = () => {
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
   const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
-  // Cellpose-3 models can't be run by model-runner at all, so their Run Model
-  // routes to cellpose3-runner instead once supported. Their bioengineStatus
-  // comes from `test`, which still accepts them (it runs in each model's own
-  // conda env), so it normally passes on its own; the isCellpose3Model escape
-  // hatch keeps the button live even when that report is stale or failed.
-  const cellpose3 = useCellpose3Runner();
+  // model-runner 2.11.2 serves Cellpose-3 from its own internal environment, so
+  // these models are listed, checked and run like any other. The former escape
+  // hatch (a cellpose3-runner capability probe that granted a Run Model button
+  // without passing the inference check) is gone: a model that fails the check
+  // should not offer a run, Cellpose-3 included.
   const modelId = selectedResource?.id ? selectedResource.id.split('/').pop() : undefined;
-  const isCellpose3Model = cellpose3.isSupported(modelId);
-  const canTestRun = bioengineStatus?.status === 'passed' || isCellpose3Model;
+  const canTestRun = bioengineStatus?.status === 'passed';
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -880,10 +877,10 @@ const ArtifactDetails = () => {
                   // log in, or explain that the model has no BioEngine inference
                   // report yet (the grey state). Mirrors the Review & Publish
                   // button's HintTooltip.
-                  const needsOwnEnv = !!bioengineStatus?.needsOwnEnvironment && !isCellpose3Model;
+                  const needsOwnEnv = !!bioengineStatus?.needsOwnEnvironment;
                   const testRunHint = !isLoggedIn
                     ? 'Please log in to test run models'
-                    : (!bioengineStatus && !isCellpose3Model)
+                    : (!bioengineStatus)
                       ? 'This model has not been validated on the BioEngine yet.'
                       : needsOwnEnv
                         ? 'This model needs its own software environment, which the Run Model service does not provide.'
@@ -896,13 +893,9 @@ const ArtifactDetails = () => {
                       data-highlight-login={!isLoggedIn && isTestButtonHovered ? 'true' : 'false'}
                     >
                       <Button
-                        // Stay disabled until the cellpose3-runner probe settles.
-                        // A Cellpose-3 model can carry a FAILED bioengineStatus
-                        // (model-runner cannot run it), which alone enables the
-                        // button. Clicking in that window reads isCellpose3Model
-                        // as false and raises the BioEngine failure dialog
-                        // instead of routing to cellpose3-runner.
-                        disabled={(!bioengineStatus && !isCellpose3Model) || !isLoggedIn || cellpose3.loading}
+                        // No report yet means nothing is known about the model,
+                        // so there is nothing to run and nothing to explain.
+                        disabled={!bioengineStatus || !isLoggedIn}
                         onClick={() => {
                           if (canTestRun) {
                             handleRunModel();
@@ -921,12 +914,7 @@ const ArtifactDetails = () => {
                               <CheckCircleIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
-                        ) : (bioengineStatus && !needsOwnEnv && !cellpose3.loading) ? (
-                          // Held back while the cellpose3-runner probe is in
-                          // flight: a Cellpose-3 model can carry a FAILED
-                          // bioengineStatus, so showing the failure icon here
-                          // would flash a wrong status before flipping to the
-                          // passing one a moment later.
+                        ) : (bioengineStatus && !needsOwnEnv) ? (
                           <Tooltip
                             title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
                             arrow

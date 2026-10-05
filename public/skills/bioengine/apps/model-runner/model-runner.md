@@ -2,7 +2,11 @@
 
 Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io) models. Runs on remote BioEngine workers — no local GPU required.
 
-> **Cellpose-3 is served elsewhere.** Since model-runner 2.0.0 this runner serves Cellpose-4 (Cellpose-SAM / Cellpose-DINO) and micro-SAM natively, and its runtime ships Cellpose 4 — so it can no longer load the **Cellpose-3-and-earlier** architectures. For those, use the [Cellpose-3 Runner](../cellpose3-runner.md) app (`bioimage-io/cellpose3-runner`) and resolve its accepted ids at call time via `list_supported_models()`.
+> **One runner serves every model, Cellpose-3 included.** From **model-runner 2.11.2** this runner loads Cellpose-3-and-earlier architectures from a separate internal environment, alongside Cellpose-4 (Cellpose-SAM / Cellpose-DINO) and micro-SAM. `bioimage-io/model-runner` is the only service id you need; there is no separate runner to resolve ids against.
+>
+> On **older workers** (before 2.11.2) this runner's runtime shipped Cellpose 4 only and rejected Cellpose-3 models, which were served by a separate `cellpose3-runner` app. Workers are pinned and roll independently, so check the worker's deployed version before assuming which behaviour you get.
+>
+> Cellpose-3 models declare large minimum input sizes. Sending a smaller array fails with an axis-size error before inference starts, which looks like a loading failure but is not: `famous-fish` needs at least 565x807, `happy-elephant` 1024x1024, `merry-gorilla` 1440x1920, `thoughtful-chipmunk` 1680x1475.
 
 ## Use this skill when
 
@@ -223,7 +227,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 
 ```text
 - [ ] Step 1: Clarify task type (segmentation / denoising / restoration / detection)
-- [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from search_models (keywords from assets/search_keywords.yaml); see § Candidate pool
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
 - [ ] Step 5: Run all suitable models on the same input — loop `await run_infer(mr, model_id, <url>)` (submit+poll wrapper; see § Async job API)
@@ -239,7 +243,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 The screening pool is the **union** of two model sources; gather both before scoring:
 
 1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
-2. **Cellpose-3 models** from the Cellpose-3 Runner — call `cellpose3-runner.list_supported_models()` (see [apps/cellpose3-runner.md](../cellpose3-runner.md)). model-runner cannot run these; route each Cellpose-3 id to `cellpose3-runner.infer` instead of `mr.infer`. Both apps share the same async submit/poll result shape, so one scoring loop covers both — but that leg runs on CPU, so budget extra wall-clock for it.
+2. **Cellpose-3 models** need no separate source from 2.11.2: `search_models` returns them and `mr.infer` runs them like anything else. Note they declare large minimum input sizes (see the banner at the top), so a too-small array fails before inference rather than during it.
 
 ```python
 # Run multiple models and save all outputs.
@@ -465,7 +469,7 @@ Use this when the user has unlabelled images and wants to rank candidate models 
 
 ```text
 - [ ] Step 1: Clarify task type (currently only semantic-segmentation models supported; instance models need v2)
-- [ ] Step 2: Gather candidates from both sources — search_models(ignore_checks=False) (or test-reports score ≥ 3) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from search_models(ignore_checks=False) (or test-reports score ≥ 3); see § Candidate pool
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README, exclude domain mismatches
 - [ ] Step 4: Run all suitable models on each image, both clean and perturbed — 2·K·N infer() calls
 - [ ] Step 5: Compute per-(model, image) CMR-NHD; aggregate as median across images per model
@@ -903,7 +907,7 @@ flows = await run_infer(
 )
 ```
 
-The same two arguments exist on [cellpose3-runner](../cellpose3-runner.md) with identical semantics, so one client code path drives both apps. In practice the Cellpose-3 zoo models declare no processing ops at all, so there is nothing to override there.
+In practice the Cellpose-3 zoo models declare no processing ops at all, so there is nothing to override for them.
 
 ## Deploying and updating the model-runner app
 
