@@ -119,10 +119,10 @@ const BioEngineHome: React.FC = () => {
   const navigate = useNavigate();
 
   return (
-    <div className="max-w-[1400px] mx-auto px-4 pt-6 pb-10">
+    <div className="max-w-[1400px] mx-auto px-4 pt-3 pb-10">
       <BioEnginePageHeader />
 
-      <p className="max-w-2xl mx-auto -mt-5 mb-8 text-center text-[1.05rem] leading-relaxed text-gray-600">
+      <p className="max-w-2xl mx-auto -mt-5 mb-7 text-center text-[1.05rem] leading-relaxed text-gray-600">
         BioEngine is the execution layer for bioimage AI. It keeps models loaded on GPU workers and
         answers calls in real time, from a single laptop to an institutional cluster.
       </p>

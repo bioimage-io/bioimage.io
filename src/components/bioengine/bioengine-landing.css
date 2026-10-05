@@ -73,25 +73,24 @@
   opacity: 0;
 }
 
-/* Chassis fan. Two animations off one keyframe: a slower first turn that reads
-   as spin-up, then a steady turn. Both end at 360deg, so the handover is seamless.
-   Pausing rather than restarting means a second hover resumes at speed, which is
-   what a machine that is already running should do. */
+/* Chassis fan and the ring breathing outward from the power button.
+ *
+ * Both declare their `animation` ONLY in the hover rule below, never here. An
+ * earlier version kept the animations on the base rule and toggled
+ * `animation-play-state`, which looked equivalent but was not: the finite 900ms
+ * spin-up finishes during the first hover, and a finished animation that is
+ * merely paused stays finished forever, so the fan never turned again. Declaring
+ * the animation in the hover rule means it is removed on leave and a fresh one
+ * starts on every re-enter, which also gives the spin-up story every time. */
 .be-fan {
   transform-box: fill-box;
   transform-origin: 50% 50%;
-  animation: be-spin 900ms cubic-bezier(0.45, 0, 0.9, 1) 150ms both,
-    be-spin 1.5s linear 1050ms infinite;
-  animation-play-state: paused;
 }
 
-/* Ring breathing outward from the power button. */
 .be-pulse {
   transform-box: fill-box;
   transform-origin: 50% 50%;
   opacity: 0;
-  animation: be-pulse 1.8s ease-out 250ms infinite;
-  animation-play-state: paused;
 }
 
 /* ---- the reveal ----------------------------------------------------------- */
@@ -131,9 +130,13 @@
   transition-duration: 420ms;
 }
 
-:is(.be-step-card:hover, .be-step-card:focus-visible) .be-fan,
+:is(.be-step-card:hover, .be-step-card:focus-visible) .be-fan {
+  animation: be-spin 900ms cubic-bezier(0.45, 0, 0.9, 1) 150ms both,
+    be-spin 1.5s linear 1050ms infinite;
+}
+
 :is(.be-step-card:hover, .be-step-card:focus-visible) .be-pulse {
-  animation-play-state: running;
+  animation: be-pulse 1.8s ease-out 250ms infinite;
 }
 
 /* The sweep is a one-shot pass that has to fade out at the far edge, which a
