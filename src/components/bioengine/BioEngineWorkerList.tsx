@@ -4,6 +4,8 @@ import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineGitHubLink from './BioEngineGitHubLink';
 import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
 import { requestLogin } from '../../utils/loginRequest';
+import CountryFlag from './CountryFlag';
+import WorkspaceStatusDot from './WorkspaceStatusDot';
 
 type GeoLocation = {
   region?: string;
@@ -109,6 +111,7 @@ const ServiceCard: React.FC<{
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <span>{where}</span>
+              <CountryFlag countryCode={geo.country_code} countryName={geo.country_name} />
             </div>
           );
         })()}
@@ -339,18 +342,25 @@ const BioEngineWorkerList: React.FC<{
     navigate(`/bioengine/worker-admin?service_id=${serviceId}`);
   };
 
-  const allServices = useMemo(() => {
-    return observedWorkspaces.flatMap(ws => {
+  // Per workspace, featured worker first within bioimage-io. The grouped view
+  // renders from this; allServices stays as the flat list the selection logic
+  // and the upward report already use, so both read from one ordering.
+  const servicesByWorkspace = useMemo(() => {
+    const out: Record<string, BioEngineService[]> = {};
+    observedWorkspaces.forEach(ws => {
       const services = workspaceServices[ws] || [];
-      if (ws === DEFAULT_PUBLIC_WORKSPACE) {
-        // Put the featured worker first within bioimage-io
-        const featured = services.filter(s => s.name === FEATURED_SERVICE_NAME);
-        const rest = services.filter(s => s.name !== FEATURED_SERVICE_NAME);
-        return [...featured, ...rest];
-      }
-      return services;
+      out[ws] = ws === DEFAULT_PUBLIC_WORKSPACE
+        ? [...services.filter(s => s.name === FEATURED_SERVICE_NAME),
+           ...services.filter(s => s.name !== FEATURED_SERVICE_NAME)]
+        : services;
     });
+    return out;
   }, [observedWorkspaces, workspaceServices]);
+
+  const allServices = useMemo(
+    () => observedWorkspaces.flatMap(ws => servicesByWorkspace[ws] ?? []),
+    [observedWorkspaces, servicesByWorkspace],
+  );
 
   const isAnyLoading = observedWorkspaces.some(ws => workspaceStatus[ws] === 'loading');
 
@@ -506,18 +516,54 @@ const BioEngineWorkerList: React.FC<{
             <p className="text-gray-500 text-sm">No running workers found in any observed workspace</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 justify-items-center gap-8 lg:gap-10">
-            {allServices.map(service => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                onNavigate={navigateToDashboard}
-                featured={service.name === FEATURED_SERVICE_NAME}
-                selectable={selectable}
-                selected={selectedIds?.includes(service.id)}
-                onToggleSelect={onToggleSelect}
-              />
-            ))}
+          /* Grouped per workspace, the same shape the apps page uses, so a
+             worker's owning workspace is visible without reading its service
+             id. Workspaces resolve independently, so each box reports its own
+             state rather than the page waiting on the slowest one. */
+          <div className="space-y-6">
+            {observedWorkspaces.map(ws => {
+              const status = workspaceStatus[ws];
+              const services = servicesByWorkspace[ws] ?? [];
+              return (
+                <div key={ws} className="border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    <WorkspaceStatusDot status={status} count={services.length} noun="worker" />
+                    <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
+                    {ws === DEFAULT_PUBLIC_WORKSPACE && <span className="text-xs text-gray-400">(public)</span>}
+                    {isLoggedIn && ws === userWorkspace && ws !== DEFAULT_PUBLIC_WORKSPACE && (
+                      <span className="text-xs text-blue-500">(you)</span>
+                    )}
+                    {status === 'loaded' && (
+                      <span className="text-xs text-gray-500">
+                        {services.length} worker{services.length === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+
+                  {status === 'error' ? (
+                    <p className="text-xs text-red-600">Could not reach this workspace.</p>
+                  ) : services.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      {status === 'loading' ? 'Looking for workers...' : 'No running workers found.'}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 justify-items-center gap-8 lg:gap-10">
+                      {services.map(service => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          onNavigate={navigateToDashboard}
+                          featured={service.name === FEATURED_SERVICE_NAME}
+                          selectable={selectable}
+                          selected={selectedIds?.includes(service.id)}
+                          onToggleSelect={onToggleSelect}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

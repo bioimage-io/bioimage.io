@@ -10,6 +10,7 @@ import {
   DeployedApp,
 } from './workerDiscovery';
 import { useWorkspaceToken } from './hooks/useWorkspaceToken';
+import WorkspaceStatusDot from './WorkspaceStatusDot';
 
 /**
  * `/bioengine/apps` — calling applications that are already deployed.
@@ -203,13 +204,24 @@ const BioEngineAppsPage: React.FC = () => {
   // Fan out over workspaces rather than awaiting them in sequence: each box
   // fills in on its own as soon as that workspace resolves. The order above
   // only decides who is asked first, not who is waited for.
-  useEffect(() => {
+  // Bumping the run id invalidates any in-flight response, so a refresh during
+  // a slow load cannot have the stale answer overwrite the fresh one.
+  const reloadAll = useCallback(() => {
     const runId = ++runIdRef.current;
     loadOrder.forEach(ws => { void loadWorkspace(ws, runId); });
-  }, [server, loadOrder, loadWorkspace]);
+  }, [loadOrder, loadWorkspace]);
+
+  useEffect(() => { reloadAll(); }, [server, reloadAll]);
 
   const allApps = useMemo(
     () => observedWorkspaces.flatMap(ws => byWorkspace[ws]?.apps ?? []),
+    [observedWorkspaces, byWorkspace],
+  );
+
+  // Any workspace still in flight. Drives the refresh button's spinner and
+  // disabled state, so a second click cannot stack another fan-out on top.
+  const anyLoading = useMemo(
+    () => observedWorkspaces.some(ws => byWorkspace[ws]?.status === 'loading'),
     [observedWorkspaces, byWorkspace],
   );
 
@@ -434,7 +446,28 @@ const BioEngineAppsPage: React.FC = () => {
         {/* Workspace management, mirroring the worker list so the two screens
             share one set of observed workspaces. */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6">
-          <h3 className="text-base font-semibold text-gray-800 mb-3">Observed Workspaces</h3>
+          <div className="flex items-center justify-between mb-3">
+            <h3 className="text-base font-semibold text-gray-800">Observed Workspaces</h3>
+            {/* Deployed apps change outside this page (someone deploys, a worker
+                rolls), and nothing pushes that here, so the list can be stale
+                with no way to tell. */}
+            <button
+              type="button"
+              onClick={reloadAll}
+              disabled={anyLoading}
+              title="Re-check every observed workspace"
+              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-600 rounded-lg border border-gray-200 hover:bg-gray-50 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+            >
+              <svg
+                className={`w-3.5 h-3.5 ${anyLoading ? 'animate-spin' : ''}`}
+                fill="none" stroke="currentColor" viewBox="0 0 24 24"
+              >
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
+              </svg>
+              {anyLoading ? 'Refreshing' : 'Refresh'}
+            </button>
+          </div>
           <form
             onSubmit={e => { e.preventDefault(); addWorkspace(wsInput); setWsInput(''); }}
             className="flex gap-2 mb-3"
@@ -466,10 +499,8 @@ const BioEngineAppsPage: React.FC = () => {
                 <div key={ws} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
+                      <WorkspaceStatusDot status={state?.status} count={shortIds.length} noun="app" />
                       <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
-                      {state?.status === 'loading' && (
-                        <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-                      )}
                       {state?.status === 'loaded' && (
                         <span className="text-xs text-gray-500">
                           {shortIds.length} app{shortIds.length === 1 ? '' : 's'}
