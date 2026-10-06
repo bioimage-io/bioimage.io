@@ -297,14 +297,15 @@ const ArchitectureSvg: React.FC = () => (
     >
       BioEngine
     </text>
+    {/* Neutral, like the heading on the other side. The warm accent belongs to
+        the container and its product label, and to nothing else. */}
     <text
       x={WORKER_MID_X}
       y={GROUP_LABEL_CY + 5}
       textAnchor="middle"
       fontSize="13"
       fontWeight="600"
-      fill={BE_TEXT}
-      opacity="0.7"
+      fill="#4b5563"
     >
       Workers
     </text>
@@ -601,7 +602,7 @@ const ArchitectureStack: React.FC = () => (
 
       <StackLink height={22} />
 
-      <p className="mb-2 text-center text-xs font-semibold text-orange-700/75">Workers</p>
+      <p className="mb-2 text-center text-xs font-semibold text-gray-600">Workers</p>
       <div className="space-y-2">
         {STACK_WORKERS.map(worker => (
           <div
