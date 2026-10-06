@@ -5,7 +5,7 @@ import BioEngineGitHubLink from './BioEngineGitHubLink';
 import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
 import { requestLogin } from '../../utils/loginRequest';
 import CountryFlag from './CountryFlag';
-import WorkspaceStatusDot from './WorkspaceStatusDot';
+import ObservedWorkspacesPanel from './ObservedWorkspacesPanel';
 
 type GeoLocation = {
   region?: string;
@@ -79,7 +79,7 @@ const ServiceCard: React.FC<{
     <div className={`w-full max-w-[380px] backdrop-blur-sm rounded-2xl flex flex-col h-full transition-all duration-200 ${
       highlighted
         ? 'bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-300 shadow-md hover:shadow-lg hover:border-blue-400'
-        : 'bg-white/80 border border-white/20 shadow-sm hover:shadow-md hover:border-blue-200'
+        : 'bg-white border border-gray-300 shadow-sm hover:shadow-md hover:border-blue-300'
     }`}>
       <div className="p-6 flex-grow">
         <div className="flex items-center mb-4">
@@ -206,7 +206,6 @@ const BioEngineWorkerList: React.FC<{
   const navigate = useNavigate();
   const { server, isLoggedIn } = useHyphaStore();
 
-  const [workspaceInput, setWorkspaceInput] = useState('');
   const [workspaceServices, setWorkspaceServices] = useState<Record<string, BioEngineService[]>>({});
   const [workspaceStatus, setWorkspaceStatus] = useState<Record<string, WorkspaceStatus>>({});
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
@@ -223,11 +222,6 @@ const BioEngineWorkerList: React.FC<{
   }, [isLoggedIn, userWorkspace]);
 
   const { observedWorkspaces, addWorkspace, removeWorkspace } = useObservedWorkspaces(defaultWorkspaces);
-
-  const handleAddWorkspace = () => {
-    addWorkspace(workspaceInput);
-    setWorkspaceInput('');
-  };
 
   const handleRemoveWorkspace = (ws: string) => {
     removeWorkspace(ws);
@@ -376,96 +370,18 @@ const BioEngineWorkerList: React.FC<{
   return (
     <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
 
-      {/* Workspace management */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-gray-800">Observed Workspaces</h3>
-          <button
-            onClick={() => fetchAllWorkspaces(true)}
-            disabled={manualRefreshLoading || !server}
-            className="w-28 h-10 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-200"
-            title="Refresh services list"
-          >
-            {manualRefreshLoading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            <span className="ml-2 text-sm">Refresh</span>
-          </button>
-        </div>
-
-        {/* Add workspace input */}
-        <form
-          onSubmit={(e) => { e.preventDefault(); handleAddWorkspace(); }}
-          className="flex gap-2 mb-3"
-        >
-          <input
-            type="text"
-            value={workspaceInput}
-            onChange={(e) => setWorkspaceInput(e.target.value)}
-            placeholder="Add workspace name..."
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={!workspaceInput.trim() || observedWorkspaces.includes(workspaceInput.trim())}
-            className="w-28 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium active:scale-[0.98] transition-all duration-200"
-          >
-            Add
-          </button>
-        </form>
-
-        {/* Workspace chips */}
-        <div className="flex flex-wrap gap-2">
-          {observedWorkspaces.map(ws => {
-            const isDefault = defaultWorkspaces.includes(ws);
-            const isUserWs = isLoggedIn && ws === userWorkspace;
-            const isPublicDefault = ws === DEFAULT_PUBLIC_WORKSPACE;
-            const status = workspaceStatus[ws];
-            const count = workspaceServices[ws]?.length ?? null;
-
-            return (
-              <div
-                key={ws}
-                className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm text-gray-700 hover:bg-gray-200 transition-colors"
-              >
-                {status === 'loading' && (
-                  <div className="w-2.5 h-2.5 border border-gray-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                )}
-                {status === 'loaded' && (
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${count && count > 0 ? 'bg-green-500' : 'bg-gray-400'}`} />
-                )}
-                {status === 'error' && (
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-400 flex-shrink-0" />
-                )}
-                {!status && (
-                  <div className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
-                )}
-                <span className="font-mono">{ws}</span>
-                {isPublicDefault && <span className="text-xs text-gray-400">(public)</span>}
-                {isUserWs && !isPublicDefault && <span className="text-xs text-blue-500">(you)</span>}
-                {count !== null && status === 'loaded' && (
-                  <span className="text-xs text-gray-400">{count} worker{count !== 1 ? 's' : ''}</span>
-                )}
-                {!isDefault && (
-                  <button
-                    onClick={() => handleRemoveWorkspace(ws)}
-                    className="ml-0.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
-                    title="Remove workspace"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <ObservedWorkspacesPanel
+        className="mb-6"
+        workspaces={observedWorkspaces}
+        pinned={defaultWorkspaces}
+        statusOf={ws => workspaceStatus[ws]}
+        countOf={ws => (workspaceStatus[ws] === 'loaded' ? (workspaceServices[ws]?.length ?? 0) : null)}
+        noun="worker"
+        onAdd={addWorkspace}
+        onRemove={handleRemoveWorkspace}
+        onRefresh={() => fetchAllWorkspaces(true)}
+        refreshing={isAnyLoading}
+      />
 
       {/* Services list */}
       <div className="border-t border-gray-200/50 pt-6">
@@ -527,7 +443,7 @@ const BioEngineWorkerList: React.FC<{
               return (
                 <div key={ws} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center gap-2 mb-4">
-                    <WorkspaceStatusDot status={status} count={services.length} noun="worker" />
+                    {/* No status dot here: the workspace pill above owns it. */}
                     <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
                     {ws === DEFAULT_PUBLIC_WORKSPACE && <span className="text-xs text-gray-400">(public)</span>}
                     {isLoggedIn && ws === userWorkspace && ws !== DEFAULT_PUBLIC_WORKSPACE && (

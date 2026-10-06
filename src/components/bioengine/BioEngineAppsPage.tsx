@@ -10,7 +10,7 @@ import {
   DeployedApp,
 } from './workerDiscovery';
 import { useWorkspaceToken } from './hooks/useWorkspaceToken';
-import WorkspaceStatusDot from './WorkspaceStatusDot';
+import ObservedWorkspacesPanel from './ObservedWorkspacesPanel';
 
 /**
  * `/bioengine/apps` — calling applications that are already deployed.
@@ -385,7 +385,6 @@ const BioEngineAppsPage: React.FC = () => {
     [selectedIds, includeToken, token],
   );
 
-  const [wsInput, setWsInput] = useState('');
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-8">
@@ -446,47 +445,19 @@ const BioEngineAppsPage: React.FC = () => {
         {/* Workspace management, mirroring the worker list so the two screens
             share one set of observed workspaces. */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6">
-          <div className="flex items-center justify-between mb-3">
-            <h3 className="text-base font-semibold text-gray-800">Observed Workspaces</h3>
-            {/* Deployed apps change outside this page (someone deploys, a worker
-                rolls), and nothing pushes that here, so the list can be stale
-                with no way to tell. */}
-            <button
-              type="button"
-              onClick={reloadAll}
-              disabled={anyLoading}
-              title="Re-check every observed workspace"
-              className="inline-flex items-center gap-1.5 px-2.5 py-1 text-xs font-medium text-gray-600 rounded-lg border border-gray-200 hover:bg-gray-50 hover:text-gray-800 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
-            >
-              <svg
-                className={`w-3.5 h-3.5 ${anyLoading ? 'animate-spin' : ''}`}
-                fill="none" stroke="currentColor" viewBox="0 0 24 24"
-              >
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                  d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-              {anyLoading ? 'Refreshing' : 'Refresh'}
-            </button>
-          </div>
-          <form
-            onSubmit={e => { e.preventDefault(); addWorkspace(wsInput); setWsInput(''); }}
-            className="flex gap-2 mb-3"
-          >
-            <input
-              type="text"
-              value={wsInput}
-              onChange={e => setWsInput(e.target.value)}
-              placeholder="Add workspace name..."
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-            <button
-              type="submit"
-              disabled={!wsInput.trim() || observedWorkspaces.includes(wsInput.trim())}
-              className="w-28 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
-            >
-              Add
-            </button>
-          </form>
+          <ObservedWorkspacesPanel
+            workspaces={observedWorkspaces}
+            pinned={defaultWorkspaces}
+            statusOf={ws => byWorkspace[ws]?.status}
+            countOf={ws => (byWorkspace[ws]?.status === 'loaded'
+              ? shortIdsFor(byWorkspace[ws]?.apps ?? []).length
+              : null)}
+            noun="app"
+            onAdd={addWorkspace}
+            onRemove={removeWorkspace}
+            onRefresh={reloadAll}
+            refreshing={anyLoading}
+          />
 
           <div className="space-y-4">
             {observedWorkspaces.map(ws => {
@@ -499,7 +470,7 @@ const BioEngineAppsPage: React.FC = () => {
                 <div key={ws} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
-                      <WorkspaceStatusDot status={state?.status} count={shortIds.length} noun="app" />
+                      {/* No status dot here: the workspace pill above owns it. */}
                       <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
                       {state?.status === 'loaded' && (
                         <span className="text-xs text-gray-500">
