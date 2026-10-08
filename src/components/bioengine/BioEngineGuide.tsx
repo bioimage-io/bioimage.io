@@ -114,6 +114,20 @@ const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
+// Headroom between Ray's reservation and the container's hard limit, for the
+// raylet, GCS, dashboard and the worker process itself — measured at ~1.1 GB
+// idle on an 8-CPU head, so 4 GB leaves room without being generous.
+const CONTAINER_MEMORY_OVERHEAD_GB = 4;
+
+// The container limit the Memory field implies. --head-memory-in-gb is a Ray
+// *scheduling reservation*: Ray hands out work believing it has that much, and
+// nothing stops the container exceeding it. The cgroup limit is the part that
+// actually bounds the process, and it has to sit above the reservation or Ray
+// schedules into memory it cannot get. Shared memory is added because Ray's
+// object store lives there and counts against the same cgroup.
+const containerMemoryLimitGb = (reservedGb: number, shmGb: number): number =>
+  reservedGb + shmGb + CONTAINER_MEMORY_OVERHEAD_GB;
+
 const PREBUILT_MODEL_RUNNER_VERSION = '2.10.6';
 const PREBUILT_MODEL_RUNNER_IMAGE = `ghcr.io/aicell-lab/model-runner:${PREBUILT_MODEL_RUNNER_VERSION}`;
 
@@ -698,6 +712,14 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     const userFlag = getUserFlag();
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSizeGb}g `;
+    // Apptainer and singularity take cgroups from a separate TOML file, so they
+    // get no --memory here rather than one that would be silently ignored.
+    const memoryFlag = (
+      mode === 'single-machine'
+      && memory > 0
+      && containerRuntime !== 'apptainer'
+      && containerRuntime !== 'singularity'
+    ) ? `--memory=${containerMemoryLimitGb(memory, shmSizeGb)}g ` : '';
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
     const imageToUse = customImage || DEFAULT_IMAGE;
     const gpuEnvFlag = (gpuIndices && gpus > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
@@ -743,7 +765,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
       ].filter(Boolean);
       dockerCmd = parts.join(nl);
     } else if (os === 'windows') {
-      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
+      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${memoryFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
     } else {
       const parts = [
         `${containerRuntime} run`,
@@ -751,6 +773,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
         ...(platformFlag ? [platformFlag.trim()] : []),
         '--rm',
         ...(shmFlag ? [shmFlag.trim()] : []),
+        ...(memoryFlag ? [memoryFlag.trim()] : []),
         ...(userFlag ? [userFlag.trim()] : []),
         ...(homeEnvFlag ? [homeEnvFlag.trim()] : []),
         ...(gpuEnvFlag ? [gpuEnvFlag.trim()] : []),
@@ -1849,7 +1872,19 @@ spec:
                       <input type="number" min="0" max="512" value={memory}
                         onChange={(e) => setMemory(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Total RAM available to Ray on this machine (0 = auto-detect).</p>
+                      <p className="text-xs text-gray-500 mt-1">
+                        RAM reserved for Ray on this machine (0 = auto-detect).
+                        {memory > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' && (
+                          <>
+                            {' '}The container is also capped at{' '}
+                            <span className="font-medium text-gray-700">
+                              {containerMemoryLimitGb(memory, shmSizeGb)} GB
+                            </span>{' '}
+                            ({memory} reserved + {shmSizeGb} shared memory + {CONTAINER_MEMORY_OVERHEAD_GB} overhead),
+                            so the worker cannot grow into the rest of the machine.
+                          </>
+                        )}
+                      </p>
                     </div>
                   </div>
                 </div>
