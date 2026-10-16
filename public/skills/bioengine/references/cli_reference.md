@@ -4,7 +4,7 @@ Two CLIs ship with this repo:
 
 | CLI | Entry point | Audience |
 |---|---|---|
-| **`bioengine`** | `pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"` (Python ≥3.11) | App authors and end users — deploy apps, call services, inspect clusters. |
+| **`bioengine`** | `pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git"` (Python ≥3.11) | App authors and end users — deploy apps, call services, inspect clusters. Also wraps worker startup via [§ `bioengine worker`](#bioengine-worker--run-the-worker-container). |
 | **`python -m bioengine.worker`** | Built into the published worker image `ghcr.io/aicell-lab/bioengine-worker:<version>` | Operators bringing up a worker process (Docker, SLURM, K8s). Documented in [§ `python -m bioengine.worker` — worker process](#python--m-bioengineworker--worker-process). |
 
 This document covers both. Most agents only need the `bioengine` half; jump to the worker section when bringing up infrastructure.
@@ -242,6 +242,46 @@ bioengine apps deploy ./my-app/ --env _API_KEY=secret
 
 ---
 
+## `bioengine worker` — run the worker container
+
+A convenience wrapper that launches the published worker image for you, so you do not have to hand-write a `docker run` with the right mounts, GPU flags and shm size. It is a thin shim: **everything after `--` is forwarded verbatim** to `python -m bioengine.worker` inside the container, so every worker option in the next section is available without this command knowing about it.
+
+```bash
+bioengine worker start -- --mode single-machine --head-num-cpus 4
+bioengine worker start -d --no-gpus -- --mode single-machine
+bioengine worker start --dry-run -- --mode single-machine   # print the command, secrets masked
+bioengine worker start -- --help                            # the worker process's own flags
+```
+
+> **The `--` is load-bearing.** Without it, `--mode` is parsed as an option of `bioengine worker start`, which does not have one.
+
+### `bioengine worker start`
+
+| Option | Default | Description |
+|---|---|---|
+| `--runtime [auto\|docker\|podman\|apptainer\|singularity\|native]` | `auto` | `auto` picks the first of docker, podman, apptainer, singularity on PATH. `native` runs the worker in this environment instead of a container (requires the `worker` extra). |
+| `--image IMAGE` | `ghcr.io/aicell-lab/bioengine-worker:<installed bioengine version>` | Worker image. The default tracks the *installed* `bioengine` version, so a stale CLI silently launches a stale worker. |
+| `--workspace-dir DIRECTORY` | `~/.bioengine` | Host directory mounted as the worker workspace. |
+| `--name TEXT` | `bioengine-worker` | Container name — this is the handle `bioengine worker stop` and `logs` use. Override it if a worker is already running on this host that you must not disturb. |
+| `--shm-size TEXT` | `8g` | Shared memory size. |
+| `--gpus / --no-gpus` | on when `nvidia-smi` is present | Request GPUs. |
+| `-d, --detach` |  | Run the container in the background. |
+| `--token TOKEN` | `$HYPHA_TOKEN` / `$BIOENGINE_TOKEN` | Hypha auth token. **Passed via the environment, not the command line**, so it does not land in the container's `/proc/<pid>/cmdline`. |
+| `--dry-run` |  | Print the command instead of running it. Credential values are masked. |
+
+### `bioengine worker stop` / `bioengine worker logs`
+
+| Option | Default | Description |
+|---|---|---|
+| `--runtime [auto\|docker\|podman]` | `auto` | Only docker and podman have named containers; apptainer/singularity/native have none, and both commands refuse with an explanation rather than guessing. |
+| `--name TEXT` | `bioengine-worker` | Container name. |
+| `-f, --follow` |  | `logs` only — follow log output. |
+| `--tail N` |  | `logs` only — show only the last N lines. |
+
+For `apptainer`, `singularity` or `native` runs there is no container to address: stop the worker process directly, and read its log file under the workspace directory instead.
+
+---
+
 ## `python -m bioengine.worker` — worker process
 
 The worker is launched as a Python module inside the published worker image (`ghcr.io/aicell-lab/bioengine-worker:<version>`). For SLURM, the launcher script `scripts/start_hpc_worker.sh` wraps this same invocation (see [worker_onboarding.md § 3b](worker_onboarding.md#3b-slurm)); every flag below is forwarded straight through, except for two launcher-only flags noted below.
@@ -261,7 +301,8 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 | Flag | Required | Description |
 |---|:--:|---|
 | `--mode {single-machine,slurm,external-cluster}` | ✓ | Deployment mode. |
-| `--admin-users EMAIL [EMAIL …]` |  | Users with admin access to the worker. Defaults to the authenticated JWT user. |
+| `--admin-users EMAIL [EMAIL …]` |  | Users with admin access to the worker. Defaults to the authenticated JWT user. **`*` is no longer honoured** — it is dropped with a warning at startup. It used to make every caller that can reach the Hypha server a full admin, anonymous ones included, because the worker service is public. Users named here can never *lose* admin rights on a running worker, and demoting one takes **two steps**: drop the email from this flag and restart, *then* call `remove_admin_user`. The restart alone does not revoke it — the persisted admin list overrides this flag and still carries it. |
+| `--enable-access-requests` |  | Let non-admins ask to become an admin of this worker. Adds `request_admin_access` and `get_admin_access_request` to the worker's public Hypha service, plus `list_access_requests` and `resolve_access_request` for admins. One request per account, keyed on email; a denial stands until an admin clears it. **Off by default** — turning it on puts a method on a public service that any logged-in caller on the Hypha server can invoke. With the flag off, none of the four methods is registered, so a client must treat their absence as normal. |
 | `--workspace-dir PATH` |  | Worker workspace (Ray data, logs, app workdir, auto-detected dataset-server socket). Mounted into the container at `/.bioengine` in single-machine mode; bound to `${HOME}/.bioengine` in SLURM mode. |
 | `--ray-workspace-dir PATH` |  | External-cluster only — workspace path on the remote Ray cluster (when it differs from the local one). |
 | `--startup-applications JSON [JSON …]` |  | Apps to auto-deploy at startup. Each value is a single JSON object string, e.g. `'{"artifact_id": "bioimage-io/model-runner", "application_id": "model-runner"}'`. Repeat the flag for multiple apps. Re-applied on every worker restart, so it is the production way to make Ray Serve deployments survive restarts. |
@@ -269,6 +310,7 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 | `--dashboard-url URL` |  | Base URL of the BioEngine dashboard registered with Hypha (shown in the worker's service metadata). |
 | `--worker-name NAME` |  | Display name for the Hypha service. Default `BioEngine Worker`. |
 | `--log-file PATH` |  | Log file path. `off` → console only. Default: `<workspace_dir>/logs/<timestamp>.log`. |
+| `--heartbeat-file PATH` |  | Liveness heartbeat file, rewritten after every completed monitoring pass. Check it with `python -m bioengine.heartbeat PATH`, which exits non-zero once the loop has stopped completing passes and needs no network access — that is what makes it usable as a Kubernetes `livenessProbe`. Default: `bioengine_worker_heartbeat.json` in the system temp dir. **Keep it off any network filesystem, including the workspace directory** — otherwise both the write and the probe's read become hostage to that filesystem. Note the deadline is derived, not constant: `backoff_max_seconds + 6 × monitoring_interval`, so `--monitoring-interval-seconds` moves it. |
 | `--debug` |  | Enable DEBUG-level logging. |
 | `--graceful-shutdown-timeout SECONDS` |  | Timeout for graceful shutdown. |
 
@@ -278,7 +320,8 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 |---|---|
 | `--server-url URL` | Hypha server. Default `https://hypha.aicell.io`. |
 | `--workspace NAME` | Workspace to register in. Default: workspace encoded in the JWT (auto-detected). |
-| `--token TOKEN` | Hypha token. Falls back to `$HYPHA_TOKEN`. Must be an **admin** token (the worker mints scoped tokens for app replicas). |
+| `--token-file PATH` | Path to a file holding the Hypha token. **Preferred over `--token` for any unattended deployment**: the value never reaches the process table, and it pairs directly with a mounted Kubernetes Secret. Caveat for K8s — a secret file is root-owned mode 0400, so a pod running `runAsNonRoot` with no `fsGroup` cannot read it, and an unreadable `--token-file` is a hard startup error rather than a fall-through. |
+| `--token TOKEN` | Hypha token. Must be an **admin** token (the worker mints scoped tokens for app replicas). **SECURITY: the value is world-readable in `/proc/<pid>/cmdline` for the lifetime of the process** — prefer `--token-file` or the `HYPHA_TOKEN` env var. On Kubernetes this is worse than it looks: `$(VAR)` is expanded at render time, so the Deployment spec still shows the placeholder while the live process carries the secret. Token sources in precedence order: `--token-file`, `--token`, `HYPHA_TOKEN`, interactive login. An **empty** value is not "unset" — on the `bioengine` CLI an empty `--hypha-token` *clears* a stored token rather than reusing it. |
 | `--client-id ID` | Stable Hypha client_id. **Strongly recommended for any persistent deployment** — without it, the service ID changes every restart and dashboards / saved URLs break. |
 
 ### Ray Cluster options
@@ -293,12 +336,13 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 | `--serve-port PORT` | Ray default | Ray Serve HTTP port. |
 | `--dashboard-port PORT` | Ray default | Ray dashboard port. |
 | `--client-server-port PORT` | Ray default | Ray Client server port (used by `external-cluster`). |
-| `--redis-password PASSWORD` | random | Ray cluster Redis password. |
 | `--head-num-cpus N` | autodetect | CPUs the head reports. Set to `0` for coordination-only (recommended on SLURM login nodes). |
 | `--head-num-gpus N` | `0` | GPUs the head reports. Single-machine: set to your GPU count. SLURM: keep `0`. |
 | `--head-memory-in-gb GB` | autodetect | Head memory advertised to Ray. |
+| `--head-memory-budget-fraction FRACTION` | `0.9` | Fraction of the host's total memory that `--head-memory-in-gb` plus the memory already held by **other tenants of the same host** may occupy before a warning is logged at startup. `0` disables the check. Warns only — it never prevents the worker from starting. |
 | `--runtime-env-pip-cache-size-gb GB` | Ray default | Ray runtime_env pip cache cap. Bigger cache = faster re-deploys. |
 | `--no-ray-cleanup` |  | Skip clean-up of previous Ray cluster processes/data. Use with caution. |
+| `--enable-container-runtime` |  | Opt-in: allow apps declared with `@bioengine.app(container_image=…)` to run inside a prebuilt container image as their Ray Serve runtime. **`single-machine` mode only.** Requires a rootful worker with podman + nvidia-container-toolkit; the worker generates a podman-compatible CDI spec at startup for GPU passthrough. Pip remains the default runtime. |
 
 ### SLURM Job options (mode = `slurm`)
 

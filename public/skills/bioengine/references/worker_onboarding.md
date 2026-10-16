@@ -59,6 +59,17 @@ If the user has already done the login and has a token, skip the whole flow and 
 
 ### 3a. Single-machine (Docker)
 
+> **If the user has the `bioengine` CLI installed, there is a shortcut.**
+> `bioengine worker start -- --mode single-machine --head-num-cpus 4 --head-num-gpus 1`
+> builds and runs the `docker run` below for you — correct mounts, `--shm-size`, GPU flags,
+> and the token passed through the environment rather than the command line. Add `-d` to
+> detach, `--dry-run` to see the command without running it, and use
+> `bioengine worker stop` / `bioengine worker logs -f` to manage it. See
+> [cli_reference.md § `bioengine worker`](cli_reference.md#bioengine-worker--run-the-worker-container).
+> Note the image it picks tracks the *installed* `bioengine` version, so pass `--image` to
+> pin a different tag. The hand-written form below stays the reference for hosts without
+> the CLI, and for every non-default flag.
+
 Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/pkgs/container/bioengine-worker`. The examples below use `:0.10.1` — substitute the current tag.
 
 **Two images to choose between.** Both run the same worker with the same flags; they differ only in what is already installed.
@@ -139,7 +150,7 @@ docker run -d --name bioengine-worker \
 >     --client-id bioengine-worker-<facility>     # ← pin this
 > ```
 >
-> The full worker CLI is `python -m bioengine.worker --help` inside the image: `docker run --rm ghcr.io/aicell-lab/bioengine-worker:0.10.1 python -m bioengine.worker --help`.
+> The full worker CLI is `python -m bioengine.worker --help` inside the image: `docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengine.worker --help` (or `bioengine worker start -- --help`).
 
 ### 3b. SLURM
 
