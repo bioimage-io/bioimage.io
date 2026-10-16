@@ -42,7 +42,18 @@ Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whet
 > ```
 > ERROR: Package 'bioengine' requires a different Python: 3.10.14 not in '>=3.11'
 > ```
-> Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — create a fresh 3.11+ env before installing: `conda create -n bioengine python=3.11` or `python3.11 -m venv .venv`.
+> Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — you need a fresh 3.11+ env before installing.
+>
+> **Ask the user which environment manager to use — do not pick one for them.** Dropping a `.venv/` into the repo of someone who runs everything in conda, or creating a named conda env for someone who does not use conda, leaves them a mess to clean up, and the choice costs exactly one question. If an environment is already active and is ≥3.11, say which one you found and use it rather than making another.
+>
+> | they answer | create and activate |
+> |---|---|
+> | conda | `conda create -n bioengine python=3.11 -y && conda activate bioengine` |
+> | mamba / micromamba | `mamba create -n bioengine python=3.11 -y && mamba activate bioengine` |
+> | venv | `python3.11 -m venv .venv && source .venv/bin/activate` |
+> | uv | `uv venv --python 3.11 && source .venv/bin/activate` — then install with `uv pip install`, see the trap below |
+>
+> No preference? Offer `venv`: it needs nothing beyond the Python they already have.
 >
 > If you reach for `uv`, note that **`uv venv` installs no `pip` into the environment**. A plain `pip install` afterwards therefore runs the *system* pip and reproduces exactly the 3.10 error above, while looking as though the fresh 3.11 env did nothing. Use `uv pip install` (or `.venv/bin/python -m pip` after `uv pip install pip`).
 
@@ -82,13 +93,28 @@ export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker
 
 > **Env-var naming split.** The CLI and every command in this skill read `BIOENGINE_SERVER_URL` (`bioengine --help` documents it; default `https://hypha.aicell.io` if unset). If your shell environment instead provides `HYPHA_SERVER_URL` (a different variable — common when a harness or notebook sets up Hypha credentials generically), the CLI does **not** read it and will silently fall back to its own default. If your `HYPHA_SERVER_URL` differs from the CLI default, explicitly `export BIOENGINE_SERVER_URL="$HYPHA_SERVER_URL"` — don't assume the two are interchangeable.
 
-**Getting a token.** Every call in this skill authenticates as the **user**. When you do not already have a `HYPHA_TOKEN`, the shortest route is to send them a pre-scoped link and ask for the line they get back:
+**Getting a token.** Every call in this skill authenticates as the **user**. Before asking them for anything, **look for a token you already have, in this order** — asking for one they already handed you is the most irritating way to open a session:
+
+1. **The prompt and the conversation so far** — scan for a `HYPHA_TOKEN=…` line, or a bare token the user pasted without naming it.
+2. **The environment** — `printenv HYPHA_TOKEN`. When confirming a hit, print at most the first few characters; never echo a whole token back into the transcript.
+3. **A `.env` file** — `grep -s '^HYPHA_TOKEN=' .env ../.env ~/.env`.
+
+Only once all three come up empty, send them a pre-scoped link and ask for the line they get back:
 
 ```
-https://bioimage.io/#/bioengine/token?permission=read_write&expires-in=43200
+https://bioimage.io/#/bioengine/token?permission=read_write&expires-in=3600
 ```
 
-Add `&workspace=<ws>` for a shared workspace, and ask for `permission=admin` only when registering a new worker. The user presses Generate, then Copy, and pastes back one `HYPHA_TOKEN=…` line. This works whatever you can execute, so reach for it before asking the user to run code on your behalf.
+`expires-in` is in seconds and the clock starts when they press Generate — raise it for a long session (`43200` = 12 h), and otherwise prefer the shortest that outlasts the task. Add `&workspace=<ws>` for a shared workspace, and ask for `permission=admin` only when registering a new worker. The page pre-fills itself from those parameters; the user presses Generate, then Copy, and pastes back one `HYPHA_TOKEN=…` line. This works whatever you can execute, so reach for it before asking the user to run code on your behalf.
+
+> **They have to be logged in first — the token page will not prompt them.** Following the link while signed out, the Generate button is disabled and the page says only *"Log in to generate a token."* Tell them to press **Login** at the top right of the nav bar (or in the mobile menu), then return to the link and press Generate. Signing in with GitHub or Google is enough; no prior bioimage.io account is needed.
+
+> **Then write the token to `.env` in the project directory, so they only do this once.** A token pasted into chat dies with the session, and re-minting it on every run is the biggest friction point in a first-time setup.
+> ```bash
+> echo 'HYPHA_TOKEN=<pasted-token>' >> .env
+> grep -qxF '.env' .gitignore 2>/dev/null || echo '.env' >> .gitignore   # a token is a password — never commit it
+> ```
+> Load it with `set -a; source .env; set +a` in a shell, or `load_dotenv()` from `python-dotenv` in Python. Tell the user the file now exists and roughly when the token expires: a call that starts failing with an auth error hours later means a dead token, not a broken app.
 
 For the programmatic browser-login flow, creating a dedicated workspace, minting scoped worker/app tokens, and the full permission ladder, **load [references/hypha_setup.md](references/hypha_setup.md)**. Most task runs only need this once.
 
