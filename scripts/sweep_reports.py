@@ -30,6 +30,7 @@ import json
 import os
 import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
@@ -53,16 +54,37 @@ def token() -> str:
     return tok
 
 
+# Hypha can momentarily have no artifact-manager registered, which surfaces as
+# an HTTP error carrying "Service not found: public/*:artifact-manager@*". That
+# happened once in 19 scheduled runs (2026-10-18 05:23) and both runs after it
+# succeeded, so it is a blip in service discovery rather than a problem with
+# this sweep. Without a retry a blip auto-files a workflow-failure issue that a
+# human then has to read and close, which is worse than waiting six seconds.
+_TRANSIENT = ("service not found",)
+_RETRIES = 3
+_BACKOFF_SECONDS = 3
+
+
 def rpc(method: str, params: dict) -> object:
     req = urllib.request.Request(
         f"{AM}/{method}",
         data=json.dumps(params).encode(),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token()}"},
     )
-    try:
-        return json.loads(urllib.request.urlopen(req, timeout=120).read())
-    except urllib.error.HTTPError as exc:
-        sys.exit(f"{method} failed: {exc.read().decode()[:300]}")
+    last = ""
+    for attempt in range(_RETRIES):
+        try:
+            return json.loads(urllib.request.urlopen(req, timeout=120).read())
+        except urllib.error.HTTPError as exc:
+            last = exc.read().decode()[:300]
+            # Only discovery blips are retried. A 401, a bad request or a
+            # genuine server error should fail now and loudly: retrying those
+            # just delays the same report by nine seconds.
+            if not any(t in last.lower() for t in _TRANSIENT) or attempt == _RETRIES - 1:
+                break
+            print(f"{method}: {last.strip()[:120]} — retrying in {_BACKOFF_SECONDS}s", file=sys.stderr)
+            time.sleep(_BACKOFF_SECONDS)
+    sys.exit(f"{method} failed: {last}")
 
 
 def read_watermark() -> float:
