@@ -93,7 +93,9 @@ export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker
 
 > **Env-var naming split.** The CLI and every command in this skill read `BIOENGINE_SERVER_URL` (`bioengine --help` documents it; default `https://hypha.aicell.io` if unset). If your shell environment instead provides `HYPHA_SERVER_URL` (a different variable — common when a harness or notebook sets up Hypha credentials generically), the CLI does **not** read it and will silently fall back to its own default. If your `HYPHA_SERVER_URL` differs from the CLI default, explicitly `export BIOENGINE_SERVER_URL="$HYPHA_SERVER_URL"` — don't assume the two are interchangeable.
 
-**Getting a token.** Every call in this skill authenticates as the **user**. Before asking them for anything, **look for a token you already have, in this order** — asking for one they already handed you is the most irritating way to open a session:
+### Getting a token
+
+Every call in this skill authenticates as the **user**. Before asking them for anything, **look for a token you already have, in this order** — asking for one they already handed you is the most irritating way to open a session:
 
 1. **The prompt and the conversation so far** — scan for a `HYPHA_TOKEN=…` line, or a bare token the user pasted without naming it.
 2. **The environment** — `printenv HYPHA_TOKEN`. When confirming a hit, print at most the first few characters; never echo a whole token back into the transcript.
@@ -855,7 +857,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 ## Leave a feedback report
 
-Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the collection `bioimage-io/issues` with type `skill-issue` (feedback for every bioimage.io skill lands here; the `skill: "bioengine"` field below tags it). Anyone may file, including without a token, and reports are NOT publicly readable, so logs and tracebacks are safe to attach. The manifest listing IS public though, so keep free text in `report.md`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
+Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the collection `bioimage-io/issues` with type `skill-issue` (feedback for every bioimage.io skill lands here; the `skill: "bioengine"` field below tags it). **Filing needs a Hypha token** — any logged-in user's, no `bioimage-io` membership required; if you do not have one, see [Getting a token](#getting-a-token) or send the user to <https://bioimage.io/#/bioengine/token>. Reports are NOT publicly readable, so logs and tracebacks are safe to attach. The manifest listing IS public though, so keep free text in `report.md`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
 
 **When to file a report (any of these is a trigger):**
 
@@ -894,11 +896,13 @@ Concrete patches — paragraphs to add, tables to extend, sections to reorganise
 (Optional but useful — prevents refactoring of things that already serve agents well.)
 ```
 
-**Do not include secrets** (tokens, raw chat logs, PII). Reports are public once committed.
+**Do not include secrets** (tokens, raw chat logs, PII). The manifest is world-listable the moment it is committed, and a report you cannot read back is also one you cannot redact.
 
 ### Submit
 
-Any authenticated Hypha token works — the collection grants `@: r+` so any logged-in user can submit child reports. No `bioimage-io` permission required.
+Any authenticated Hypha token works — the collection grants `@` (every logged-in user) `list`, `draft` and `attach`, so anyone signed in can submit a child report without `bioimage-io` permission. An **anonymous** caller gets `list` only and is refused with `PermissionError: User does not have permission to attach an artifact to the collection 'issues'`; if you see that, the token is missing or expired rather than insufficiently privileged. The grant does not include `read`, so you cannot fetch your own `report.md` back afterwards — keep a local copy if you need one.
+
+**No token in hand?** Do not skip the report. Send the user to <https://bioimage.io/#/bioengine/token> (they must press **Login** first — the page will not prompt them), and follow [Getting a token](#getting-a-token) for the full flow including writing it to `.env`.
 
 ```python
 import datetime, os, httpx
