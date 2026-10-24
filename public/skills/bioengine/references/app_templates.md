@@ -2902,7 +2902,15 @@ Reference them with ordinary relative URLs (`<link rel="stylesheet" href="styles
 
 `?token=<hypha-token>` is the auto-connect bypass at the top of the boot sequence, and it is **the one thing that makes agent-driven browser testing possible** — the interactive `login()` flow needs a human to complete it in a popup, so without `?token=` an automated browser run stalls at the login screen. Load `<static_site_url>?…&token=$HYPHA_TOKEN` in a headless browser and the page connects and enables its controls unattended. It stays testing-only: tokens in URLs land in browser history, so never paste a production token into a shared link.
 
-Two headless-Chromium traps that cost more time than anything BioEngine-related, and are worth pre-empting:
+**Install the browser without `--with-deps` unless you have sudo.** The usual incantation, `playwright install --with-deps chromium`, shells out to the system package manager and on a sudo-less or non-interactive box (containers, CI, most agent sandboxes) dies with `sudo: a terminal is required to read the password` followed by `Failed to install browsers`. That reads as a hard failure and is not one: the browser download is a separate step that had not been reached. Plain
+
+```bash
+playwright install chromium
+```
+
+succeeds and the headless run works, because the shared libraries `--with-deps` would install are generally already present. Only reach for `--with-deps` if Chromium then fails to *launch* with a missing-`.so` error.
+
+Two further headless-Chromium traps that cost more time than anything BioEngine-related, and are worth pre-empting:
 
 - **Waits and screenshots time out on a perfectly healthy page.** Playwright's `wait_for_function` polls on `requestAnimationFrame` by default and `page.screenshot()` waits for frame stability. An occluded headless page intermittently stops producing compositor frames, so both hang until timeout while the app underneath is fine. Fixes: `page.wait_for_function(..., polling=500)` (wall-clock polling instead of rAF), capture via CDP `Page.captureScreenshot` instead of `page.screenshot()`, and launch with `--disable-backgrounding-occluded-windows --disable-renderer-backgrounding --disable-features=CalculateNativeWinOcclusion`.
 - **Don't reuse one browser across a logged-out and a logged-in scenario.** A fresh `launch()` per scenario removed a reproducible connect hang.

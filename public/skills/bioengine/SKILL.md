@@ -71,7 +71,17 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 > **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.15.x; earlier installs shipped 0.11.x–0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
 
-> **Nothing validates a manifest or a decorator short of a deploy.** There is no offline checker: no `apps validate`, no dry-run flag, no schema you can lint against. Manifest fields, `@bioengine.app` kwargs and method signatures are all confirmed only by pushing the artifact and watching the worker's response, so a typo'd kwarg costs a full deploy round-trip to find. Budget for that. The local loop described below covers your *logic* thoroughly and covers the BioEngine surface not at all — copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
+> **Two of the three things you can get wrong are checkable offline. The third is not.**
+>
+> | What | How to check it without deploying |
+> |---|---|
+> | `manifest.yaml` | `bioengine apps validate ./my-app/` — runs the v0.6.0 manifest validator locally. Checks required fields, rejects a legacy `deployments:` list with a migration hint, and verifies `entry:` parses as `package.module:ClassName`. Prints `OK: …/manifest.yaml is a valid v0.6.0 BioEngine app manifest.` |
+> | `@bioengine.app` kwargs | `python -c "import your_app"` in a `[cli]` venv. Reaching `ModuleNotFoundError: No module named 'ray'` **is the pass condition**: the decorator is evaluated at import time, so a bad kwarg raises before Ray is ever reached. See the undecorated-core-module note above for why you cannot go further than this locally |
+> | Method signatures | **Nothing.** Only a deploy confirms these, so a typo'd parameter costs a full round-trip to find. Budget for it |
+>
+> The local loop described below covers your *logic* thoroughly and covers the BioEngine wire surface not at all. Copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
+>
+> (Earlier revisions of this skill stated flatly that no offline checker existed. `apps validate` was confirmed present and working on 0.16.6; if your CLI predates it, `bioengine apps --help` will say so.)
 
 **Environment**:
 ```bash
@@ -431,7 +441,14 @@ bioengine apps status my-app --logs 50
 bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
+
+# 4. Pass arguments with --arg (repeatable, auto-typed) or --args (one JSON object).
+#    Bare key=value is NOT accepted: it fails with "Got unexpected extra arguments".
+bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --arg name=Wei --arg excited=true --json
+bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --args '{"name": "Wei", "excited": true}' --json
 ```
+
+> **That one `--json` call gives you everything a deployer needs.** `bioengine apps status <id> --json` returns `service_ids.websocket_service_id` *and* `static_site_url`, the latter already carrying the injected `server=` / `ws_service_id=` / `webrtc_service_id=` query parameters. So if you did the deploy yourself, you never need the Python `get_app_status` discovery recipe in [references/service_ids.md](references/service_ids.md) — that is for callers who did not. The plain (non-`--json`) status output prints neither.
 
 > **Updating a running app: use `apps run --version`, not `apps deploy`.** `bioengine apps deploy` against an app-id that is already running uploads the new artifact version and restarts the replica, but the restarted replica has been observed coming back **on the old code**, with `version`, `running_version` and `version_verified` all reporting the stale version while `status` stays `RUNNING`. Reproduced deterministically on two consecutive Python changes. The path that reliably rolls a running instance forward is two steps:
 >
@@ -445,6 +462,8 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 > **Confirm the update behaviourally, not from a status field.** After the update, call the method and look for the thing you changed. `status: RUNNING` is worthless as an update signal, because an app being updated was already `RUNNING` — a "poll until terminal state" loop exits on the first poll, one second in, reporting success on a stale replica. `version_verified: true` has been observed while the live code was two versions old.
 >
 > **`running_version` only tracks the Python replica.** The static frontend and the Ray Serve deployment version-skew independently, by design. Redeploy with a change to `frontend/` only and **`running_version` never advances — polling it waits forever** while the new HTML is already being served. Verify the two separately: `running_version` for Python changes, and `curl` on `static_site_url` diffed against your local file for frontend changes.
+>
+> **`running_version` can also be `None`, and `None` does not mean broken.** On a healthy *first* deploy it has been observed unset — `Status: RUNNING`, both deployments `HEALTHY`, `version: 1.0.0`, `running_version: None` (0.16.6). So the full range of the field is: a version string, a *stale* version string, an *early* version string, or `None`. A readiness gate written as `running_version == manifest_version` hangs forever on an app that is already serving correctly. This is the same conclusion as the two notes above, reached from a third direction: confirm behaviourally, by calling a method and looking for the thing you changed.
 >
 > Be precise about *why*, because the comfortable explanation is wrong and it hides an outage. The replica is **not** kept. A frontend-only redeploy restarts it: replica uptime measured at 70.0 s before and 3.9 s after, with a ~10–15 s window in which the app is unavailable, while the Python files were md5-identical. What does not happen is a *version bump* — the replica comes back at the same version, which is why the number you are polling never moves. So a frontend-only change is not free. If the app is serving users, that redeploy costs them the same interruption a Python change would.
 >
