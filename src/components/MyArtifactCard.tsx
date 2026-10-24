@@ -24,6 +24,14 @@ interface AdminResourceCardProps {
   lastModified?: number;
   artifactType?: string;
   isPublished?: boolean;
+  /**
+   * The signed-in user is named as an author or maintainer but neither created
+   * nor uploaded this artifact. Labelled as such, and offered none of the owner
+   * actions.
+   */
+  isContributorOnly?: boolean;
+  /** False when the user holds no edit right, so Edit is shown but disabled. */
+  canEdit?: boolean;
   onRequestDeletion?: () => void;
   id: string;
   emoji?: string;
@@ -45,6 +53,8 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   lastModified,
   artifactType,
   isPublished = false,
+  isContributorOnly = false,
+  canEdit = true,
   onRequestDeletion,
   id,
   emoji,
@@ -96,7 +106,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
             <h3 className="text-lg font-semibold text-gray-900">{title}</h3>
           </div>
 
-          <div className="flex items-center gap-1 text-xs text-gray-500 mb-3">
+          <div className="flex flex-wrap items-center gap-2 text-xs text-gray-500 mb-3">
             <div className="flex items-center gap-1 bg-gray-50 rounded-md px-2 py-1">
               <span className="font-medium">ID:</span>
               <code className="font-mono">{id.split('/').pop()}</code>
@@ -114,6 +124,22 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
                 <span className="text-green-600 ml-1">Copied!</span>
               )}
             </div>
+            {/*
+              Why this label exists: the page now lists artifacts the user is
+              merely NAMED on, not only the ones they uploaded. Without a mark
+              the two are indistinguishable, and a row you cannot delete reads
+              as a bug rather than as someone else's upload that credits you.
+            */}
+            {isContributorOnly && (
+              <Tooltip
+                title="You are listed as an author or maintainer of this artifact. Someone else uploaded it."
+                placement="top"
+              >
+                <span className="inline-flex items-center rounded-md bg-indigo-50 px-2 py-1 text-xs font-medium text-indigo-700 ring-1 ring-inset ring-indigo-600/20 whitespace-nowrap">
+                  Listed as author
+                </span>
+              </Tooltip>
+            )}
           </div>
 
           <p className="text-sm text-gray-600 mb-4 line-clamp-2">{description}</p>
@@ -150,18 +176,29 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
         <div className="flex justify-between items-center mt-4 border-t pt-4 flex-none">
         
           <div className="flex items-center space-x-2">
+            {/*
+              Edit stays visible when the user has no write grant, but disabled
+              with the reason: hiding it would leave an author wondering where
+              the button went, and enabling it would hand them a 403.
+            */}
             <button
               onClick={(e) => handleClick(e, onEdit)}
-              className="flex items-center p-2 text-gray-600 hover:text-blue-600 rounded-lg hover:bg-blue-50"
-              title="Edit"
-              disabled={isLoading}
+              className={`flex items-center p-2 rounded-lg transition duration-150 ease-out ${
+                canEdit
+                  ? 'text-gray-600 hover:text-blue-600 hover:bg-blue-50 active:scale-[0.97]'
+                  : 'text-gray-400 cursor-not-allowed'
+              }`}
+              title={canEdit ? 'Edit' : 'You do not have edit rights on this artifact'}
+              disabled={isLoading || !canEdit}
             >
               <PencilIcon className="w-5 h-5" />
               <span className="ml-1">Edit</span>
             </button>
             {/*
-              These are the current user's OWN uploads, so they hold delete
-              rights. Direct Delete is only meaningful on staged artifacts: for
+              Owner actions. The page withholds onDelete / onRequestDeletion on
+              rows the user is only NAMED on, so reaching here means the user
+              created or uploaded this artifact and holds delete rights.
+              Direct Delete is only meaningful on staged artifacts: for
               those with a published version it discards the staged changes; for
               fully-unpublished ones (never submitted, or in review) it removes
               the model. Published models use "Request deletion" instead.
@@ -169,7 +206,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
             {isStaged && onDelete && (
               <button
                 onClick={(e) => handleClick(e, onDelete)}
-                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50"
+                className="flex items-center p-2 text-gray-600 hover:text-red-600 rounded-lg hover:bg-red-50 transition duration-150 ease-out active:scale-[0.97]"
                 title={isPublished ? 'Discard staged changes' : 'Delete'}
                 disabled={isLoading}
               >
@@ -184,7 +221,7 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
             {isPublished && onRequestDeletion && (
               <button
                 onClick={(e) => handleClick(e, onRequestDeletion)}
-                className="flex items-center p-2 text-gray-600 hover:text-amber-600 rounded-lg hover:bg-amber-50"
+                className="flex items-center p-2 text-gray-600 hover:text-amber-600 rounded-lg hover:bg-amber-50 transition duration-150 ease-out active:scale-[0.97]"
                 title="Request deletion"
                 disabled={isLoading}
               >
