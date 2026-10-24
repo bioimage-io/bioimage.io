@@ -373,6 +373,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
+  const [dockerUseCdi, setDockerUseCdi] = useState(false);
   const [cpus, setCpus] = useState(4);
   const [gpus, setGpus] = useState(1);
   const [memory, setMemory] = useState(24);
@@ -547,6 +548,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     if (gpus <= 0) return '';
     if (containerRuntime === 'podman') return '--device nvidia.com/gpu=all ';
     if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') return '--nv ';
+    if (dockerUseCdi) return '--device nvidia.com/gpu=all ';
     return '--gpus=all ';
   };
 
@@ -1858,6 +1860,30 @@ spec:
                       <p className="text-xs text-gray-500 mt-1">
                         {gpus > 0 ? `Requires NVIDIA ${containerRuntime === 'docker' ? 'Docker runtime' : containerRuntime === 'podman' ? 'container toolkit' : `drivers (--nv flag)`}` : 'CPU-only mode, no GPU access'}
                       </p>
+                      {gpus > 0 && containerRuntime === 'docker' && (
+                        <div className="flex items-start gap-1 mt-2">
+                          <label className="flex items-start cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={dockerUseCdi}
+                              onChange={(e) => setDockerUseCdi(e.target.checked)}
+                              className="mt-0.5 w-4 h-4 text-blue-600 border-gray-300 rounded"
+                            />
+                            <span className="ml-2 text-xs text-gray-600">
+                              Use CDI (<code className="font-mono">--device nvidia.com/gpu=all</code>) instead of <code className="font-mono">--gpus=all</code>
+                            </span>
+                          </label>
+                          <InfoPopover label="CDI info">
+                            <strong>Only tick this if you already use CDI.</strong> <code>--gpus=all</code> is the default because it works on any host with the NVIDIA Container Toolkit installed. CDI needs two more things that installing the toolkit does not give you:
+                            <br />
+                            1. A <strong>CDI spec on the host</strong>. Toolkit 1.18+ writes <code>/var/run/cdi/nvidia.yaml</code> automatically; otherwise run <code>sudo nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml</code>. Check with <code>nvidia-ctk cdi list</code>.
+                            <br />
+                            2. <strong>CDI enabled in Docker</strong>. On by default from Docker Engine 28.3.0; on older versions add <code>{'"features": { "cdi": true }'}</code> to <code>/etc/docker/daemon.json</code>. Check with <code>docker info</code>.
+                            <br />
+                            Without both, the container fails to start. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">CDI support guide</a>.
+                          </InfoPopover>
+                        </div>
+                      )}
                     </div>
 
                     <div>
