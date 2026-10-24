@@ -333,12 +333,45 @@ const DTYPE_ITEMSIZE: Record<string, number> = {
  * offered in the picker and then refused on the first annotation.
  */
 export function dtypeItemsize(dtype: string | null | undefined): number {
+  return DTYPE_ITEMSIZE[dtypeSuffix(dtype)] || 0;
+}
+
+/** Both dtype spellings reduced to their kind-and-width suffix, e.g. `"u2"`. */
+function dtypeSuffix(dtype: string | null | undefined): string {
   const raw = (dtype || '').toLowerCase().replace(/^[<>|=]/, '');
-  if (raw === 'bool') return 1;
+  if (raw === 'bool') return 'b1';
   const named = raw.match(/^(u?int|float)(\d+)$/);
   const kinds: Record<string, string> = { int: 'i', uint: 'u', float: 'f' };
-  const suffix = named ? `${kinds[named[1]]}${Number(named[2]) / 8}` : raw;
-  return DTYPE_ITEMSIZE[suffix] || 0;
+  return named ? `${kinds[named[1]]}${Number(named[2]) / 8}` : raw;
+}
+
+/** How each dtype is said out loud, in the ImageJ idiom a biologist reads. */
+const DTYPE_LABEL: Record<string, string> = {
+  b1: 'binary',
+  u1: '8-bit', i1: '8-bit signed',
+  u2: '16-bit', i2: '16-bit signed',
+  u4: '32-bit', i4: '32-bit signed',
+  u8: '64-bit', i8: '64-bit signed',
+  f2: '16-bit float', f4: '32-bit float', f8: '64-bit float',
+};
+
+/**
+ * A dtype as a phrase to show a user, e.g. `"<u2"` and `"uint16"` both as
+ * `"16-bit"`.
+ *
+ * Neither spelling the stores use is meant for human eyes: `"<u2"` is numpy's
+ * little-endian-unsigned-2-byte notation, which says nothing to a microscopist
+ * reading "271 x 275 pixels, 3 levels, <u2". Unsigned is the unmarked case
+ * here because it is what imaging data almost always is, matching how ImageJ
+ * names the same thing.
+ *
+ * Anything unrecognised is returned as it arrived rather than dropped: a store
+ * with an exotic dtype should still show *something*, and a blank where the
+ * depth belongs would read as a bug.
+ */
+export function describeDtype(dtype: string | null | undefined): string {
+  const raw = (dtype || '').trim();
+  return DTYPE_LABEL[dtypeSuffix(raw)] || raw;
 }
 
 /**

@@ -12,6 +12,7 @@
 import {
   axisRoles,
   chunkToBands,
+  describeDtype,
   dtypeItemsize,
   levelDims,
   materialiseBytes,
@@ -400,6 +401,37 @@ describe('dtypeItemsize', () => {
     expect(dtypeItemsize('')).toBe(0);
     expect(dtypeItemsize(null)).toBe(0);
     expect(dtypeItemsize(undefined)).toBe(0);
+  });
+});
+
+describe('describeDtype', () => {
+  it('says both spellings of the same depth the same way', () => {
+    expect(describeDtype('<u2')).toBe('16-bit');
+    expect(describeDtype('uint16')).toBe('16-bit');
+    expect(describeDtype('>u2')).toBe('16-bit');
+    expect(describeDtype('|u1')).toBe('8-bit');
+    expect(describeDtype('uint8')).toBe('8-bit');
+  });
+
+  it('marks signed and floating point, because unsigned is the unmarked case', () => {
+    expect(describeDtype('<i2')).toBe('16-bit signed');
+    expect(describeDtype('int16')).toBe('16-bit signed');
+    expect(describeDtype('<f4')).toBe('32-bit float');
+    expect(describeDtype('float32')).toBe('32-bit float');
+    expect(describeDtype('bool')).toBe('binary');
+  });
+
+  it('passes an unrecognised dtype through rather than blanking it', () => {
+    // A blank where the bit depth belongs would read as a bug. Showing the
+    // raw spelling is ugly but honest.
+    expect(describeDtype('complex64')).toBe('complex64');
+    expect(describeDtype('<c8')).toBe('<c8');
+  });
+
+  it('renders nothing for no dtype at all', () => {
+    expect(describeDtype('')).toBe('');
+    expect(describeDtype(null)).toBe('');
+    expect(describeDtype(undefined)).toBe('');
   });
 });
 

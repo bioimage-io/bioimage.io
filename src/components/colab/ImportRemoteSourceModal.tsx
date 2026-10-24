@@ -18,7 +18,7 @@ import {
   importNgffImage,
   probeNgffSource,
 } from './brokerApi';
-import { materialiseBytes } from './ngffLayout';
+import { describeDtype, materialiseBytes } from './ngffLayout';
 import { openImageSource } from './imageSource';
 import type { ImageSourceHandle } from './imageSource';
 
@@ -413,7 +413,7 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
                 <div className="min-w-0">
                   <p className="text-sm text-gray-800 font-medium tabular-nums">
                     {probe.width} x {probe.height} pixels, {probe.levels}{' '}
-                    {probe.levels === 1 ? 'level' : 'levels'}, {probe.dtype}
+                    {probe.levels === 1 ? 'level' : 'levels'}, {describeDtype(probe.dtype)}
                   </p>
                   <p className="text-xs text-gray-500 truncate">
                     {probe.channels.length > 0
