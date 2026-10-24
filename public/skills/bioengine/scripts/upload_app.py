@@ -109,15 +109,19 @@ async def main() -> None:
         # The pre-releases are the newest versions here, so nothing follows
         # them to shift — and going newest-first keeps that true for each one
         # in turn, which is also what worker.delete_app_version now enforces.
-        # Prefer the worker API — it only permits versions tagged '…dev…' — and
-        # fall back to the artifact manager for workers that predate it.
+        # Prefer the worker API — it only permits versions tagged '…dev…'. Decide
+        # up front whether this worker has it; workers before 0.16.53 do not.
+        # Catching the call instead would also catch the guard's refusal and fall
+        # through to the unguarded artifact-manager delete, performing exactly the
+        # corrupting delete the guard exists to prevent, and printing success.
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
+        delete_version = getattr(worker, "delete_app_version", None)
         am = None
         for v in reversed([v for v in existing if dev_re.match(v)]):
             try:
-                try:
-                    await worker.delete_app_version(artifact_id=artifact_id, version=v)
-                except Exception:
+                if delete_version is not None:
+                    await delete_version(artifact_id=artifact_id, version=v)
+                else:
                     if am is None:
                         am = await server.get_service("public/artifact-manager")
                     await am.delete(artifact_id=artifact_id, version=v)
