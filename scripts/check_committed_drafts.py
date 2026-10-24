@@ -1,30 +1,48 @@
 #!/usr/bin/env python3
-"""Detect wrongly committed models in the bioimage.io zoo.
+"""Detect wrongly committed artifacts in the bioimage.io zoo.
 
     python scripts/check_committed_drafts.py            # normal daily run
     python scripts/check_committed_drafts.py --dry-run  # report, file nothing
 
-A model that is not published must be a versionless staged artifact: that is the
-only thing keeping it out of the public collection index, because the backoffice
-indexer never reads the manifest's `status` field. If such a model gains a
+An artifact that is not published must be a versionless staged artifact: that is
+the only thing keeping it out of the public collection index, because the
+backoffice indexer never reads the manifest's `status` field. If it gains a
 committed version anyway, it leaks into the index and the nightly collection CI,
 and (as with chatty-koala on 2026-10-05, committed by a collection-wide
-permission sweep) can break the whole "check compatibility" run.
+permission sweep) can break the whole "check compatibility" run. The commonest
+route in is an owner committing their own artifact programmatically instead of
+waiting for a reviewer to accept it on the website.
 
-This check lists the committed children of `bioimage-io/bioimage.io` and flags
-every model whose manifest status is not `published` — including a missing
-status, which no committed model should have. New offenders are filed as ONE
-svamp issue per run (a sweep accident produces many at once; one issue per model
-would be noise).
+## What counts as an offender
 
-Dedup guard: `.svamp/committed-draft-check-state.json` records each offender and
-its version signature. An unchanged offender is not re-filed; an offender that
-got fixed is dropped from the state so a recurrence fires again.
+This check lists the committed children of `bioimage-io/bioimage.io` and flags:
+
+  * any artifact, of any type, whose manifest status is PRESENT and is not
+    `published` — i.e. `draft`, `in-review`, `in-revision`, the legacy
+    `deletion-requested`, or anything outside the vocabulary; and
+  * any committed MODEL carrying no status at all, because every model that
+    reaches the committed listing has been through the review workflow and
+    should have been stamped by it.
+
+A missing status on a non-model is NOT an offender. That asymmetry is measured,
+not stylistic: on 2026-10-24 the 287 committed children were 167 models (all
+`published`), 4 datasets `published`, and 116 artifacts with no status field at
+all (65 applications, 46 datasets, 4 notebooks, 1 tracking). Those 116 predate
+the status field, `migrate_status_vocabulary.py` documents a missing status as
+legacy and grid-equivalent to published, and flagging them would bury every real
+finding under 116 false positives on the first run.
+
+New offenders are filed as ONE myco issue per run, plus a notification: a sweep
+accident produces many at once and one issue per artifact would be noise.
+
+Dedup guard: `.mycolab/committed-draft-check-state.json` records each offender
+and its version signature. An unchanged offender is not re-filed; an offender
+that got fixed is dropped from the state so a recurrence fires again.
 
 Recovery recipe (what fixed the 2026-10-05 incident): back up the artifact
 record, `delete(artifact_id, version=...)` for each wrongly committed version
 (workspace-owner token required), then `edit(artifact_id, stage=True)` to put
-the model back into the reviewers' staged listing. Staged files survive the
+the artifact back into the reviewers' staged listing. Staged files survive the
 version deletion.
 
 Like sweep_reports.py this uses only the standard library so the bare system
@@ -33,16 +51,22 @@ python can run it from the scheduled workflow, and it needs BIOIMAGE_IO_TOKEN.
 import argparse
 import json
 import os
-import subprocess
 import sys
 import urllib.error
 import urllib.request
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _myco_backlog  # noqa: E402  (path shim above must run first)
+
 AM = "https://hypha.aicell.io/public/services/artifact-manager"
 COLLECTION_ID = "bioimage-io/bioimage.io"
 REPO_ROOT = Path(__file__).resolve().parent.parent
-STATE = REPO_ROOT / ".svamp" / "committed-draft-check-state.json"
+STATE = REPO_ROOT / ".mycolab" / "committed-draft-check-state.json"
+# Where the state lived before the 2026-10-24 move from svamp to myco. Read once
+# if the new path is absent, so the move does not re-file every known offender.
+LEGACY_STATE = REPO_ROOT / ".svamp" / "committed-draft-check-state.json"
+PUBLISHED = "published"
 
 
 def token() -> str:
@@ -78,17 +102,30 @@ def list_committed() -> list:
             return items
 
 
+def status_of(item: dict) -> str:
+    return ((item.get("manifest") or {}).get("status") or "").strip()
+
+
+def is_offender(item: dict) -> bool:
+    """See the module docstring. Present-and-not-published, any type; plus a
+    model with no status at all."""
+    status = status_of(item)
+    if status:
+        return status != PUBLISHED
+    return item.get("type") == "model"
+
+
 def signature(item: dict) -> str:
     versions = ",".join(v.get("version") or "?" for v in item.get("versions") or [])
-    status = (item.get("manifest") or {}).get("status") or "(missing)"
-    return f"{status}@{versions}"
+    return f"{status_of(item) or '(missing)'}@{versions}"
 
 
 def read_state() -> dict:
-    if not STATE.exists():
+    path = STATE if STATE.exists() else LEGACY_STATE
+    if not path.exists():
         return {}
     try:
-        return json.loads(STATE.read_text())
+        return json.loads(path.read_text())
     except (ValueError, json.JSONDecodeError):
         return {}
 
@@ -101,31 +138,43 @@ def write_state(state: dict) -> None:
 def file_issue(offenders: list) -> bool:
     lines = []
     for item in offenders:
-        status = (item.get("manifest") or {}).get("status") or "(missing)"
+        status = status_of(item) or "(missing)"
         versions = ", ".join(v.get("version") or "?" for v in item.get("versions") or [])
-        lines.append(f"    {item['id']}    status={status}    committed versions: {versions}")
+        kind = item.get("type") or "?"
+        lines.append(f"    {item['id']}    type={kind}    status={status}    "
+                     f"committed versions: {versions}")
     listing = "\n".join(lines)
-    plural = "models" if len(offenders) > 1 else "model"
-    title = f"Wrongly committed {plural} in the zoo: {len(offenders)} unpublished with committed versions"
+    plural = "artifacts" if len(offenders) > 1 else "artifact"
+    title = (f"Wrongly committed {plural} in the zoo: {len(offenders)} unpublished "
+             "with committed versions")
     body = f"""The daily sweep found {plural} in the bioimage.io collection that are not published but have
-committed Hypha versions. An unpublished model must stay a versionless staged artifact; a committed
-version leaks it into the public collection index and the nightly collection CI (the indexer never
-reads the manifest status). Exactly this broke the "check compatibility" run after the 2026-10-05
-permission-sweep incident.
+committed Hypha versions. An unpublished artifact must stay a versionless staged artifact; a
+committed version leaks it into the public collection index and the nightly collection CI (the
+indexer never reads the manifest status). Exactly this broke the "check compatibility" run after
+the 2026-10-05 permission-sweep incident.
+
+The usual cause is the artifact's owner committing it programmatically instead of waiting for a
+reviewer to accept it on the website, so check who committed before assuming a sweep did it.
 
 {listing}
+
+A `status` of `(missing)` above is only ever reported for a model. Applications, datasets and
+notebooks predating the status field are legacy and are deliberately not flagged.
 
 Recovery recipe (used for chatty-koala and the six other drafts on 2026-10-08/09, see memory
 project_oct5_bulk_commit_sweep):
 
 1. Back up the artifact record and file list.
 2. With the workspace-owner token: `delete(artifact_id, version=<v>)` for each committed version.
-3. `edit(artifact_id, stage=True)` to put the model back into the reviewers' staged listing.
-4. Verify the model left the committed listing and its staged files are intact
+3. `edit(artifact_id, stage=True)` to put the artifact back into the reviewers' staged listing.
+4. Verify it left the committed listing and its staged files are intact
    (`list_files(version="stage")`). Staged files survive the version deletion.
 
-If a model here was published on purpose, fix its manifest status to `published` instead and this
-check stops flagging it.
+Deleting a version is destructive and not reversible from here, so get Nils's approval before
+step 2 unless the artifact is a known-bad duplicate.
+
+If an artifact here was published on purpose, fix its manifest status to `published` instead and
+this check stops flagging it.
 """
     # The verify gate for closing the issue: the check itself reports a clean
     # collection. Reads the token the same way the scheduled workflow does, so
@@ -134,16 +183,24 @@ check stops flagging it.
         'BIOIMAGE_IO_TOKEN="$(grep -m1 ^BIOIMAGE_IO_TOKEN= '
         "/data/nmechtel/bioengine/.env | cut -d= -f2-)\" "
         "/usr/bin/python3 scripts/check_committed_drafts.py --dry-run "
-        "| grep -q ' 0 unpublished model'"
+        "| grep -q ' 0 unpublished artifact'"
     )
-    result = subprocess.run(
-        ["svamp", "issue", "add", title, "--body", body, "--verify-cmd", verify_cmd],
-        capture_output=True, text=True,
+    filed = _myco_backlog.file_issue(
+        title, body,
+        labels=("collection", "reports", "automation"),
+        verify_cmd=verify_cmd,
     )
-    if result.returncode != 0:
-        print(f"  FAILED to file issue: {result.stderr.strip()[:200]}")
+    if not filed:
         return False
-    print(f"  filed -> {result.stdout.strip()}")
+    print(f"  filed -> {filed}")
+    ids = ", ".join(it["id"].split("/")[-1] for it in offenders[:5])
+    if len(offenders) > 5:
+        ids += f", and {len(offenders) - 5} more"
+    _myco_backlog.notify(
+        f"Zoo sweep: {len(offenders)} unpublished {plural} have committed versions ({ids}). "
+        "Filed as a myco issue; deleting a committed version needs your approval.",
+        level="warning",
+    )
     return True
 
 
@@ -153,12 +210,9 @@ def main() -> None:
     args = parser.parse_args()
 
     items = list_committed()
-    offenders = [
-        it for it in items
-        if it.get("type") == "model"
-        and (it.get("manifest") or {}).get("status") != "published"
-    ]
-    print(f"{len(items)} committed children, {len(offenders)} unpublished model(s) among them")
+    offenders = [it for it in items if is_offender(it)]
+    print(f"{len(items)} committed children, "
+          f"{len(offenders)} unpublished artifact(s) among them")
 
     state = read_state()
     current = {it["id"]: signature(it) for it in offenders}
