@@ -358,7 +358,7 @@ async def measure(self) -> dict:
     return {"peak_mb": round(torch.cuda.max_memory_allocated() / 2**20)}
 ```
 
-Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle GPU), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
+Deploy once with `gpu_memory_mb=-1` (whole device, schedulable on an idle GPU — but **not** on a VRAM-packing cluster that already has a replica resident; see [references/hpc_apps.md](references/hpc_apps.md#gpu-sizing-on-an-elastic-cluster)), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
 
 **It is a scheduling reservation, not a cap.** Nothing enforces it at runtime. A replica declaring `gpu_memory_mb=8192` was observed allocating **12 GiB** and continuing to run. So the number does not protect you from your own OOM, and it does not protect co-tenants from you either. Two consequences: your headroom estimate has to be right, because the runtime will not clip you at the boundary, and a card that looks half-free by reservation can be full in fact.
 
@@ -370,6 +370,8 @@ Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle
 | VRAM | stays `DEPLOYING` indefinitely — measured at **10.8 minutes** before it was killed by hand |
 
 Ray has nothing to schedule the replica onto, so it queues forever rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm) and treat "still `DEPLOYING` at the deadline" as the diagnosis *over-requested VRAM*, not as slowness. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
+
+**On a SLURM worker this diagnosis is invalid** — pending is the designed cold-start path there, and the wait includes the site's own queue. Read [references/hpc_apps.md](references/hpc_apps.md#2-a-deploy-is-a-queue-submission-so-still-deploying-is-not-a-diagnosis) before putting a deadline on anything.
 
 **The insufficient-resources error does not name the resource that was short.** It prints the whole request dict and leaves you to compare it against the cluster yourself. Change one resource at a time when you are converging on a working set, or you will not know which one moved.
 
@@ -400,6 +402,12 @@ And do not use GPU utilisation to answer this. NVML averages over roughly a **1 
 **Stopping an app does not free its GPU immediately.** `bioengine apps stop` returns before the resources are back: a redeploy issued 5 seconds later failed with `Insufficient resources`. Poll `bioengine cluster status` until the VRAM is actually released rather than sleeping a fixed amount.
 
 For VRAM sizing procedure, release-between-calls patterns and per-strategy examples, **load [references/model_serving.md](references/model_serving.md#gpu-allocation-strategies)**.
+
+### Apps on an HPC (SLURM) worker
+
+If the worker you are targeting runs `--mode slurm`, four things change for your app, and two pieces of advice above become wrong. **Load [references/hpc_apps.md](references/hpc_apps.md) before you write the app**, not after it fails.
+
+The short version: every Ray worker node is an `sbatch` job with a wall clock (default `4:00:00`), so **any unit of work that can outlive it must checkpoint and resume**; a deploy may wait in the site's SLURM queue, so "still `DEPLOYING`" is not a diagnosis; a live replica holds its node (and its allocation charge) until that wall clock, so do not park idle replicas on a shared cluster; and cross-replica coordination must go through the shared workspace directory, whose shared-ness an app currently cannot detect at runtime.
 
 ### Composition apps and frontends
 
@@ -849,6 +857,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
 | [references/model_serving.md](references/model_serving.md) | GPU VRAM sizing, multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
+| [references/hpc_apps.md](references/hpc_apps.md) | Writing an app for a SLURM worker: wall clocks, queue-time cold starts, node pinning, VRAM packing (Task 2) |
 | [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive, IDR / OMERO, and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |
