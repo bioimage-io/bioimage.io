@@ -6,9 +6,20 @@ import { createPortal } from 'react-dom';
  *  fixed` coordinates resolve against the real viewport, not an ancestor
  *  with a `backdrop-filter`/`filter`/`transform` that would otherwise create
  *  its own containing block. */
+const PANEL_WIDTH = 288;
+/** Gap between the trigger and the panel, and between the panel and the
+ *  viewport edge. */
+const GAP = 6;
+const EDGE = 8;
+/** Below this much room, opening downwards is not worth it even if the panel
+ *  would technically fit after being clamped and scrolled. */
+const MIN_ROOM = 160;
+
+type Placement = { left: number; top?: number; bottom?: number; maxHeight: number };
+
 const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ label, children }) => {
   const [open, setOpen] = useState(false);
-  const [position, setPosition] = useState({ top: 0, left: 0 });
+  const [placement, setPlacement] = useState<Placement>({ left: 0, top: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
 
   useEffect(() => {
@@ -16,16 +27,34 @@ const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ l
     const onKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') setOpen(false);
     };
+    // The panel is `position: fixed` and anchored to where the trigger was, so
+    // once the page moves underneath it the two come apart. Closing is both
+    // cheaper and less surprising than chasing the trigger.
+    const close = () => setOpen(false);
     window.addEventListener('keydown', onKeyDown);
-    return () => window.removeEventListener('keydown', onKeyDown);
+    window.addEventListener('scroll', close, true);
+    window.addEventListener('resize', close);
+    return () => {
+      window.removeEventListener('keydown', onKeyDown);
+      window.removeEventListener('scroll', close, true);
+      window.removeEventListener('resize', close);
+    };
   }, [open]);
 
   const togglePopover = () => {
     if (!open && triggerRef.current) {
       const rect = triggerRef.current.getBoundingClientRect();
-      const panelWidth = 288;
-      const left = Math.min(rect.left, window.innerWidth - panelWidth - 8);
-      setPosition({ top: rect.bottom + 6, left: Math.max(left, 8) });
+      const left = Math.max(Math.min(rect.left, window.innerWidth - PANEL_WIDTH - EDGE), EDGE);
+      const roomBelow = window.innerHeight - rect.bottom - GAP - EDGE;
+      const roomAbove = rect.top - GAP - EDGE;
+      // Open downwards by default, but flip above the trigger when the content
+      // would otherwise run off the bottom. A fixed panel cannot be scrolled
+      // into view, so anything past the fold is simply unreachable.
+      if (roomBelow < MIN_ROOM && roomAbove > roomBelow) {
+        setPlacement({ left, bottom: window.innerHeight - rect.top + GAP, maxHeight: roomAbove });
+      } else {
+        setPlacement({ left, top: rect.bottom + GAP, maxHeight: roomBelow });
+      }
     }
     setOpen(!open);
   };
@@ -47,7 +76,16 @@ const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ l
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
           <div
-            style={{ position: 'fixed', top: position.top, left: position.left, zIndex: 999, width: '288px' }}
+            style={{
+              position: 'fixed',
+              top: placement.top,
+              bottom: placement.bottom,
+              left: placement.left,
+              zIndex: 999,
+              width: `${PANEL_WIDTH}px`,
+              maxHeight: placement.maxHeight,
+              overflowY: 'auto',
+            }}
             className="bg-white rounded-lg shadow-lg border border-gray-200 p-3 text-xs text-gray-700"
           >
             {children}
