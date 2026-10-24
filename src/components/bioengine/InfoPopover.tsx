@@ -21,6 +21,7 @@ const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ l
   const [open, setOpen] = useState(false);
   const [placement, setPlacement] = useState<Placement>({ left: 0, top: 0, maxHeight: 0 });
   const triggerRef = useRef<HTMLButtonElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
@@ -30,14 +31,24 @@ const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ l
     // The panel is `position: fixed` and anchored to where the trigger was, so
     // once the page moves underneath it the two come apart. Closing is both
     // cheaper and less surprising than chasing the trigger.
-    const close = () => setOpen(false);
+    //
+    // Capture is required to see scrolls from nested scroll containers (scroll
+    // does not bubble), but that also catches the panel scrolling ITSELF once
+    // its content is clamped. Closing on that would put the clamped text out
+    // of reach, which is the very thing the clamp exists to prevent.
+    const onScroll = (e: Event) => {
+      const target = e.target as Node | null;
+      if (panelRef.current && target && panelRef.current.contains(target)) return;
+      setOpen(false);
+    };
+    const onResize = () => setOpen(false);
     window.addEventListener('keydown', onKeyDown);
-    window.addEventListener('scroll', close, true);
-    window.addEventListener('resize', close);
+    window.addEventListener('scroll', onScroll, true);
+    window.addEventListener('resize', onResize);
     return () => {
       window.removeEventListener('keydown', onKeyDown);
-      window.removeEventListener('scroll', close, true);
-      window.removeEventListener('resize', close);
+      window.removeEventListener('scroll', onScroll, true);
+      window.removeEventListener('resize', onResize);
     };
   }, [open]);
 
@@ -76,6 +87,7 @@ const InfoPopover: React.FC<{ label: string; children: React.ReactNode }> = ({ l
         <>
           <div onClick={() => setOpen(false)} style={{ position: 'fixed', inset: 0, zIndex: 998 }} />
           <div
+            ref={panelRef}
             style={{
               position: 'fixed',
               top: placement.top,
