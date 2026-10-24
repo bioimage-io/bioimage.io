@@ -19,9 +19,13 @@ import {
   getEmbeddingUrls as brokerGetEmbeddingUrls,
   removeEmbedding as brokerRemoveEmbedding,
   requestAccess as brokerRequestAccess,
+  MaterialiseResult,
+  startMaterialiseImage as brokerStartMaterialise,
+  finishMaterialiseImage as brokerFinishMaterialise,
   withRetry,
 } from '../../colab/brokerApi';
 import { toArtifactId } from '../../colab/datasetApi';
+import { openImageSource } from '../../colab/imageSource';
 
 export interface AnnotationServiceConfig {
   artifactId: string;
@@ -122,6 +126,16 @@ export interface AnnotationDataService {
    *  what lets an `&image=<stem>` deep link render before the index or the
    *  role check resolves. */
   getImageUrl: (imageStem: string) => Promise<BrokerImageUrl>;
+  /** Claim the right to write an OME-TIFF copy of a remote image, and get the
+   *  presigned PUT url to write it to (broker v0.11.0). Resolves with
+   *  `already: true` when someone else already materialised it, and rejects
+   *  when the source is too large or too wide for the profile. Deliberately
+   *  not retried: it opens a stage on the artifact, so a retry of a call that
+   *  actually succeeded would mint a second url for the same path. */
+  startMaterialiseImage: (imageStem: string) => Promise<MaterialiseResult>;
+  /** Flip the manifest entry from `remote` to `local` once the copy is up. The
+   *  broker re-reads the object before it believes this. */
+  finishMaterialiseImage: (imageStem: string, levels: number) => Promise<{ already: boolean }>;
   /** The caller's own latest annotation for one image under this session's
    *  label (broker v0.5.0), replacing the presigned urls `getDatasetIndex`
    *  used to embed in `my_annotations`. */
@@ -356,55 +370,67 @@ async function runCellposeInfer(
  *  embedding quality, not correctness. */
 const MICRO_SAM_MAX_DIM = 1024;
 
-function getImagePixelsCHW(
+/** Open a dataset image URL for pixel extraction, normalising the failure
+ *  message the AI call sites have always reported. */
+async function openForPixels(imageUrl: string) {
+  try {
+    return await openImageSource(imageUrl);
+  } catch {
+    throw new Error('Failed to load image for pixel extraction');
+  }
+}
+
+async function getImagePixelsCHW(
   imageUrl: string,
   width: number,
   height: number,
   maxDim: number = CELLPOSE_MAX_DIM,
   diameter?: number | null,
 ): Promise<{ chw: Uint8Array; scaledW: number; scaledH: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      // Cellpose convention: the network expects objects ~30 px across, so a
-      // known diameter drives the rescale (can upsample small-object images,
-      // unlike the plain downsample-only default below). Still capped by
-      // maxDim so a small diameter on a large image can't blow up inference
-      // time/memory; when uncapped this can undersize objects relative to
-      // the 30 px target, trading fidelity for a bounded round-trip.
-      const capScale = maxDim / Math.max(width, height);
-      const preferredScale = diameter && diameter > 0
-        ? Math.min(30 / diameter, capScale)
-        : Math.min(1, capScale);
-      // The served model rejects inputs below CELLPOSE_MIN_DIM on either
-      // axis, so the floor wins over both the soft cap and the diameter
-      // rescale (also upsamples natively-small images to the minimum).
-      const floorScale = CELLPOSE_MIN_DIM / Math.min(width, height);
-      const scale = Math.max(preferredScale, floorScale);
-      const scaledW = Math.max(Math.round(width * scale), width <= height ? CELLPOSE_MIN_DIM : 0);
-      const scaledH = Math.max(Math.round(height * scale), height <= width ? CELLPOSE_MIN_DIM : 0);
+  const source = await openForPixels(imageUrl);
+  try {
+    // Cellpose convention: the network expects objects ~30 px across, so a
+    // known diameter drives the rescale (can upsample small-object images,
+    // unlike the plain downsample-only default below). Still capped by
+    // maxDim so a small diameter on a large image can't blow up inference
+    // time/memory; when uncapped this can undersize objects relative to
+    // the 30 px target, trading fidelity for a bounded round-trip.
+    const capScale = maxDim / Math.max(width, height);
+    const preferredScale = diameter && diameter > 0
+      ? Math.min(30 / diameter, capScale)
+      : Math.min(1, capScale);
+    // The served model rejects inputs below CELLPOSE_MIN_DIM on either
+    // axis, so the floor wins over both the soft cap and the diameter
+    // rescale (also upsamples natively-small images to the minimum).
+    const floorScale = CELLPOSE_MIN_DIM / Math.min(width, height);
+    const scale = Math.max(preferredScale, floorScale);
+    const scaledW = Math.max(Math.round(width * scale), width <= height ? CELLPOSE_MIN_DIM : 0);
+    const scaledH = Math.max(Math.round(height * scale), height <= width ? CELLPOSE_MIN_DIM : 0);
 
-      const canvas = document.createElement('canvas');
-      canvas.width = scaledW;
-      canvas.height = scaledH;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, scaledW, scaledH);
-      const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
-      const rgba = imageData.data;
-      const numPixels = scaledW * scaledH;
-      // Convert RGBA (HWC interleaved) to CHW planar: [R plane, G plane, B plane]
-      const chw = new Uint8Array(numPixels * 3);
-      for (let i = 0; i < numPixels; i++) {
-        chw[i] = rgba[i * 4];                    // R plane
-        chw[numPixels + i] = rgba[i * 4 + 1];    // G plane
-        chw[numPixels * 2 + i] = rgba[i * 4 + 2]; // B plane
-      }
-      resolve({ chw, scaledW, scaledH });
-    };
-    img.onerror = () => reject(new Error('Failed to load image for pixel extraction'));
-    img.src = imageUrl;
-  });
+    // Decode only the pyramid level this target actually needs. For a
+    // single-level source (PNG today) that is level 0 and nothing changes;
+    // for a pyramid it is the whole point (design F4).
+    const drawable = await source.getDrawable(source.levelForLongAxis(Math.max(scaledW, scaledH)));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledW;
+    canvas.height = scaledH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(drawable, 0, 0, scaledW, scaledH);
+    const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
+    const rgba = imageData.data;
+    const numPixels = scaledW * scaledH;
+    // Convert RGBA (HWC interleaved) to CHW planar: [R plane, G plane, B plane]
+    const chw = new Uint8Array(numPixels * 3);
+    for (let i = 0; i < numPixels; i++) {
+      chw[i] = rgba[i * 4];                    // R plane
+      chw[numPixels + i] = rgba[i * 4 + 1];    // G plane
+      chw[numPixels * 2 + i] = rgba[i * 4 + 2]; // B plane
+    }
+    return { chw, scaledW, scaledH };
+  } finally {
+    source.close();
+  }
 }
 
 /** CellposeDINO's RDF declares y/x axes with min 64, step 8: the served
@@ -419,42 +445,41 @@ const DINO_DIM_STEP = 8;
  *  CellposeDINO. Unlike getImagePixelsCHW (uint8, fixed CELLPOSE_MIN_DIM
  *  floor), the model-runner normalizes server-side and the working
  *  resolution must land on a multiple of DINO_DIM_STEP. */
-function getImagePixelsCHWFloat32(
+async function getImagePixelsCHWFloat32(
   imageUrl: string,
   width: number,
   height: number,
   maxDim: number = CELLPOSE_MAX_DIM,
 ): Promise<{ chw: Float32Array; scaledW: number; scaledH: number }> {
-  return new Promise((resolve, reject) => {
-    const img = new Image();
-    img.crossOrigin = 'anonymous';
-    img.onload = () => {
-      const capScale = Math.min(1, maxDim / Math.max(width, height));
-      const floorScale = DINO_MIN_DIM / Math.min(width, height);
-      const scale = Math.max(capScale, floorScale);
-      const roundToStep = (v: number) => Math.max(DINO_MIN_DIM, Math.round(v / DINO_DIM_STEP) * DINO_DIM_STEP);
-      const scaledW = roundToStep(width * scale);
-      const scaledH = roundToStep(height * scale);
+  const source = await openForPixels(imageUrl);
+  try {
+    const capScale = Math.min(1, maxDim / Math.max(width, height));
+    const floorScale = DINO_MIN_DIM / Math.min(width, height);
+    const scale = Math.max(capScale, floorScale);
+    const roundToStep = (v: number) => Math.max(DINO_MIN_DIM, Math.round(v / DINO_DIM_STEP) * DINO_DIM_STEP);
+    const scaledW = roundToStep(width * scale);
+    const scaledH = roundToStep(height * scale);
 
-      const canvas = document.createElement('canvas');
-      canvas.width = scaledW;
-      canvas.height = scaledH;
-      const ctx = canvas.getContext('2d')!;
-      ctx.drawImage(img, 0, 0, scaledW, scaledH);
-      const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
-      const rgba = imageData.data;
-      const numPixels = scaledW * scaledH;
-      const chw = new Float32Array(numPixels * 3);
-      for (let i = 0; i < numPixels; i++) {
-        chw[i] = rgba[i * 4];
-        chw[numPixels + i] = rgba[i * 4 + 1];
-        chw[numPixels * 2 + i] = rgba[i * 4 + 2];
-      }
-      resolve({ chw, scaledW, scaledH });
-    };
-    img.onerror = () => reject(new Error('Failed to load image for pixel extraction'));
-    img.src = imageUrl;
-  });
+    const drawable = await source.getDrawable(source.levelForLongAxis(Math.max(scaledW, scaledH)));
+
+    const canvas = document.createElement('canvas');
+    canvas.width = scaledW;
+    canvas.height = scaledH;
+    const ctx = canvas.getContext('2d')!;
+    ctx.drawImage(drawable, 0, 0, scaledW, scaledH);
+    const imageData = ctx.getImageData(0, 0, scaledW, scaledH);
+    const rgba = imageData.data;
+    const numPixels = scaledW * scaledH;
+    const chw = new Float32Array(numPixels * 3);
+    for (let i = 0; i < numPixels; i++) {
+      chw[i] = rgba[i * 4];
+      chw[numPixels + i] = rgba[i * 4 + 1];
+      chw[numPixels * 2 + i] = rgba[i * 4 + 2];
+    }
+    return { chw, scaledW, scaledH };
+  } finally {
+    source.close();
+  }
 }
 
 /** Zero out every pixel except those in the largest 8-connected component,
@@ -817,6 +842,10 @@ export function useHyphaService(config: AnnotationServiceConfig | null): {
           getDatasetIndex: async () => withRetry(() => brokerGetDatasetIndex(server, artifactId)),
           getImageUrl: async (imageStem: string) =>
             withRetry(() => brokerGetImageUrl(server, artifactId, imageStem)),
+          startMaterialiseImage: async (imageStem: string) =>
+            brokerStartMaterialise(server, artifactId, imageStem),
+          finishMaterialiseImage: async (imageStem: string, levels: number) =>
+            brokerFinishMaterialise(server, artifactId, imageStem, levels),
           getMyAnnotationUrl: async (imageStem: string) =>
             withRetry(() => brokerGetMyAnnotationUrl(server, artifactId, config.label, imageStem)),
           getSaveUrls: async (imageStem: string) =>
