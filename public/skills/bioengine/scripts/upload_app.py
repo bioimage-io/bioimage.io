@@ -107,12 +107,13 @@ async def main() -> None:
         # re-points every later version at the preceding slot's payload, so
         # deleting afterwards makes the release silently serve the dev bundle.
         # The pre-releases are the newest versions here, so nothing follows
-        # them to shift. Prefer the worker API — worker.delete_app_version only
-        # permits versions tagged '…dev…' — and fall back to the artifact
-        # manager for workers that predate that method.
+        # them to shift — and going newest-first keeps that true for each one
+        # in turn, which is also what worker.delete_app_version now enforces.
+        # Prefer the worker API — it only permits versions tagged '…dev…' — and
+        # fall back to the artifact manager for workers that predate it.
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
         am = None
-        for v in [v for v in existing if dev_re.match(v)]:
+        for v in reversed([v for v in existing if dev_re.match(v)]):
             try:
                 try:
                     await worker.delete_app_version(artifact_id=artifact_id, version=v)

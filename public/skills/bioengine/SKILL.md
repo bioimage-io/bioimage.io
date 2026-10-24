@@ -463,7 +463,7 @@ A committed artifact version is **immutable** and its content is exactly what a 
 
 To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
 
-**Order matters: delete the pre-releases BEFORE uploading the release.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift. The helper does exactly this:
+**Order matters: delete the pre-releases BEFORE uploading the release, and delete them newest-first.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift; within them, working backwards keeps that true for every single delete. `worker.delete_app_version` enforces this from BioEngine 0.16.53 — it refuses any version that has a later committed version, naming the ones at risk. The helper does exactly this:
 
 ```bash
 # iterate — uploads <version>-devN (auto), deploys <app>-dev; test, fix, repeat
@@ -728,7 +728,7 @@ async def main():
 asyncio.run(main())
 PY
 ```
-This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead.
+This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead — it takes only versions tagged `…dev…`, and only the artifact's newest, since deleting any earlier one would corrupt everything committed after it.
 
 > **Verifying deletion.** `delete_app` returns `None` on success — don't treat the return value as confirmation either way. Verify with `bioengine apps list` (artifact should be gone) or `bioengine apps status <id>`. After deletion, `apps status <id>` can report the app as `NOT_RUNNING` rather than an outright "not found" error — treat `NOT_RUNNING` or absence from `apps list` as "gone".
 
