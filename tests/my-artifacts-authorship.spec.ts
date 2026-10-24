@@ -22,9 +22,21 @@ import { BASE_URL } from './baseUrl';
  *   E2E_BASE_URL=http://localhost:3061 npx playwright test tests/my-artifacts-authorship.spec.ts
  */
 
+/**
+ * My Artifacts is a desktop-first page, so every assertion and every screenshot
+ * below is taken at this size. Announced on stdout rather than left implicit:
+ * a run that does not say what viewport it used cannot show the page is
+ * reachable at a human's window size.
+ */
+const VIEWPORT = { width: 1280, height: 900 };
+
+test.beforeAll(() => {
+  console.log(`viewport: ${VIEWPORT.width}x${VIEWPORT.height}`);
+});
+
 test.use({
   baseURL: BASE_URL,
-  viewport: { width: 1280, height: 900 },
+  viewport: VIEWPORT,
   serviceWorkers: 'block',
   launchOptions: { args: ['--disable-gpu'] },
 });
