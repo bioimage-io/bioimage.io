@@ -4,12 +4,17 @@ import './bioengine-landing.css';
 /**
  * The "How BioEngine works" diagram on `/bioengine`.
  *
- * Four columns: the biologist, the clients they work through, the public Hypha
- * server, and the distributed workers. Everything is drawn here in the site's
- * own visual language (thin strokes, rounded rectangles, the blue to purple to
- * cyan accents, gray labels) rather than imported as an image, so it scales,
- * picks up the page font, and stays editable. The one exception is the Hypha
- * mark itself, which is the official artwork served from `public/static/img/`.
+ * The story the picture tells: clients and agents connect to BioEngine, and
+ * BioEngine runs the work on whichever worker fits. So BioEngine is drawn as one
+ * labelled container holding both its communication hub and its workers, and the
+ * client connectors cross into that container to reach the hub.
+ *
+ * Hypha and Ray are peers here, two technologies BioEngine is built on, and both
+ * appear the same way: as a small accent chip on the node that uses them. Neither
+ * gets logo artwork or a headline. Everything is drawn in the site's own visual
+ * language (thin strokes, rounded rectangles, gray labels) rather than imported
+ * as an image, so it scales, picks up the page font, and stays editable. The one
+ * image is the BioEngine giraffe itself, which is the product label.
  *
  * Two renderings, not one. The wide SVG carries real labels at a readable size
  * but only down to about 700px, below which its text would scale to roughly 5px.
@@ -21,16 +26,17 @@ import './bioengine-landing.css';
  * on purpose and is switched off entirely under `prefers-reduced-motion`.
  */
 
-const HYPHA_LOGO = '/static/img/hypha-icon-black.svg';
+const BIOENGINE_ICON = '/static/img/bioengine-icon.svg';
 
 const DIAGRAM_SUMMARY =
-  'A biologist works through AI agents, web clients and desktop clients, which all connect to one public Hypha server hosted at KTH in Stockholm, Sweden. Hypha routes the work to distributed BioEngine workers, each running Ray, on a laptop, a workstation or an institutional cluster managed with Kubernetes or SLURM.';
+  'A biologist works through AI agents, web clients and desktop clients. All of them connect to BioEngine, whose communication hub, built on Hypha, routes every call to one of its distributed workers: a laptop, a workstation or an institutional cluster. Every worker runs Ray, and the cluster adds Kubernetes or SLURM.';
 
 /*
- * Geometry. Every box in the wide rendering derives from these, so the four
- * columns keep an equal 48 unit horizontal gap, the two outer columns keep an
- * equal 28 unit vertical gap, and the biologist, the middle client, Hypha and
- * the middle worker all sit on one midline. Change a constant, not a coordinate.
+ * Geometry. Every box in the wide rendering derives from these, so the client
+ * column keeps an equal 28 unit vertical gap, the BioEngine box keeps an equal
+ * 16 unit padding around what it contains, and the biologist, the middle client,
+ * the hub and the middle worker all sit on one midline. Change a constant, not a
+ * coordinate.
  */
 const MID_Y = 210;
 const BOX_H = 76;
@@ -42,20 +48,37 @@ const BIO_CX = 49;
 const BIO_R = 26;
 const CLIENT_X = 123;
 const CLIENT_W = 164;
-const HYPHA_X = 335;
-const HYPHA_W = 264;
-const HYPHA_H = 124;
-const WORKER_X = 647;
+const CLIENT_RIGHT = CLIENT_X + CLIENT_W;
+
+/** The BioEngine container, and the two things it holds. */
+const GROUP_PAD = 16;
+/** Height of the label band above the contents, enough for the 26 unit giraffe. */
+const GROUP_LABEL_H = 50;
+const GROUP_X = 331;
+const GROUP_Y = ROWS[0] - BOX_H / 2 - GROUP_LABEL_H;
+const GROUP_LABEL_CY = GROUP_Y + GROUP_LABEL_H / 2 - 2;
+
+const HUB_X = GROUP_X + GROUP_PAD;
+const HUB_W = 196;
+const HUB_H = 108;
+const HUB_Y = MID_Y - HUB_H / 2;
+const HUB_RIGHT = HUB_X + HUB_W;
+const HUB_MID_X = HUB_X + HUB_W / 2;
+
+const WORKER_X = 643;
 const WORKER_W = 280;
+const WORKER_MID_X = WORKER_X + WORKER_W / 2;
 
-const HYPHA_MID_X = HYPHA_X + HYPHA_W / 2;
-/** The slate panel sits 12 units outside the worker cards on every side. */
-const PANEL_X = WORKER_X - 12;
-const PANEL_W = WORKER_W + 24;
-const PANEL_Y = ROWS[0] - BOX_H / 2 - 12;
-const PANEL_H = ROWS[2] - ROWS[0] + BOX_H + 24;
+const GROUP_W = WORKER_X + WORKER_W + GROUP_PAD - GROUP_X;
+const GROUP_H = ROWS[2] + BOX_H / 2 + GROUP_PAD - GROUP_Y;
 
-const VIEW_BOX = '0 24 960 356';
+/** Midpoints of the two connector spans, used as the cubic control abscissa. */
+const CLIENT_BEND = (CLIENT_RIGHT + HUB_X) / 2;
+const WORKER_BEND = (HUB_RIGHT + WORKER_X) / 2;
+/** Where the three client lines enter the hub, and leave it for the workers. */
+const HUB_PORTS = [MID_Y - 24, MID_Y, MID_Y + 24];
+
+const VIEW_BOX = '0 10 960 370';
 
 const CLIENTS: { label: string; tone: string }[] = [
   { label: 'AI agents', tone: '#2563eb' },
@@ -74,7 +97,21 @@ const WORKERS: { name: string; chips: string[] }[] = [
 const FLOW = '#94a3b8';
 const FLOW_SOFT = '#cbd5e1';
 
-type GlyphKind = 'biologist' | 'agent' | 'web' | 'desktop' | 'laptop' | 'workstation' | 'cluster';
+/** The one warm accent in a blue, purple and cyan page: the giraffe's orange,
+ *  taken down to a tint that a white card can still sit on. */
+const BE_FILL = '#fff7ed';
+const BE_BORDER = '#fed7aa';
+const BE_TEXT = '#c2410c';
+
+type GlyphKind =
+  | 'biologist'
+  | 'agent'
+  | 'web'
+  | 'desktop'
+  | 'hub'
+  | 'laptop'
+  | 'workstation'
+  | 'cluster';
 
 /* -------------------------------------------------------------------------- */
 /* Wide rendering                                                              */
@@ -124,6 +161,7 @@ const ClientGlyph: React.FC<{ index: number; cy: number; tone: string }> = ({ in
 /** Worker glyph. Each one carries its own vertical offset so that whatever its
  *  natural height, it ends up centred on the row. */
 const WorkerGlyph: React.FC<{ index: number; cy: number }> = ({ index, cy }) => {
+  const x = WORKER_X + 18;
   const stroke = {
     fill: 'none',
     stroke: '#6b7280',
@@ -134,7 +172,7 @@ const WorkerGlyph: React.FC<{ index: number; cy: number }> = ({ index, cy }) => 
 
   if (index === 0) {
     return (
-      <g transform={`translate(665 ${cy - 12})`} {...stroke}>
+      <g transform={`translate(${x} ${cy - 12})`} {...stroke}>
         <rect x="2" y="0" width="28" height="19" rx="2.5" />
         <path d="M0 24h32" />
       </g>
@@ -143,7 +181,7 @@ const WorkerGlyph: React.FC<{ index: number; cy: number }> = ({ index, cy }) => 
 
   if (index === 1) {
     return (
-      <g transform={`translate(665 ${cy - 14})`} {...stroke}>
+      <g transform={`translate(${x} ${cy - 14})`} {...stroke}>
         <rect x="1" y="0" width="30" height="21" rx="2.5" />
         <path d="M12 21v6M20 21v6M8 27h16" />
       </g>
@@ -151,7 +189,7 @@ const WorkerGlyph: React.FC<{ index: number; cy: number }> = ({ index, cy }) => 
   }
 
   return (
-    <g transform={`translate(665 ${cy - 17})`} {...stroke}>
+    <g transform={`translate(${x} ${cy - 17})`} {...stroke}>
       <rect x="1" y="0" width="30" height="14" rx="3" />
       <rect x="1" y="20" width="30" height="14" rx="3" />
       <circle cx="8" cy="7" r="1.6" fill="#6b7280" stroke="none" />
@@ -161,35 +199,50 @@ const WorkerGlyph: React.FC<{ index: number; cy: number }> = ({ index, cy }) => 
   );
 };
 
-/** Rounded pill used for the Ray, Kubernetes and SLURM wordmarks. */
-const CHIP_LAYOUT: Record<string, { x: number; w: number }> = {
-  Ray: { x: 711, w: 48 },
-  Kubernetes: { x: 766, w: 82 },
-  SLURM: { x: 855, w: 60 },
-};
+/** One chassis with three bays. Deliberately a single box, where the cluster
+ *  glyph is two detached ones, so the two never read as the same machine. */
+const HubGlyph: React.FC = () => (
+  <g
+    transform={`translate(${HUB_MID_X - 13} ${HUB_Y + 11})`}
+    fill="none"
+    stroke="#6b7280"
+    strokeWidth="1.8"
+    strokeLinecap="round"
+    strokeLinejoin="round"
+  >
+    <rect x="0" y="0" width="26" height="34" rx="3" />
+    <path d="M0 11.5h26M0 23h26" />
+    <circle cx="5.5" cy="5.8" r="1.5" fill="#6b7280" stroke="none" />
+    <circle cx="5.5" cy="17.3" r="1.5" fill="#6b7280" stroke="none" />
+    <circle cx="5.5" cy="28.8" r="1.5" fill="#6b7280" stroke="none" />
+    <path d="M10.5 5.8h11M10.5 17.3h11M10.5 28.8h11" />
+  </g>
+);
 
-const Chip: React.FC<{ label: string; cy: number }> = ({ label, cy }) => {
-  const { x, w } = CHIP_LAYOUT[label];
-  const ray = label === 'Ray';
+/** Rounded pill for a technology wordmark. Hypha and Ray are what the hub and
+ *  the workers are built on, so both carry the accent, while Kubernetes and
+ *  SLURM, which only describe how a cluster is managed, stay neutral. */
+const Chip: React.FC<{ label: string; x: number; y: number; w: number }> = ({ label, x, y, w }) => {
+  const accent = label === 'Ray' || label === 'Hypha';
   return (
     <g>
       <rect
         x={x}
-        y={cy}
+        y={y}
         width={w}
         height="22"
         rx="11"
-        fill={ray ? '#eff6ff' : '#f1f5f9'}
-        stroke={ray ? '#bfdbfe' : '#e2e8f0'}
+        fill={accent ? '#eff6ff' : '#f1f5f9'}
+        stroke={accent ? '#bfdbfe' : '#e2e8f0'}
         strokeWidth="1.2"
       />
       <text
         x={x + w / 2}
-        y={cy + 15}
+        y={y + 15}
         textAnchor="middle"
         fontSize="12"
         fontWeight="600"
-        fill={ray ? '#1d4ed8' : '#475569'}
+        fill={accent ? '#1d4ed8' : '#475569'}
       >
         {label}
       </text>
@@ -197,14 +250,76 @@ const Chip: React.FC<{ label: string; cy: number }> = ({ label, cy }) => {
   );
 };
 
+/** Worker chip positions, as an offset from the worker card's own left edge. */
+const WORKER_CHIPS: Record<string, { dx: number; w: number }> = {
+  Ray: { dx: 64, w: 48 },
+  Kubernetes: { dx: 119, w: 82 },
+  SLURM: { dx: 208, w: 60 },
+};
+
 const ArchitectureSvg: React.FC = () => (
   <svg viewBox={VIEW_BOX} className="w-full h-auto" role="img" aria-label={DIAGRAM_SUMMARY}>
-    {/* ---- column headings ---- */}
-    <text x={CLIENT_X + CLIENT_W / 2} y="46" textAnchor="middle" fontSize="14" fontWeight="600" fill="#374151">
-      Clients and agents
+    <defs>
+      {/* Lifts the hub off the group fill so it reads as the way in, with the
+          workers sitting flat behind it. */}
+      <filter id="be-hub-lift" x="-20%" y="-20%" width="140%" height="140%">
+        <feDropShadow dx="0" dy="3" stdDeviation="4" floodColor="#9a3412" floodOpacity="0.16" />
+      </filter>
+    </defs>
+
+    {/* ---- the BioEngine container ---- */}
+    <rect
+      x={GROUP_X}
+      y={GROUP_Y}
+      width={GROUP_W}
+      height={GROUP_H}
+      rx="22"
+      fill={BE_FILL}
+      stroke={BE_BORDER}
+      strokeWidth="2"
+    />
+    <image
+      href={BIOENGINE_ICON}
+      x={GROUP_X + 18}
+      y={GROUP_LABEL_CY - 13}
+      width="26"
+      height="26"
+      preserveAspectRatio="xMidYMid meet"
+      aria-hidden="true"
+    />
+    <text
+      x={GROUP_X + 52}
+      y={GROUP_LABEL_CY + 7}
+      fontSize="20"
+      fontWeight="700"
+      letterSpacing="-0.2"
+      fill={BE_TEXT}
+    >
+      BioEngine
     </text>
-    <text x={PANEL_X + PANEL_W / 2} y="46" textAnchor="middle" fontSize="14" fontWeight="600" fill="#374151">
-      Distributed workers
+    {/* Neutral, like the heading on the other side. The warm accent belongs to
+        the container and its product label, and to nothing else. */}
+    <text
+      x={WORKER_MID_X}
+      y={GROUP_LABEL_CY + 5}
+      textAnchor="middle"
+      fontSize="13"
+      fontWeight="600"
+      fill="#4b5563"
+    >
+      Workers
+    </text>
+
+    {/* ---- column heading for the left side ---- */}
+    <text
+      x={CLIENT_X + CLIENT_W / 2}
+      y={GROUP_LABEL_CY + 5}
+      textAnchor="middle"
+      fontSize="14"
+      fontWeight="600"
+      fill="#374151"
+    >
+      Clients and agents
     </text>
 
     {/* ---- biologist ---- */}
@@ -219,10 +334,21 @@ const ArchitectureSvg: React.FC = () => (
     <path d="M75 210H123" fill="none" stroke={FLOW_SOFT} strokeWidth="2" strokeDasharray="4 5" />
     <path d="M68 228C92 252 98 296 123 314" fill="none" stroke={FLOW_SOFT} strokeWidth="2" strokeDasharray="4 5" />
 
-    {/* ---- clients to Hypha ---- */}
-    <path className="be-flow" d="M287 106C311 106 311 190 335 190" fill="none" stroke={FLOW} strokeWidth="2" />
-    <path className="be-flow" d="M287 210H335" fill="none" stroke={FLOW} strokeWidth="2" />
-    <path className="be-flow" d="M287 314C311 314 311 230 335 230" fill="none" stroke={FLOW} strokeWidth="2" />
+    {/* ---- clients into BioEngine, landing on the hub ---- */}
+    {ROWS.map((row, i) => (
+      <path
+        key={`in-${row}`}
+        className="be-flow"
+        d={
+          row === MID_Y
+            ? `M${CLIENT_RIGHT} ${MID_Y}H${HUB_X}`
+            : `M${CLIENT_RIGHT} ${row}C${CLIENT_BEND} ${row} ${CLIENT_BEND} ${HUB_PORTS[i]} ${HUB_X} ${HUB_PORTS[i]}`
+        }
+        fill="none"
+        stroke={FLOW}
+        strokeWidth="2"
+      />
+    ))}
 
     {/* ---- client column ---- */}
     {CLIENTS.map((client, i) => (
@@ -244,35 +370,23 @@ const ArchitectureSvg: React.FC = () => (
       </g>
     ))}
 
-    {/* ---- the public Hypha server ---- */}
-    <rect
-      x={HYPHA_X}
-      y={MID_Y - HYPHA_H / 2}
-      width={HYPHA_W}
-      height={HYPHA_H}
-      rx="18"
-      fill="#ffffff"
-      stroke="#ddd6fe"
-      strokeWidth="2"
-    />
-    <image href={HYPHA_LOGO} x="400" y="170" width="34" height="34" preserveAspectRatio="xMidYMid meet" />
-    <text x="444" y="197" fontSize="28" fontWeight="700" fill="#1f2937">
-      Hypha
-    </text>
-    <text x={HYPHA_MID_X} y="230" textAnchor="middle" fontSize="13" fill="#6b7280">
-      Central and public server
-    </text>
-    <text x={HYPHA_MID_X} y="249" textAnchor="middle" fontSize="13" fill="#6b7280">
-      Hosted at KTH, Stockholm, Sweden
-    </text>
-
-    {/* ---- Hypha to workers ---- */}
-    <path className="be-flow" d="M599 190C623 190 623 106 647 106" fill="none" stroke={FLOW} strokeWidth="2" />
-    <path className="be-flow" d="M599 210H647" fill="none" stroke={FLOW} strokeWidth="2" />
-    <path className="be-flow" d="M599 230C623 230 623 314 647 314" fill="none" stroke={FLOW} strokeWidth="2" />
+    {/* ---- hub out to the workers ---- */}
+    {ROWS.map((row, i) => (
+      <path
+        key={`out-${row}`}
+        className="be-flow"
+        d={
+          row === MID_Y
+            ? `M${HUB_RIGHT} ${MID_Y}H${WORKER_X}`
+            : `M${HUB_RIGHT} ${HUB_PORTS[i]}C${WORKER_BEND} ${HUB_PORTS[i]} ${WORKER_BEND} ${row} ${WORKER_X} ${row}`
+        }
+        fill="none"
+        stroke={FLOW}
+        strokeWidth="2"
+      />
+    ))}
 
     {/* ---- worker column ---- */}
-    <rect x={PANEL_X} y={PANEL_Y} width={PANEL_W} height={PANEL_H} rx="22" fill="#f8fafc" />
     {WORKERS.map((worker, i) => (
       <g key={worker.name}>
         <rect
@@ -286,14 +400,46 @@ const ArchitectureSvg: React.FC = () => (
           strokeWidth="1.5"
         />
         <WorkerGlyph index={i} cy={ROWS[i]} />
-        <text x="711" y={ROWS[i] - 8} fontSize="14" fontWeight="600" fill="#374151">
+        <text x={WORKER_X + 64} y={ROWS[i] - 8} fontSize="14" fontWeight="600" fill="#374151">
           {worker.name}
         </text>
         {worker.chips.map(chip => (
-          <Chip key={chip} label={chip} cy={ROWS[i]} />
+          <Chip
+            key={chip}
+            label={chip}
+            x={WORKER_X + WORKER_CHIPS[chip].dx}
+            y={ROWS[i]}
+            w={WORKER_CHIPS[chip].w}
+          />
         ))}
       </g>
     ))}
+
+    {/* ---- the communication hub, drawn last so it sits over the connectors ---- */}
+    <g filter="url(#be-hub-lift)">
+      <rect
+        x={HUB_X}
+        y={HUB_Y}
+        width={HUB_W}
+        height={HUB_H}
+        rx="16"
+        fill="#ffffff"
+        stroke="#e5e7eb"
+        strokeWidth="1.5"
+      />
+    </g>
+    <HubGlyph />
+    <text
+      x={HUB_MID_X}
+      y={HUB_Y + 66}
+      textAnchor="middle"
+      fontSize="13"
+      fontWeight="600"
+      fill="#374151"
+    >
+      Communication hub
+    </text>
+    <Chip label="Hypha" x={HUB_MID_X - 29} y={HUB_Y + 76} w={58} />
   </svg>
 );
 
@@ -332,6 +478,16 @@ const MiniGlyph: React.FC<{ kind: GlyphKind; className?: string }> = ({ kind, cl
       <>
         <rect x="2.5" y="4" width="19" height="13" rx="2" />
         <path d="M9 17v3M15 17v3M7 20h10" />
+      </>
+    ),
+    hub: (
+      <>
+        <rect x="5" y="2.5" width="14" height="19" rx="2.5" />
+        <path d="M5 9h14M5 15h14" />
+        <circle cx="8" cy="5.8" r="0.9" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="12" r="0.9" fill="currentColor" stroke="none" />
+        <circle cx="8" cy="18.2" r="0.9" fill="currentColor" stroke="none" />
+        <path d="M11 5.8h5M11 12h5M11 18.2h5" />
       </>
     ),
     laptop: (
@@ -387,16 +543,16 @@ const STACK_WORKERS: { kind: GlyphKind; name: string; chips: string[] }[] = [
   { kind: 'cluster', name: 'Institutional cluster', chips: ['Ray', 'Kubernetes', 'SLURM'] },
 ];
 
-const StackLink: React.FC = () => (
-  <svg className="mx-auto my-2.5" width="2" height="30" aria-hidden="true" focusable="false">
-    <line className="be-flow-v" x1="1" y1="0" x2="1" y2="30" stroke={FLOW} strokeWidth="2" />
+const StackLink: React.FC<{ height?: number }> = ({ height = 30 }) => (
+  <svg className="mx-auto my-2.5" width="2" height={height} aria-hidden="true" focusable="false">
+    <line className="be-flow-v" x1="1" y1="0" x2="1" y2={height} stroke={FLOW} strokeWidth="2" />
   </svg>
 );
 
 const StackChip: React.FC<{ label: string }> = ({ label }) => (
   <span
     className={`inline-flex items-center rounded-full border px-2 py-0.5 text-[11px] font-semibold ${
-      label === 'Ray'
+      label === 'Ray' || label === 'Hypha'
         ? 'border-blue-200 bg-blue-50 text-blue-700'
         : 'border-slate-200 bg-slate-100 text-slate-600'
     }`}
@@ -426,35 +582,45 @@ const ArchitectureStack: React.FC = () => (
 
     <StackLink />
 
-    <div className="rounded-2xl border-2 border-violet-200 bg-white px-4 py-4 text-center">
-      <div className="mb-1.5 flex items-center justify-center gap-2">
-        <img src={HYPHA_LOGO} alt="" aria-hidden="true" className="w-7 h-7" />
-        <span className="text-xl font-bold text-gray-800">Hypha</span>
+    {/* Same story as the wide rendering: one BioEngine container holding the hub
+        and the workers it routes to. */}
+    <div className="rounded-2xl border-2 border-orange-200 bg-orange-50/70 p-3">
+      <div className="mb-3 flex items-center gap-2">
+        <img src={BIOENGINE_ICON} alt="" aria-hidden="true" className="w-6 h-6" />
+        <span className="text-base font-bold tracking-tight text-orange-700">BioEngine</span>
       </div>
-      <p className="text-xs text-gray-600">Central and public server</p>
-      <p className="text-xs text-gray-600">Hosted at KTH, Stockholm, Sweden</p>
-    </div>
 
-    <StackLink />
-
-    <SectionLabel>Distributed workers</SectionLabel>
-    <div className="space-y-2 rounded-2xl bg-slate-50 p-2.5">
-      {STACK_WORKERS.map(worker => (
-        <div
-          key={worker.name}
-          className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5"
-        >
-          <MiniGlyph kind={worker.kind} className="text-gray-500" />
-          <div>
-            <p className="text-xs font-semibold text-gray-700">{worker.name}</p>
-            <div className="mt-1 flex flex-wrap gap-1.5">
-              {worker.chips.map(chip => (
-                <StackChip key={chip} label={chip} />
-              ))}
-            </div>
+      <div className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5 shadow">
+        <MiniGlyph kind="hub" className="text-gray-500" />
+        <div>
+          <p className="text-xs font-semibold text-gray-700">Communication hub</p>
+          <div className="mt-1 flex flex-wrap gap-1.5">
+            <StackChip label="Hypha" />
           </div>
         </div>
-      ))}
+      </div>
+
+      <StackLink height={22} />
+
+      <p className="mb-2 text-center text-xs font-semibold text-gray-600">Workers</p>
+      <div className="space-y-2">
+        {STACK_WORKERS.map(worker => (
+          <div
+            key={worker.name}
+            className="flex items-center gap-3 rounded-xl border border-gray-200 bg-white px-3 py-2.5"
+          >
+            <MiniGlyph kind={worker.kind} className="text-gray-500" />
+            <div>
+              <p className="text-xs font-semibold text-gray-700">{worker.name}</p>
+              <div className="mt-1 flex flex-wrap gap-1.5">
+                {worker.chips.map(chip => (
+                  <StackChip key={chip} label={chip} />
+                ))}
+              </div>
+            </div>
+          </div>
+        ))}
+      </div>
     </div>
   </div>
 );
