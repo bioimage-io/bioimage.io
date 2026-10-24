@@ -1834,6 +1834,22 @@ spec:
                         <label className="block text-sm font-medium text-gray-700">GPUs</label>
                         <InfoPopover label="GPU info">
                           <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
+                          {/* Only surfaced for Docker, and only once GPUs are actually
+                              requested. The fault is real but narrow (it needs a worker
+                              up for days), and the fix has a prerequisite a plain
+                              toolkit install does not provide, so it stays behind the
+                              popover instead of changing the generated command. */}
+                          {containerRuntime === 'docker' && gpus > 0 && (
+                            <>
+                              <br /><br />
+                              <strong>Workers that stay up for days:</strong> <code className="font-mono">--gpus=all</code> attaches the GPU after the container is created, so a later cgroup reconcile can drop access while the device files still look present. To pin it at creation time instead, generate a CDI spec on the host:
+                              {/* Its own line, wrapping only at the space: the default
+                                  break-after-hyphen splits `--output` down the middle,
+                                  which is easy to mistype when copying by hand. */}
+                              <code className="font-mono block bg-gray-50 rounded px-2 py-1 my-1">sudo nvidia-ctk cdi generate <span className="whitespace-nowrap">--output=/etc/cdi/nvidia.yaml</span></code>
+                              then swap the flag for <code className="font-mono">--device nvidia.com/gpu=all</code>. Not the default, because installing the toolkit does not write that spec.
+                            </>
+                          )}
                         </InfoPopover>
                       </div>
                       <input type="number" min="0" max="16" value={gpus}
