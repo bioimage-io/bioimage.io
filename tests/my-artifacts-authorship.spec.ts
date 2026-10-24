@@ -470,3 +470,55 @@ test('a nameless session with no uploads of its own sees nothing it should not',
 
   await expect(page.getByText(/Nothing here yet/)).toBeVisible({ timeout: 20000 });
 });
+
+/**
+ * myco issue 0020. The card used to render a hardcoded green "Published" chip
+ * for anything not staged, next to a StatusBadge that reads the `status`
+ * field. On a published artifact the two said the same word twice; on a
+ * committed artifact still marked draft they contradicted each other.
+ *
+ * Three shapes, one of each, all uploaded by the signed-in user so all three
+ * land on the first page.
+ */
+function buildChipCollection() {
+  const base = (alias: string, name: string, status: string | null) => ({
+    id: `bioimage-io/${alias}`,
+    alias,
+    type: 'model',
+    created_by: 'github|stub-someone-else',
+    last_modified: 2_000_000,
+    versions: [{ version: 'v0', comment: '', created_at: 1 }],
+    config: {},
+    _permissions: {},
+    manifest: {
+      name,
+      description: 'Uploaded by the signed-in user.',
+      ...(status ? { status } : {}),
+      uploader: { email: AUTHOR_SESSION.email, name: 'Stub Authorson' },
+    },
+  });
+  return [
+    base('stub-chip-published', 'Chip published model', 'published'),
+    base('stub-chip-legacy', 'Chip legacy model', null),
+    base('stub-chip-draft', 'Chip draft model', 'draft'),
+  ];
+}
+
+test('status chips: never duplicated, never contradictory', async ({ page }) => {
+  await blockExternalNetwork(page);
+  await page.goto('/#/my-artifacts');
+  await waitForStoreSeam(page);
+  await installStub(page, buildChipCollection(), AUTHOR_SESSION);
+
+  await expect(page.getByText('Chip published model')).toBeVisible({ timeout: 20000 });
+  await expect(page.getByText('Chip legacy model')).toBeVisible();
+  await expect(page.getByText('Chip draft model')).toBeVisible();
+
+  // One "Published" for the artifact whose status says so, one for the legacy
+  // artifact that has no status and needs the fallback. NOT two for the first,
+  // and NOT one for the draft. Before the fix this was 4.
+  await expect(page.getByText('Published', { exact: true })).toHaveCount(2);
+
+  // The draft says draft, and says it once.
+  await expect(page.getByText('Draft', { exact: true })).toHaveCount(1);
+});
