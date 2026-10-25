@@ -105,7 +105,18 @@ Usage: bioengine apps upload [OPTIONS] APP_DIR
 
 Upload app files to Hypha artifact storage (without deploying).
 Prints the artifact ID on success — pass it to `bioengine apps run`.
+
+Arguments:
+  APP_DIR   Directory with manifest.yaml and deployment .py file(s)
+
+Options:
+  --public             Make the uploaded artifact publicly readable
+                       (accessible without a token). Off by default.
+  --worker SERVICE     Worker service ID (or BIOENGINE_WORKER_SERVICE_ID)
+  --token TOKEN        Auth token (or HYPHA_TOKEN)
 ```
+
+> **`--public` widens who can read the bundle, not just who can run it.** It makes the uploaded artifact readable without a token, so treat it as publishing the app directory's contents. It is off by default; prefer uploading private and widening deliberately, since an app bundle often carries more than the code you meant to share.
 
 ### `bioengine apps run`
 
