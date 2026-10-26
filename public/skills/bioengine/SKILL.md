@@ -71,7 +71,9 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 > **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.15.x; earlier installs shipped 0.11.x–0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
 
-> **Nothing validates a manifest or a decorator short of a deploy.** There is no offline checker: no `apps validate`, no dry-run flag, no schema you can lint against. Manifest fields, `@bioengine.app` kwargs and method signatures are all confirmed only by pushing the artifact and watching the worker's response, so a typo'd kwarg costs a full deploy round-trip to find. Budget for that. The local loop described below covers your *logic* thoroughly and covers the BioEngine surface not at all — copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
+> **The manifest has an offline checker; the decorator does not.** Run `bioengine apps validate ./my-app/` before every upload. It applies the v0.6.0 manifest validator locally — required fields, legacy `deployments:` lists (rejected with a migration hint), and `entry:` matching `package.module:ClassName` — printing `OK: …` and exiting 0 when the manifest is good, or exiting 1 and naming the offending field when it is not. A typo'd manifest field costs a second to find, not a deploy round-trip.
+>
+> It stops at the manifest. `@bioengine.app` kwargs and method signatures are confirmed only by pushing the artifact and watching the worker's response, so a typo'd *kwarg* still costs a full deploy round-trip — budget for that. The local loop described below covers your *logic* thoroughly and covers that decorator surface not at all: copy the decorator line from a working template rather than composing it from memory, and change one thing at a time.
 
 **Environment**:
 ```bash
@@ -438,7 +440,12 @@ bioengine apps status my-app --logs 50
 #    then call it. Calling <workspace>/my-app directly returns only {offer}, not the methods.
 bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
+#   → the same payload carries "static_site_url", the app's frontend URL
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
+
+# A method that takes arguments needs --arg/--args. A bare key=value is NOT
+# accepted and fails with "Error: Got unexpected extra arguments":
+bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --json --arg name=Wei
 ```
 
 > **Updating a running app: use `apps run --version`, not `apps deploy`.** `bioengine apps deploy` against an app-id that is already running uploads the new artifact version and restarts the replica, but the restarted replica has been observed coming back **on the old code**, with `version`, `running_version` and `version_verified` all reporting the stale version while `status` stays `RUNNING`. Reproduced deterministically on two consecutive Python changes. The path that reliably rolls a running instance forward is two steps:
@@ -659,7 +666,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >   "my-app-id": {
 >     "status": "RUNNING",
 >     "version": "1.0.3",              // target: the artifact version the worker was last told to run
->     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing
+>     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing — can be null, see below
 >     "version_verified": true,        // do not trust as an update signal — see below
 >     "deployments": {
 >       "MyDeployment":    {"status": "HEALTHY", "message": "...",
@@ -673,6 +680,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > So `result[app_id]["deployments"][deployment_name]["message"]` is where the actionable detail lives. The bare `bioengine apps status` output only prints per-deployment *status*, not the message — always pass `--json` when debugging.
 >
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
+>
+> **`running_version` is not always a version string — it can be `null` (Python `None`) on a perfectly healthy app.** The worker derives it from the *entry* deployment's replica identity, which the proxy records separately from Serve's own health. Three situations therefore yield `null`: no replica is in `RUNNING` state yet; replicas are up but the proxy has not recorded an identity for the entry replica yet; or the proxy could not be read at all. `status: RUNNING`, every deployment `HEALTHY`, `version: 1.0.0` and `running_version: null` therefore co-occur legitimately, and that is the normal reading a few seconds into a first deploy. A readiness gate written as `running_version == manifest_version` hangs forever on an app that is already serving traffic — which is the same trap as the frontend-only case above, reached a different way. Gate on a real call, as the live-test cycle does.
 >
 > **Three reported values do not echo your decorator, and none of them means it was ignored.** `max_ongoing_requests` has been observed reporting `10` against a declared `4`, `memory` reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
 >
