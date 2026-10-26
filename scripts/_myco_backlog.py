@@ -28,6 +28,25 @@ session scope. That is the safe default rather than a fallback to "whoever is
 running": a project-scoped issue has no owner and every session can see and
 claim it, so a misconfigured environment degrades to "visible to everyone"
 rather than back to "private to a session nobody drains".
+
+## The WORKSPACE has to be pinned too, for the same reason (myco #0022)
+
+A session id only resolves inside its own workspace, and a scheduled step does
+NOT inherit the workspace of the session the workflow is stamped with. Measured
+2026-10-26 with a throwaway dispatch workflow: a step runs with
+`MYCOLAB_WORKSPACE=ws-bioengine-a142944f` while `deep-hake-xlurhc` lives in
+`ws-bioimage-io-932fc61e`, so `myco issue add --session <id>` refused outright
+and the finding was dropped. That is #0007 and #0015's failure mode one layer
+in: those swapped a DEAD session id for a LIVE one, and the live one was
+unreachable from where the scheduler stands.
+
+`MYCO_SWEEP_WORKSPACE` carries it, and like the session id it is machine-local,
+so it belongs in the gitignored workflow yaml rather than in this tracked file.
+
+The second half of the fix is below: if the session still does not resolve, the
+filing DEGRADES TO PROJECT SCOPE rather than returning empty. Losing the finding
+is the one outcome these sweeps exist to prevent, and a misconfigured
+environment must not be able to cause it.
 """
 import os
 import subprocess
@@ -36,6 +55,7 @@ import tempfile
 from pathlib import Path
 
 SESSION_ENV = "MYCO_SWEEP_SESSION"
+WORKSPACE_ENV = "MYCO_SWEEP_WORKSPACE"
 # myco resolves its issue store by walking UP from the working directory. A
 # scheduled run does not necessarily start in the repo, and from somewhere else
 # the filing would land in a different store (or none) while still exiting 0.
@@ -45,6 +65,36 @@ REPO_ROOT = Path(__file__).resolve().parent.parent
 
 def target_session() -> str:
     return (os.environ.get(SESSION_ENV) or "").strip()
+
+
+def _env() -> dict:
+    """The environment every `myco` subprocess here runs with.
+
+    Overrides MYCOLAB_WORKSPACE when MYCO_SWEEP_WORKSPACE is set, so the session
+    id in MYCO_SWEEP_SESSION resolves. Without it the ambient value wins and a
+    scheduled run files into the wrong workspace, where the id is unknown.
+    """
+    env = dict(os.environ)
+    workspace = (os.environ.get(WORKSPACE_ENV) or "").strip()
+    if workspace:
+        env["MYCOLAB_WORKSPACE"] = workspace
+    return env
+
+
+def session_resolves(session: str) -> bool:
+    """Whether `session` is a real session in the workspace we will file in.
+
+    Checked BEFORE filing so a miss can degrade to project scope. `myco issue
+    add` refuses an unknown session and writes nothing, which would lose the
+    finding entirely.
+    """
+    if not session:
+        return False
+    result = subprocess.run(
+        ["myco", "session", "info", session],
+        capture_output=True, text=True, cwd=REPO_ROOT, env=_env(),
+    )
+    return result.returncode == 0
 
 
 def file_issue(title: str, body: str, *, labels=(), verify_cmd: str = "") -> str:
@@ -61,6 +111,18 @@ def file_issue(title: str, body: str, *, labels=(), verify_cmd: str = "") -> str
     read, not from a diagnosis.
     """
     session = target_session()
+    if session and not session_resolves(session):
+        # Do NOT let a misconfigured environment lose the finding. `myco issue
+        # add --session <unknown>` refuses and writes nothing; project scope has
+        # no owner, is visible to every session, and can be claimed. See #0022.
+        print(
+            f"  WARNING: session '{session}' does not resolve"
+            f" (workspace {os.environ.get('MYCOLAB_WORKSPACE') or 'unset'});"
+            f" filing at PROJECT scope instead so the finding is not lost."
+            f" Set {WORKSPACE_ENV} in the workflow to fix the routing.",
+            file=sys.stderr,
+        )
+        session = ""
     scope = ["--session", session] if session else ["--scope", "project"]
 
     # --body-file rather than --body: these bodies contain backticks and $( ),
@@ -75,7 +137,8 @@ def file_issue(title: str, body: str, *, labels=(), verify_cmd: str = "") -> str
             cmd += ["--label", label]
         if verify_cmd:
             cmd += ["--verify-cmd", verify_cmd]
-        result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT)
+        result = subprocess.run(cmd, capture_output=True, text=True, cwd=REPO_ROOT,
+                                env=_env())
     finally:
         Path(body_path).unlink(missing_ok=True)
 
@@ -96,7 +159,7 @@ def notify(message: str, level: str = "warning") -> bool:
     than losing the finding.
     """
     result = subprocess.run(["myco", "session", "notify", message, "--level", level],
-                            capture_output=True, text=True, cwd=REPO_ROOT)
+                            capture_output=True, text=True, cwd=REPO_ROOT, env=_env())
     if result.returncode != 0:
         print(f"  (notification failed: {(result.stderr or result.stdout).strip()[:200]})",
               file=sys.stderr)
