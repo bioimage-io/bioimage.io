@@ -215,12 +215,22 @@ bioengine cluster status --json
       "node_ip": "10.42.23.40", "head": false,
       "total_cpu": 10, "used_cpu": 1,
       "total_gpu": 1, "used_gpu": 0.5,
+      "total_vram_mb": 16384, "used_vram_mb": 8192,
       "total_gpu_memory": 17179869184, "used_gpu_memory": 964689920,
-      "accelerator_type": "A40"
+      "total_memory": 67108864000, "used_memory": 8589934592,
+      "total_object_store_memory": 2147483648, "used_object_store_memory": 0,
+      "accelerator_type": "A40", "gpu_device_name": "NVIDIA A40-16C",
+      "slurm_job_id": null
     }
   }
 }
 ```
+
+**Use `gpu_device_name`, not `accelerator_type`, for anything a person reads.** The two fields are not two spellings of the same thing. `accelerator_type` is the *schedulable* label — the exact string `@ray.remote(accelerator_type=...)` matches on — and Ray derives it from the device name by keeping only uppercase letters and digits, so a GeForce card legitimately reports `"G"` and nothing is wrong. `gpu_device_name` carries the full name (`"NVIDIA GeForce RTX 3090"`) and exists for display only. Showing the label instead is the single most common cause of "the GPU type is wrong" reports.
+
+Both fields read `"NA"` on a CPU-only node. `gpu_device_name` is absent or `null` on workers older than **0.16.11**, which is when it was added — so if it is missing on a GPU node, check `bioengine_version` before looking for a bug. `total_gpu_memory` and `used_gpu_memory` are bytes, or the string `"NA"` when the Ray dashboard cannot be reached. `slurm_job_id` is `null` outside SLURM mode.
+
+Beware that a vGPU slice reports its *host card* as the label: a 16 GB A40 slice reads `accelerator_type: "A40"` with `gpu_device_name: "NVIDIA A40-16C"`, so quoting the label alone tells a user they have a 48 GB card they do not get. `total_gpu_memory` is the number to trust for capacity.
 
 ---
 
