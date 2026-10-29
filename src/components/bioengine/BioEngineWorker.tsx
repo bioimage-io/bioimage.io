@@ -106,6 +106,7 @@ type ServiceStatus = {
     total_object_store_memory: number;
     used_object_store_memory: number;
     accelerator_type?: string | null;
+    gpu_device_name?: string | null;
     slurm_job_id?: string | null;
   }>;
   ray_cluster?: {
@@ -147,6 +148,7 @@ type ServiceStatus = {
       total_object_store_memory?: number;
       available_object_store_memory?: number;
       accelerator_type?: string;
+      gpu_device_name?: string;
       slurm_job_id?: string;
     }>;
   };
