@@ -1837,19 +1837,16 @@ spec:
                         <InfoPopover label="GPU info">
                           <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
                           {/* Only surfaced for Docker, and only once GPUs are actually
-                              requested. The fault is real but narrow (it needs a worker
-                              up for days), and the fix has a prerequisite a plain
-                              toolkit install does not provide, so it stays behind the
-                              popover instead of changing the generated command. */}
+                              requested. This is the WHY; the checkbox below is the HOW,
+                              and its own popover carries the prerequisites. Keep those
+                              two apart: a reader who has not hit this fault does not
+                              need the setup steps, and a reader who has should be sent
+                              to the toggle rather than told to edit the command by
+                              hand. */}
                           {containerRuntime === 'docker' && gpus > 0 && (
                             <>
                               <br /><br />
-                              <strong>Workers that stay up for days:</strong> <code className="font-mono">--gpus=all</code> attaches the GPU after the container is created, so a later cgroup reconcile can drop access while the device files still look present. To pin it at creation time instead, generate a CDI spec on the host:
-                              {/* Its own line, wrapping only at the space: the default
-                                  break-after-hyphen splits `--output` down the middle,
-                                  which is easy to mistype when copying by hand. */}
-                              <code className="font-mono block bg-gray-50 rounded px-2 py-1 my-1">sudo nvidia-ctk cdi generate <span className="whitespace-nowrap">--output=/etc/cdi/nvidia.yaml</span></code>
-                              then swap the flag for <code className="font-mono">--device nvidia.com/gpu=all</code>. Not the default, because installing the toolkit does not write that spec.
+                              <strong>Workers that stay up for days:</strong> <code className="font-mono">--gpus=all</code> attaches the GPU after the container is created, so a later cgroup reconcile can drop access while the device files still look present. CDI pins it at creation time instead. If your host is set up for CDI, tick the box below and the command will use it.
                             </>
                           )}
                         </InfoPopover>
@@ -1876,9 +1873,12 @@ spec:
                           <InfoPopover label="CDI info">
                             <strong>Only tick this if you already use CDI.</strong> <code>--gpus=all</code> is the default because it works on any host with the NVIDIA Container Toolkit installed. CDI needs two more things that installing the toolkit does not give you:
                             <br />
-                            1. A <strong>CDI spec on the host</strong>. Toolkit 1.18+ writes <code>/var/run/cdi/nvidia.yaml</code> automatically; otherwise run <code>sudo nvidia-ctk cdi generate --output=/var/run/cdi/nvidia.yaml</code>. Check with <code>nvidia-ctk cdi list</code>.
-                            <br />
-                            2. <strong>CDI enabled in Docker</strong>. On by default from Docker Engine 28.3.0; on older versions add <code>{'"features": { "cdi": true }'}</code> to <code>/etc/docker/daemon.json</code>. Check with <code>docker info</code>.
+                            1. A <strong>CDI spec on the host</strong>. Check what you already have with <code>nvidia-ctk cdi list</code>. Toolkit 1.18+ may have written one to <code>/var/run/cdi</code> for you, but that directory does not survive a reboot, so for a long-running worker generate a persistent one:
+                            {/* Its own line, wrapping only at the space: the default
+                                break-after-hyphen splits `--output` down the middle,
+                                which is easy to mistype when copying by hand. */}
+                            <code className="font-mono block bg-gray-50 rounded px-2 py-1 my-1">sudo nvidia-ctk cdi generate <span className="whitespace-nowrap">--output=/etc/cdi/nvidia.yaml</span></code>
+                            2. <strong>CDI enabled in Docker</strong>. This is on by default from Docker Engine 28.3.0. On older versions add <code>{'"features": { "cdi": true }'}</code> to <code>/etc/docker/daemon.json</code> and restart the daemon. Check with <code>docker info</code>.
                             <br />
                             Without both, the container fails to start. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/cdi-support.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">CDI support guide</a>.
                           </InfoPopover>
