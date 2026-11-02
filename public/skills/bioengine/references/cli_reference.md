@@ -375,9 +375,9 @@ docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengin
 | `--default-num-cpus N` |  | CPUs per Ray-worker sbatch job. |
 | `--default-mem-in-gb-per-cpu GB` |  | Memory per CPU. Total job memory = `num_cpus × mem_per_cpu`. |
 | `--default-time-limit HH:MM:SS` |  | Wall time per sbatch job. |
-| `--further-slurm-args "STR"` |  | **Single quoted string** of extra sbatch directives, e.g. `"-A <project> -C thin -p gpu --qos=high"`. Re-tokenised with `shlex.split`. Use this for account, partition, qos, constraints. |
+| `--further-slurm-args=STR` |  | One string of extra sbatch directives, re-tokenised with `shlex.split` and emitted as one `#SBATCH` line each. Use for account, partition, qos, constraints, and reservations. **Join it with `=`**: `--further-slurm-args="-A <project> -C thin"` or `--further-slurm-args=--reservation=safe`. Space-separated works only when the value contains a space, so a lone `--reservation=safe` after a space exits 2 with `expected one argument` even when quoted — the shell removes the quotes and argparse sees a flag. |
 | `--gpu-slurm-flag '--gres=gpu:{n}'` | `--gpus={n}` | Template for the GPU sbatch directive (`{n}` is replaced with the GPU count). Default works on Berzelius and generic clusters; switch to `--gres=gpu:{n}` for clusters that require gres. Empty string omits the directive (use when GPUs are requested via `--further-slurm-args`). |
-| `--further-apptainer-args "STR"` |  | Extra `apptainer exec` flags inside the worker job, e.g. `"--bind /proj/<lab>:/proj/<lab>"`. Re-tokenised with `shlex.split`. |
+| `--further-apptainer-args=STR` |  | Extra `apptainer exec` flags inside the worker job, e.g. `--further-apptainer-args="--bind /proj/<lab>:/proj/<lab>"`. Re-tokenised with `shlex.split`. Join with `=` for the same reason as `--further-slurm-args`. |
 
 ### Ray Autoscaler options
 
@@ -417,7 +417,7 @@ python -m bioengine.worker \
     --default-num-gpus 1 --default-num-cpus 8 --default-mem-in-gb-per-cpu 8 \
     --default-time-limit 04:00:00 \
     --min-workers 0 --max-workers 4 --scale-down-threshold-seconds 300 \
-    --further-slurm-args "-A naiss-2024-99-999 -C thin"
+    --further-slurm-args="-A naiss-2024-99-999 -C thin"
 
 # External Ray cluster (KubeRay)
 python -m bioengine.worker \
