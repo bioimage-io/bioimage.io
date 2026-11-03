@@ -1,0 +1,90 @@
+{
+  "head_address": "ray://raycluster-kuberay-head-svc.ray-cluster.svc.cluster.local:10001",
+  "start_time": "N/A",
+  "mode": "external-cluster",
+  "geo_location": {
+    "region": "Stockholm County",
+    "country_name": "Sweden",
+    "country_code": "SE",
+    "latitude": 59.329381,
+    "longitude": 18.0687079,
+    "timezone": "Europe/Stockholm"
+  },
+  "cluster": {
+    "total_cpu": 26.0,
+    "used_cpu": 5.0,
+    "total_gpu": 2.0,
+    "used_gpu": 1.0,
+    "total_vram_mb": 0,
+    "used_vram_mb": 0,
+    "total_memory": 88000000000.0,
+    "used_memory": 23622320128.0,
+    "total_gpu_memory": 34359738368,
+    "used_gpu_memory": 543490048,
+    "total_object_store_memory": 26283363531.0,
+    "used_object_store_memory": 1090122.0
+  },
+  "nodes": {
+    "b0933caac35498b76419e1a540a195d627c5d1151050243fd877bd46": {
+      "node_ip": "10.42.4.167",
+      "head": false,
+      "total_cpu": 10.0,
+      "used_cpu": 1.0,
+      "total_gpu": 1.0,
+      "used_gpu": 1.0,
+      "total_vram_mb": 0,
+      "used_vram_mb": 0,
+      "total_gpu_memory": 17179869184,
+      "used_gpu_memory": 543490048,
+      "total_memory": 32000000000.0,
+      "used_memory": 12884901888.0,
+      "total_object_store_memory": 9561037209.0,
+      "used_object_store_memory": 114807.0,
+      "accelerator_type": "A40",
+      "gpu_device_name": "NVIDIA A40-16C",
+      "slurm_job_id": null
+    },
+    "54beef23962adac9fcab475049c5257b24d86cf18499fecc461f7f55": {
+      "node_ip": "10.42.16.74",
+      "head": false,
+      "total_cpu": 10.0,
+      "used_cpu": 4.0,
+      "total_gpu": 1.0,
+      "used_gpu": 0,
+      "total_vram_mb": 0,
+      "used_vram_mb": 0,
+      "total_gpu_memory": 17179869184,
+      "used_gpu_memory": "NA",
+      "total_memory": 32000000000.0,
+      "used_memory": 9126805504.0,
+      "total_object_store_memory": 9561060556.0,
+      "used_object_store_memory": 342909.0,
+      "accelerator_type": "A40",
+      "gpu_device_name": "NVIDIA A40-16C",
+      "slurm_job_id": null
+    },
+    "88258a0baf93f8a0d84436cc8c4f7d702180f4d4fa7556504cd65b0c": {
+      "node_ip": "10.42.12.220",
+      "head": true,
+      "total_cpu": 6.0,
+      "used_cpu": 0,
+      "total_gpu": 0,
+      "used_gpu": 0,
+      "total_vram_mb": 0,
+      "used_vram_mb": 0,
+      "total_gpu_memory": 0,
+      "used_gpu_memory": 0,
+      "total_memory": 24000000000.0,
+      "used_memory": 1610612736.0,
+      "total_object_store_memory": 7161265766.0,
+      "used_object_store_memory": 632406.0,
+      "accelerator_type": "NA",
+      "gpu_device_name": "NA",
+      "slurm_job_id": null
+    }
+  },
+  "slurm_jobs": {
+    "queued": [],
+    "running": []
+  }
+}

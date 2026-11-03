@@ -149,6 +149,8 @@ type ServiceStatus = {
       accelerator_type?: string;
       slurm_job_id?: string;
     }>;
+    // Host resource census, bioengine 0.16.75+. Absent on older workers.
+    co_tenancy_warnings?: string[];
   };
   bioengine_apps: {
     service_id: string | null;
