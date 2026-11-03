@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useHyphaStore } from '../store/hyphaStore';
-import { getIsReviewer, isPublished } from '../utils/roles';
+import { getArtifactRights, getIsReviewer, isPublished } from '../utils/roles';
+import { getOwnership, identityKeywords, ownedDisplayNames } from '../utils/artifactOwnership';
 import RequestDeletionDialog from './RequestDeletionDialog';
 import Upload from './Upload';
 import { Link, useNavigate } from 'react-router-dom';
@@ -33,7 +34,42 @@ interface Artifact {
   _stagedStatus?: string | null;
   /** True when the artifact exists only as a staged version (no committed releases). */
   _stagedOnly?: boolean;
+  /** True when the manifest names the user but they neither created nor uploaded it. */
+  _contributorOnly?: boolean;
+  /** False when the user holds no edit right, so the Edit button is shown disabled. */
+  _canEdit?: boolean;
 }
+
+/**
+ * Children fetched per list() call. The collection holds 316 artifacts today
+ * and 76 of them name a single prolific author (measured 2026-10-24), so the
+ * old flat `limit: 100` was already within sight of truncating a result set
+ * silently. Every query pages instead.
+ */
+const PAGE_SIZE = 100;
+/** Hard stop, so a server that keeps returning full pages cannot spin forever. */
+const MAX_PAGES = 30;
+
+/**
+ * Run a list() query to exhaustion, following `offset` until a short page.
+ * Returns the concatenated children. Hypha returns either a bare array or a
+ * `{ items }` envelope depending on the pagination flag, so both are unwrapped.
+ */
+const listAllPages = async (am: any, params: Record<string, any>): Promise<any[]> => {
+  const all: any[] = [];
+  for (let page = 0; page < MAX_PAGES; page++) {
+    const res = await am.list({
+      ...params,
+      limit: PAGE_SIZE,
+      offset: page * PAGE_SIZE,
+      _rkwargs: true,
+    });
+    const items: any[] = Array.isArray(res) ? res : (res?.items ?? []);
+    all.push(...items);
+    if (items.length < PAGE_SIZE) break;
+  }
+  return all;
+};
 
 const MyArtifacts: React.FC = () => {
   const { 
@@ -69,15 +105,23 @@ const MyArtifacts: React.FC = () => {
     }
   }, [artifactManager, user, isLoggedIn, showStagedOnly, myArtifactsPage, serverSearchQuery]);
 
-  // Add debounced server search
+  // Add debounced server search.
+  //
+  // Armed only when the text actually differs from what the server was last
+  // asked for. The effect also resets to page 1, which is right when the
+  // search changed and wrong otherwise: a timer armed on mount lands 500 ms
+  // later and silently undoes any page the user turned to in the meantime.
+  // That was unreachable while the page held a single page of rows, and became
+  // reachable once it started listing every artifact you are named on.
   useEffect(() => {
+    if (searchQuery === serverSearchQuery) return;
     const timer = setTimeout(() => {
       setServerSearchQuery(searchQuery);
       setMyArtifactsPage(1);
     }, 500); // 500ms delay before triggering server search
 
     return () => clearTimeout(timer);
-  }, [searchQuery, setMyArtifactsPage]);
+  }, [searchQuery, serverSearchQuery, setMyArtifactsPage]);
 
   const loadArtifacts = async (attempt = 0) => {
     // Read the connection straight from the store rather than the render
@@ -90,14 +134,23 @@ const MyArtifacts: React.FC = () => {
     try {
       setLoading(true);
 
-      // We treat "my artifacts" as the union of two sets:
+      // We treat "my artifacts" as the union of three sets:
       //   (a) artifacts I created    -> filters.created_by == user.id
       //   (b) artifacts I uploaded   -> manifest.uploader.email == user.email
+      //   (c) artifacts that NAME me -> my name or email appears in
+      //                                 manifest.authors / maintainers / uploader
+      // (c) is what a contributor means by "my models": one author has 10
+      // artifacts under (a)+(b) and 76 under the union (measured 2026-10-24).
       // Hypha's nested-filter on manifest fields is unreliable, but the
-      // full-text `keywords` index does cover manifest.uploader.email,
-      // so we issue both queries in parallel and post-filter (b) to drop
-      // any keyword matches that aren't actually uploader-email matches.
+      // full-text `keywords` index does cover manifest contents, so we issue
+      // the queries in parallel and post-filter every keyword result through
+      // getOwnership to drop artifacts that merely mention the string.
       // We then merge by id and paginate the merged list client-side.
+      //
+      // Deliberately NOT part of the union: artifacts the user can WRITE. The
+      // collection grants its reviewers write access on every model, so that
+      // query returns 294 of 316 artifacts for a reviewer (measured
+      // 2026-10-24) and would render the whole zoo on their own page.
       const baseKeywords: string[] = [];
       if (serverSearchQuery.trim()) baseKeywords.push(serverSearchQuery.trim());
 
@@ -107,40 +160,66 @@ const MyArtifacts: React.FC = () => {
       const COLLECTION = "bioimage-io/bioimage.io";
 
       // Committed artifacts ARE server-side filter/keyword indexed, so query
-      // them by created_by / uploader-email. STAGED artifacts are NOT indexed —
-      // a filtered staged query returns nothing (which is why unsubmitted,
-      // versionless staged drafts never used to appear here) — so we fetch ALL
-      // staged children and filter by ownership client-side below.
-      const [createdRes, uploadedRes, stagedAllRes] = await Promise.all([
+      // them by created_by, and by each identity keyword (email, display name).
+      // STAGED artifacts are NOT indexed — a filtered staged query returns
+      // nothing (which is why unsubmitted, versionless staged drafts never used
+      // to appear here) — so we fetch ALL staged children and filter by
+      // ownership client-side below.
+      //
+      // One keyword query per identity signal rather than one combined query,
+      // because Hypha ANDs the keyword list: [email, name] would return only
+      // artifacts carrying BOTH, which for an author whose entries have a null
+      // email is none of them.
+      const byKeyword = (keyword: string) =>
+        listAllPages(am, {
+          parent_id: COLLECTION,
+          stage: "all",
+          keywords: [...baseKeywords, keyword],
+        });
+
+      const keywordQueries = showStagedOnly ? [] : identityKeywords(currentUser);
+      const [createdRes, stagedAllRes, ...keywordResults] = await Promise.all([
         showStagedOnly
-          ? Promise.resolve([])
-          : am.list({
+          ? Promise.resolve([] as any[])
+          : listAllPages(am, {
               parent_id: COLLECTION,
               stage: "all",
-              limit: 100,
               filters: { created_by: currentUser.id },
               keywords: baseKeywords,
-              _rkwargs: true,
             }),
-        (!showStagedOnly && currentUser.email)
-          ? am.list({
-              parent_id: COLLECTION,
-              stage: "all",
-              limit: 100,
-              keywords: [...baseKeywords, currentUser.email],
-              _rkwargs: true,
-            })
-          : Promise.resolve([]),
-        am.list({ parent_id: COLLECTION, stage: true, limit: 1000, _rkwargs: true }),
+        listAllPages(am, { parent_id: COLLECTION, stage: true }),
+        ...keywordQueries.map(byKeyword),
       ]);
 
-      // Post-filter: keywords-by-email returns anything mentioning the string,
-      // and staged is unfiltered, so verify ownership client-side (created_by is
-      // the id, e.g. github|NNN; uploader email is the fallback signal).
-      const userEmail = currentUser.email?.toLowerCase();
-      const isMine = (a: any) =>
-        a?.created_by === currentUser.id ||
-        (userEmail && a?.manifest?.uploader?.email?.toLowerCase() === userEmail);
+      const stagedItems: any[] = Array.isArray(stagedAllRes)
+        ? stagedAllRes
+        : ((stagedAllRes as any)?.items ?? []);
+
+      // A second pass, for the names the session could not supply.
+      //
+      // Hypha sessions do not reliably carry a `name`, and without one there is
+      // nothing to match an author entry on. The artifacts already proved to be
+      // this user's carry the answer in `manifest.uploader.name`: their own
+      // account of who they are, in the spelling they used in the author lists.
+      // It also recovers spellings a single session name would miss (the author
+      // in issue 0006 signs as both "Daniel Franco-Barranco" and "Daniel Franco
+      // Barranco"). Nothing is read from an artifact the user does not own.
+      const firstPass = [...(createdRes || []), ...keywordResults.flat(), ...stagedItems];
+      const extraNames = ownedDisplayNames(firstPass, currentUser).filter(
+        (name) => !keywordQueries.includes(name)
+      );
+      const extraResults = showStagedOnly
+        ? []
+        : await Promise.all(extraNames.map(byKeyword));
+
+      // Post-filter: a keyword query returns anything mentioning the string
+      // (searching one author's name returns 84 artifacts where an exact match
+      // returns 74), and the staged query is unfiltered, so every result is
+      // re-checked client-side against created_by and the manifest.
+      const isMine = (a: any) => {
+        const ownership = getOwnership(a, currentUser, extraNames);
+        return ownership.isOwner || ownership.isContributor;
+      };
       // Staged isn't keyword-indexed either, so apply the search text client-side.
       const q = serverSearchQuery.trim().toLowerCase();
       const matchesSearch = (a: any) =>
@@ -151,16 +230,13 @@ const MyArtifacts: React.FC = () => {
         a?.alias?.toLowerCase?.().includes(q);
 
       const byId: Record<string, any> = {};
-      for (const a of [...(createdRes || []), ...(uploadedRes || [])]) {
+      for (const a of [...(createdRes || []), ...keywordResults.flat(), ...extraResults.flat()]) {
         if (a?.id && isMine(a)) byId[a.id] = a;
       }
 
       // Merge staged data: enrich dual artifacts (published + staged edits) with
       // their staging flag, and add staged-ONLY artifacts — the user's
       // unsubmitted/in-review drafts — that the committed query never returns.
-      const stagedItems: any[] = Array.isArray(stagedAllRes)
-        ? stagedAllRes
-        : ((stagedAllRes as any)?.items ?? []);
       for (const a of stagedItems) {
         if (!a?.id || !isMine(a) || !matchesSearch(a)) continue;
         if (byId[a.id]) {
@@ -192,6 +268,21 @@ const MyArtifacts: React.FC = () => {
         for (const [id, stagedStatus] of stagedReads) {
           if (byId[id]) byId[id] = { ...byId[id], _stagedStatus: stagedStatus };
         }
+      }
+
+      // Flag the rows the user is only NAMED on, so the card can label them as
+      // authorship and withhold the owner actions. `_canEdit` reads the
+      // artifact's own permission map purely to decide whether to offer the
+      // Edit button: it never decides whether a row is listed.
+      for (const id of Object.keys(byId)) {
+        const artifact = byId[id];
+        const ownership = getOwnership(artifact, currentUser, extraNames);
+        const contributorOnly = ownership.isContributor && !ownership.isOwner;
+        byId[id] = {
+          ...artifact,
+          _contributorOnly: contributorOnly,
+          _canEdit: !contributorOnly || getArtifactRights(currentUser, artifact).hasArtifactEdit,
+        };
       }
 
       const merged = Object.values(byId).sort((x: any, y: any) =>
@@ -306,7 +397,7 @@ const MyArtifacts: React.FC = () => {
             Login Required
           </h2>
           <p className="text-gray-500 mb-4">
-            Please login to view your uploaded models
+            Please login to view the artifacts you uploaded or are listed on
           </p>
         </div>
       </div>
@@ -408,7 +499,10 @@ const MyArtifacts: React.FC = () => {
               alt="Zoo Background" 
               className="w-100 h-64 mb-8 opacity-50"
             />
-            <p className="mb-4">You haven't uploaded any models yet</p>
+            <p className="mb-4">
+              Nothing here yet. This page lists what you uploaded, plus anything that names
+              you as an author or maintainer.
+            </p>
             <button
               onClick={() => navigate('/upload')}
               className="px-4 py-2 bg-blue-600 text-white rounded-md hover:bg-blue-700"
@@ -434,11 +528,15 @@ const MyArtifacts: React.FC = () => {
                     d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M15 13l-3-3m0 0l-3 3m3-3v12"
                   />
                 </svg>
-                <h2 className="text-2xl font-light text-gray-900">My Uploaded Artifacts</h2>
+                <h2 className="text-2xl font-light text-gray-900">My Uploaded and Authored Artifacts</h2>
                 <span className="px-3 py-1 bg-blue-50 text-blue-600 rounded-xl text-sm font-medium">
                   {myArtifactsTotalItems} {myArtifactsTotalItems === 1 ? 'item' : 'items'}
                 </span>
               </div>
+              <p className="text-sm text-gray-500">
+                Everything you uploaded, plus anything whose metadata names you as an author
+                or maintainer. Being named does not by itself grant edit rights.
+              </p>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-6xl">
@@ -456,14 +554,24 @@ const MyArtifacts: React.FC = () => {
                     image={artifact.manifest?.cover || undefined}
                     downloadUrl={`${HYPHA_SERVER_URL}/bioimage-io/artifacts/${artifact.id.split('/').pop()}/create-zip-file`}
                     onEdit={() => navigate(`/edit/${encodeURIComponent(artifact.id)}${(artifact.staging || artifact._stagedOnly) ? '/stage' : ''}`)}
-                    onDelete={() => {
-                      setArtifactToDelete(artifact);
-                      setIsDeleteDialogOpen(true);
-                    }}
+                    onDelete={
+                      artifact._contributorOnly
+                        ? undefined
+                        : () => {
+                            setArtifactToDelete(artifact);
+                            setIsDeleteDialogOpen(true);
+                          }
+                    }
                     isStaged={!!artifact.staging || !!artifact._stagedOnly}
                     artifactType={artifact.type}
                     isPublished={isPublished(artifact)}
-                    onRequestDeletion={() => setArtifactToRequestDeletion(artifact)}
+                    isContributorOnly={!!artifact._contributorOnly}
+                    canEdit={artifact._canEdit !== false}
+                    onRequestDeletion={
+                      artifact._contributorOnly
+                        ? undefined
+                        : () => setArtifactToRequestDeletion(artifact)
+                    }
                   />
                 </div>
               ))}
