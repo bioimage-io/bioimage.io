@@ -9,9 +9,9 @@ python, with no virtualenv to activate and no interactive PATH.
 
 Until 2026-10-24 both sweeps filed with a bare `svamp issue add` and no
 `--session`, so ownership fell to whichever session the scheduled run executed
-as. That session (`cute-mare-fidhxj`) was archived on 2026-10-23 and the
-workflow kept firing anyway -- measured, not assumed: the 2026-10-24T05:23Z run
-is recorded `status: success, actor: cute-mare-fidhxj` in
+as. That session was archived the day before and the workflow kept firing
+anyway -- measured, not assumed: the 2026-10-24T05:23Z run is recorded
+`status: success` with the archived session as its actor, in
 `.svamp/workflows/.runs/`. A detection filed into an archived owner's list in an
 undrained tracker is indistinguishable from a clean run, which is the failure
 mode both sweeps exist to prevent, one level up.
@@ -33,10 +33,10 @@ rather than back to "private to a session nobody drains".
 
 A session id only resolves inside its own workspace, and a scheduled step does
 NOT inherit the workspace of the session the workflow is stamped with. Measured
-2026-10-26 with a throwaway dispatch workflow: a step runs with
-`MYCOLAB_WORKSPACE=ws-bioengine-a142944f` while `deep-hake-xlurhc` lives in
-`ws-bioimage-io-932fc61e`, so `myco issue add --session <id>` refused outright
-and the finding was dropped. That is #0007 and #0015's failure mode one layer
+2026-10-26 with a throwaway dispatch workflow: the step ran with
+`MYCOLAB_WORKSPACE` set to a SIBLING workspace, not the one the target session
+lives in, so `myco issue add --session <id>` refused outright and the finding
+was dropped. That is #0007 and #0015's failure mode one layer
 in: those swapped a DEAD session id for a LIVE one, and the live one was
 unreachable from where the scheduler stands.
 

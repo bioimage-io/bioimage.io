@@ -177,11 +177,18 @@ If an artifact here was published on purpose, fix its manifest status to `publis
 this check stops flagging it.
 """
     # The verify gate for closing the issue: the check itself reports a clean
-    # collection. Reads the token the same way the scheduled workflow does, so
-    # the gate works from any session in this repo.
+    # collection. Prefers a BIOIMAGE_IO_TOKEN already in the environment and
+    # falls back to a dotenv file named by BIOIMAGE_IO_ENV_FILE, so the gate
+    # works from any session in this repo.
+    #
+    # The dotenv PATH is deliberately not written here. This file is tracked and
+    # reaches GitHub (and Copilot, via .github/copilot-instructions.md), and
+    # where a machine keeps its secrets is not something a public repo should
+    # say. Same reasoning as the session id in _myco_backlog.py: the value is
+    # machine-local, so it belongs in the gitignored workflow yaml.
     verify_cmd = (
-        'BIOIMAGE_IO_TOKEN="$(grep -m1 ^BIOIMAGE_IO_TOKEN= '
-        "/data/nmechtel/bioengine/.env | cut -d= -f2-)\" "
+        'BIOIMAGE_IO_TOKEN="${BIOIMAGE_IO_TOKEN:-$(grep -m1 ^BIOIMAGE_IO_TOKEN= '
+        '"$BIOIMAGE_IO_ENV_FILE" | cut -d= -f2-)}" '
         "/usr/bin/python3 scripts/check_committed_drafts.py --dry-run "
         "| grep -q ' 0 unpublished artifact'"
     )
