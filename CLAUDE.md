@@ -56,50 +56,32 @@ comma over a semicolon, and keep one only where it genuinely joins two independe
 
 ## Three measured facts that will mislead you
 
-**`tsc --noEmit` is broken by design here, so do not gate on it.** TypeScript 3.9.10 is declared
-in `package.json` against a tsconfig needing 4.1+. Re-measured 2026-11-04, the split is exactly
-2,211 = 1 + 2,210: one `tsconfig.json(17,12): error TS6046: Argument for '--jsx' option must be:
-'preserve', 'react-native', 'react'` (the file asks for `react-jsx`, added in 4.1), and 2,210
-`TS1xxx` parse errors in dependencies' `.d.ts` files that 3.9 cannot read. **Zero are under
-`src/`.** None of it is about your change. One clean tree, 2026-11-04: `tsc --noEmit` exit 1 on
-those 2,211, `react-scripts test` exit 0 over 108 cases, the gate below exit 0.
+All three measured on one clean tree, 2026-11-04.
+
+**Do not gate on `tsc --noEmit`: it is broken by design.** `package.json` declares TypeScript
+3.9.10 against a tsconfig using `jsx: "react-jsx"`, which needs 4.1+. Exit 1 with 2,211 errors:
+one `TS6046` for that option, and 2,210 `TS1xxx` parse errors inside dependencies' `.d.ts` files
+3.9 cannot read. **Zero are under `src/`.** The two gates that do mean something, both exit 0:
 
     ./node_modules/.bin/react-scripts build
+    npx react-scripts test --watchAll=false      # 108 cases across 11 suites
 
-**This file has been given `skip-worktree` in a worktree before, and under that flag edits to it
-silently never commit.** It is a per-worktree index bit, not a repo setting, so it can be set
-again by anyone who wants session-local notes in here without committing them. Observed on
-2026-11-04 in a worktree whose local copy was 101 lines longer than the tracked blob, while
-`git status` and `git diff` both reported the file clean over that entire difference.
-Check before you edit, and edit a copy that reports `H`, not `S`:
+**This file gets `skip-worktree` set in worktrees, and then edits to it never commit.** It is a
+per-worktree index bit, set so session-local notes can live here uncommitted. Seen with a local
+copy 101 lines longer than the tracked blob while `git status` and `git diff` both reported the
+file clean over that entire difference. Check before editing:
 
-    git ls-files -v -- CLAUDE.md    # H = normal, S = skip-worktree, your edits will not commit
+    git ls-files -v -- CLAUDE.md    # H = normal, S = your edits will not commit
 
-`.github/copilot-instructions.md` is a symlink to this file, so a committed change here also
-reaches GitHub Copilot, and everything in it is public.
+`.github/copilot-instructions.md` symlinks to this file, so what lands here is public and also
+reaches Copilot.
 
-**`pnpm run <script>` can try to DELETE a `node_modules` that other checkouts are using, and it
-suggests the flag that does it.** If this checkout's `node_modules` is a symlink into another
-checkout, which is the normal setup for a git worktree here, pnpm's dependency-status check
-decides the store is out of date and wants to purge the directory first. Without a TTY it stops:
-
-    ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY  Aborted removal of modules directory due to no TTY
-    If you are running pnpm in CI, set the CI environment variable to "true" ...
-
-Do not take that advice here. Measured 2026-11-04 in a worktree whose `node_modules` was a
-symlink to the main checkout's: `CI=true pnpm run <script>` would have removed the directory the
-main checkout and every other worktree share. Run the binary directly instead, which is what the
-commands above do and why they are written that way:
-
-    node scripts/check-ui-text.js          # not `pnpm run check-ui-text`
-    npx react-scripts test --watchAll=false
-    ./node_modules/.bin/react-scripts build
-
-`pnpm run` is correct in CI, where the checkout is fresh and `pnpm install` has really run. It is
-only unsafe in a worktree that borrows another checkout's modules.
-
----
-
+**`node_modules` is shared, so a dependency purge is never local to your worktree.** Here it is a
+symlink to `/data/nmechtel/bioimage.io/node_modules`, the main checkout's directory that every
+worktree borrows. Never clear a package manager's "remove the modules directory" prompt with
+`CI=true`, which is what its own no-TTY message suggests: that directory belongs to every
+checkout at once. Caveat, so this stays re-checkable: `pnpm run <script>` did NOT raise that
+prompt when tried, so it is a rail against a condition, not a fault you will hit today.
 ## Where to find more
 
 Load the matching skill before touching that area. They hold the conventions, the component
@@ -118,12 +100,10 @@ repo copy does not change what a reader fetches until it is deployed.
 
 ## Related repositories
 
-These are separate upstream repositories, **not part of this one**. Some checkouts keep local
-clones of them for side-by-side grepping, but `bioimageio-resources/` is gitignored
-(`.gitignore:39`) and nothing under it is tracked, so a fresh clone and most worktrees do not
-have it. Measured 2026-11-04: `git ls-files` counts 0 files under that path, and it was absent
-from a worktree while present in the main checkout. Do not tell a contributor to look there,
-and clone what you need yourself.
+These are separate upstream repositories, **not part of this one**. `bioimageio-resources/` is
+gitignored (`.gitignore:39`) with 0 tracked files, so a fresh clone and most worktrees do not
+have it even though the main checkout does. Do not point a contributor there; clone what
+you need yourself.
 
 | Repo | Role |
 |---|---|
