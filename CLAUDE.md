@@ -54,7 +54,7 @@ comma over a semicolon, and keep one only where it genuinely joins two independe
 
 ---
 
-## Two measured facts that will mislead you
+## Three measured facts that will mislead you
 
 **`tsc --noEmit` is broken by design here, so do not gate on it.** TypeScript 3.9.10 is declared
 in `package.json` against a tsconfig needing 4.1+. Re-measured 2026-11-04, the split is exactly
@@ -77,6 +77,26 @@ Check before you edit, and edit a copy that reports `H`, not `S`:
 
 `.github/copilot-instructions.md` is a symlink to this file, so a committed change here also
 reaches GitHub Copilot, and everything in it is public.
+
+**`pnpm run <script>` can try to DELETE a `node_modules` that other checkouts are using, and it
+suggests the flag that does it.** If this checkout's `node_modules` is a symlink into another
+checkout, which is the normal setup for a git worktree here, pnpm's dependency-status check
+decides the store is out of date and wants to purge the directory first. Without a TTY it stops:
+
+    ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY  Aborted removal of modules directory due to no TTY
+    If you are running pnpm in CI, set the CI environment variable to "true" ...
+
+Do not take that advice here. Measured 2026-11-04 in a worktree whose `node_modules` was a
+symlink to the main checkout's: `CI=true pnpm run <script>` would have removed the directory the
+main checkout and every other worktree share. Run the binary directly instead, which is what the
+commands above do and why they are written that way:
+
+    node scripts/check-ui-text.js          # not `pnpm run check-ui-text`
+    npx react-scripts test --watchAll=false
+    ./node_modules/.bin/react-scripts build
+
+`pnpm run` is correct in CI, where the checkout is fresh and `pnpm install` has really run. It is
+only unsafe in a worktree that borrows another checkout's modules.
 
 ---
 
