@@ -1,0 +1,106 @@
+--- /data/nmechtel/bioimage.io/CLAUDE.md	2026-09-25 16:44:35.816070137 +0200
++++ notes/CLAUDE.md.proposed-2026-11-04	2026-11-04 18:29:41.553729916 +0100
+@@ -1,5 +1,9 @@
+ # BioImage.IO — Claude Code Guidelines
+ 
++The React/TypeScript frontend of **BioImage Model Zoo** (<https://bioimage.io>), a production
++site with a wide community. Read `README.md` for what the platform is; this file carries only
++what the repo cannot tell you.
++
+ ## Hard Rules
+ 
+ These override every other instruction in this file, in any skill, and in any task brief.
+@@ -23,30 +27,6 @@
+ 
+ ---
+ 
+-## Project Goal
+-
+-**BioImage Model Zoo** (<https://bioimage.io>) is a community-driven, fully open platform for sharing, discovering, testing, and deploying deep learning models for bioimage analysis. The platform makes models truly **FAIR** — Findable, Accessible, Interoperable, and Reproducible — across frameworks, operating systems, and software ecosystems.
+-
+-### Core Mission
+-
+-1. **Model repository** — Host pre-trained DL models (segmentation, restoration, classification, etc.) with standardized metadata (RDF/YAML), DOIs, memorable nicknames, and full provenance (training data, notebooks, authors).
+-2. **Cross-tool interoperability** — A single model format (bioimageio spec) runs across ilastik, deepImageJ, QuPath, StarDist, ImJoy, ZeroCostDL4Mic, CSBDeep, Icy, and more — without per-tool re-integration.
+-3. **In-browser testing via BioEngine** — Users can evaluate any model on their own images directly on the website; the BioEngine serves GPU inference from cloud infrastructure (de.NBI / Kubernetes + Triton).
+-4. **Community contribution pipeline** — Model submission through Zenodo or the web upload form; automatic CI quality assurance; manual curator review; community partner collections via GitHub.
+-5. **FAIR developer tooling** — Python (`bioimageio.core`) and Java libraries let developers programmatically load, run, export, and re-upload models in only a few lines of code.
+-
+-### Active Feature: Collaborative Annotation & Fine-Tuning
+-
+-The current in-browser application layer extends the platform with:
+-
+-- **Collaborative annotation** — mount local folders or upload images to cloud, share annotation sessions with teammates via URL, collect segmentation masks in real time.
+-- **AI-assisted annotation** — Cellpose / Cellpose-SAM auto-segmentation with interactive correction tools.
+-- **Fine-tune Cellpose-SAM** — trigger training from the UI using annotated data stored in Hypha Artifacts, then deploy trained models back into the annotation workflow.
+-
+-This layer runs **entirely in the browser** (Python via Pyodide/WebAssembly, image visualization via OpenLayers) backed by **Hypha Cloud** for service registration, artifact storage, and RPC coordination.
+-
+----
+-
+ ## User-Visible Text Rules
+ 
+ Any string that renders to a user in the website UI (JSX text, `title`/`placeholder`/`aria-label` attributes, button labels, dialog copy, toast and error messages, comment-thread bodies posted through the app) must follow these punctuation rules:
+@@ -57,19 +37,21 @@
+ 
+ These rules apply ONLY to user-visible strings. Code comments, JSDoc, `console.*` logs, commit messages, SKILL.md files, and this CLAUDE.md are exempt (em dashes are fine there).
+ 
+-## Tech Stack
++---
++
++## Two things in this repo that will mislead you
++
++**`tsc --noEmit` is broken by design — do not gate on it.** TypeScript 3.9.10 is declared against
++a tsconfig needing 4.1+, so it emits ~2178 errors that are pure noise. The real gate is:
++
++    ./node_modules/.bin/react-scripts build
+ 
+-| Layer | Technology |
+-|---|---|
+-| Frontend framework | React 18 + TypeScript |
+-| Package manager | pnpm |
+-| Styling | Tailwind CSS + Material-UI (MUI) |
+-| State management | Zustand |
+-| Image visualization | OpenLayers |
+-| In-browser Python | web-python-kernel (Pyodide/WebAssembly) |
+-| Backend / services | Hypha RPC (`hypha-rpc` npm package) |
+-| Artifact storage | Hypha Artifact Manager |
+-| AI segmentation | Cellpose / Cellpose-SAM (via Hypha service) |
++**CLAUDE.md carries `skip-worktree` in some worktrees, so edits to it silently never commit.**
++Measured 2026-11-04: `git ls-files -v CLAUDE.md` returns `H` in `/data/nmechtel/bioimage.io` but
++`S` in `.dev/worktree/quick-river`, whose local copy is 207 lines against the committed 106.
++Under `S`, git reports the file clean no matter what you write. Check the flag before editing
++this file, and edit the copy that reports `H`. Note `.github/copilot-instructions.md` is a
++symlink to it, so a committed change here also reaches GitHub Copilot.
+ 
+ ---
+ 
+@@ -85,22 +67,11 @@
+ 
+ Working copies of the sibling libraries live under `bioimageio-resources/` in this repo (added 2026-07-07) so they can be grepped side-by-side with the frontend:
+ 
+-| Repo | Path | Current release | Role |
+-|---|---|---|---|
+-| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | 0.5.11.0 (2026-06-15) | RDF format spec + `bioimageio.spec` Python library |
+-| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | 0.10.4 (pins spec 0.5.10.2) | `bioimageio.core` — what the Test button delegates to |
+-| collection | `bioimageio-resources/collection` | dev (CI-only) | Community partner registry + reviewer roster (JSON config) |
+-| bioengine | `../bioengine` | co-developed sibling | Ray-Serve inference backend behind the BioEngine button |
++| Repo | Path | Role |
++|---|---|---|
++| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | RDF format spec + `bioimageio.spec` Python library |
++| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | `bioimageio.core` — what the Test button delegates to |
++| collection | `bioimageio-resources/collection` | Community partner registry + reviewer roster (JSON config) |
++| bioengine | `../bioengine` | Ray-Serve inference backend behind the BioEngine button |
+ 
+ The spec ↔ core versions are a pinned chain — bumping one without the other silently rejects otherwise-valid resources. See the bioimageio-website skill for the version-chain rule, the partner-registry file, and the YAML 1.2 / ruyaml gotcha.
+-
+----
+-
+-## Active Development Focus
+-
+-The primary ongoing work is extending the collaborative annotation + Cellpose-SAM fine-tuning pipeline:
+-
+-- Tighter integration between annotation masks and training data preparation.
+-- Interactive correction of Cellpose-SAM predictions within the annotation viewer.
+-- Model versioning and rollback in the Hypha artifact store.
+-- Progress reporting during fine-tuning via streaming Hypha RPC updates.
