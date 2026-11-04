@@ -285,6 +285,7 @@ bioengine worker start -- --help                            # the worker process
 | `--workspace-dir DIRECTORY` | `~/.bioengine` | Host directory mounted as the worker workspace. |
 | `--name TEXT` | `bioengine-worker` | Container name — this is the handle `bioengine worker stop` and `logs` use. Override it if a worker is already running on this host that you must not disturb. |
 | `--shm-size TEXT` | `8g` | Shared memory size. |
+| `--memory LIMIT` | `auto` | Container memory limit, passed to the runtime as `--memory`. `auto` is 90% of this host's total memory; give a size (e.g. `32g`) to set it yourself, or `none` for no limit. It matters because Ray sizes its own memory monitor from the cgroup limit when there is one and from the host's total when there is not — so an uncapped worker only starts shedding its own tasks once the whole machine is nearly gone, by which point the kernel's OOM killer has usually already acted. **docker/podman only**: with `apptainer`, `singularity` or `native` an *explicit* limit is refused rather than silently dropped, while the `auto` default stays silent so those runtimes still start. |
 | `--gpus / --no-gpus` | on when `nvidia-smi` is present | Request GPUs. |
 | `-d, --detach` |  | Run the container in the background. |
 | `--token TOKEN` | `$HYPHA_TOKEN` / `$BIOENGINE_TOKEN` | Hypha auth token. **Passed via the environment, not the command line**, so it does not land in the container's `/proc/<pid>/cmdline`. |
