@@ -83,12 +83,16 @@ file clean over that entire difference. Check before editing:
 `.github/copilot-instructions.md` symlinks to this file, so what lands here is public and also
 reaches Copilot.
 
-**`node_modules` is shared, so a dependency purge is never local to your worktree.** Here it is a
-symlink to `/data/nmechtel/bioimage.io/node_modules`, the main checkout's directory that every
-worktree borrows. Never clear a package manager's "remove the modules directory" prompt with
-`CI=true`, which is what its own no-TTY message suggests: that directory belongs to every
-checkout at once. Caveat, so this stays re-checkable: `pnpm run <script>` did NOT raise that
-prompt when tried, so it is a rail against a condition, not a fault you will hit today.
+**`node_modules` is shared, so a dependency purge is never local to your worktree.** In a worktree
+here it symlinks into the main checkout (`readlink -f node_modules`), so it is every worktree's
+install at once. Never clear a "remove the modules directory" prompt with `CI=true`, which is what
+pnpm's own no-TTY message suggests. It is intermittent: on 2026-11-04 `pnpm run <script>` failed
+with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, then exited 0 within the hour on the same tree
+and would not fail again, and the abort that saved it is TTY-dependent. Prefer the binaries, which
+cannot touch the store. `pnpm` is right in CI, where the checkout is fresh.
+
+---
+
 ## Where to find more
 
 Load the matching skill before touching that area. They hold the conventions, the component
