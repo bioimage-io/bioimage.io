@@ -61,7 +61,8 @@ in `package.json` against a tsconfig needing 4.1+. Re-measured 2026-11-04, the s
 2,211 = 1 + 2,210: one `tsconfig.json(17,12): error TS6046: Argument for '--jsx' option must be:
 'preserve', 'react-native', 'react'` (the file asks for `react-jsx`, added in 4.1), and 2,210
 `TS1xxx` parse errors in dependencies' `.d.ts` files that 3.9 cannot read. **Zero are under
-`src/`.** None of that is about your change. The real gate is:
+`src/`.** None of it is about your change. One clean tree, 2026-11-04: `tsc --noEmit` exit 1 on
+those 2,211, `react-scripts test` exit 0 over 108 cases, the gate below exit 0.
 
     ./node_modules/.bin/react-scripts build
 
