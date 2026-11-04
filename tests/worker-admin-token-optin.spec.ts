@@ -1,167 +1,261 @@
 import { test, expect, Page } from '@playwright/test';
-import fs from 'fs';
+import * as path from 'path';
 import { BASE_URL } from './baseUrl';
 
-// Regression guard for issue #0034.
-//
-// "Manage a BioEngine Worker" used to mint a read-write Hypha token
-// unconditionally, and refused to copy the prompt until it had one. So there
-// was no way to obtain the prompt without a live credential embedded in it,
-// and logged out the page produced nothing at all.
-//
-// #0034 added a checkbox, ticked by default, and this spec pins both states.
-// The box is deliberately NOT disabled while logged out, unlike the same box on
-// the apps page, which the anonymous test below asserts directly.
-//
-// Requires: a dev server at E2E_BASE_URL (the page is store-driven, so it needs
-// the dev build, not build/). The logged-in half additionally needs
-// HYPHA_TOKEN, and skips without it; the anonymous half needs no credential and
-// is not a degraded mode of the test.
+/**
+ * The agent prompt on `/bioengine/worker-admin` (no `?service_id=`), both ways
+ * round: with the Hypha token included, which is the default, and without it.
+ *
+ * Nothing here talks to a real worker or mints a real token. `window.__hyphaStore`
+ * (a dev-only seam in src/store/hyphaStore.ts, compiled out of production) is
+ * handed a fake logged-in Hypha server whose `listServices` returns one worker
+ * and whose `generateToken` returns a known string, so the real component tree
+ * renders against controlled data and the token is something the assertions can
+ * search for by value.
+ *
+ * Run against a dev server (the seam does not exist in a production build):
+ *   BROWSER=none ./node_modules/.bin/react-scripts start
+ *   npx playwright test tests/worker-admin-token-optin.spec.ts
+ */
 
-test.use({ baseURL: BASE_URL, viewport: { width: 1280, height: 900 } });
+const VIEWPORT = { width: 1280, height: 900 };
+
+test.use({
+  baseURL: BASE_URL,
+  viewport: VIEWPORT,
+  serviceWorkers: 'block',
+  launchOptions: { args: ['--disable-gpu', '--no-sandbox'] },
+});
+
+test.beforeAll(() => {
+  // The close gate wants the viewport that actually ran, printed by the
+  // harness rather than typed on a command line.
+  console.log(`viewport: ${VIEWPORT.width}x${VIEWPORT.height}`);
+});
 
 const PAGE = '/#/bioengine/worker-admin';
+const WORKSPACE = 'stub-workspace';
+const SERVICE_ID = `${WORKSPACE}/stub-bioengine-worker:bioengine-worker`;
 
-/** The line buildPrompt emits in place of a token. */
-const ENV_FALLBACK = 'Authenticate with HYPHA_TOKEN from the environment';
+/** Must match FEATURED_SERVICE_NAME in BioEngineWorkerList, which is what makes
+ *  the admin page apply its one-shot default selection. Selecting a worker is
+ *  not what this spec is about, so it leans on that default rather than
+ *  clicking a card. */
+const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
 
-const injectToken = (token: string) => ({
-  tok: token,
-  expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString(),
-});
+/** A value no part of the app could produce by accident, so finding it in the
+ *  page is proof it came from `generateToken` and not from a placeholder. */
+const STUB_TOKEN = 'stub-token-8c1f4a9e-DO-NOT-SHIP';
 
-function readHyphaToken(): string | undefined {
-  if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
-  try {
-    return fs.readFileSync('/data/nmechtel/bioimage.io/.env', 'utf8').match(/HYPHA_TOKEN=(\S+)/)?.[1];
-  } catch {
-    return undefined;
-  }
-}
+const SHOTS = path.join(__dirname, 'screenshots');
 
 /**
- * Wait for the worker list to seed its default selection.
- *
- * The featured worker is matched by name and the list refreshes every 10 s, so
- * the first poll often returns some other site's workers. Rather than click a
- * card by a label that embeds a ReplicaSet hash and changes on every pod roll,
- * wait for the page's own selection summary to report a selection.
+ * Cut the page off from every origin except the dev server, so the stubbed
+ * store is the only thing driving the UI and real hypha.aicell.io reads cannot
+ * race it. Registered first so per-test routes take precedence.
  */
-async function waitForWorkerSelected(page: Page) {
-  await expect(page.getByText(/\d+ workers? selected/)).toBeVisible({ timeout: 90000 });
-}
-
-/**
- * Screenshot the page, masking the prompt only when it holds a live credential.
- *
- * A screenshot of a ticked, logged-in prompt is a read-write Hypha token in a
- * file, so that one case is painted over. Every other case is exactly the thing
- * a reviewer needs to read, so it is left legible.
- */
-async function shot(
-  page: Page,
-  testInfo: import('@playwright/test').TestInfo,
-  name: string,
-  { maskPrompt = false } = {},
-) {
-  const path = testInfo.outputPath(name);
-  await page.screenshot({ path, mask: maskPrompt ? [page.locator('pre').first()] : [] });
-  testInfo.annotations.push({ type: 'screenshot', description: path });
-  return path;
-}
-
-test.describe('logged out', () => {
-  test('the box is ticked by default, and unticking it is possible without logging in', async ({ page }, testInfo) => {
-    test.setTimeout(120000);
-    await page.goto(PAGE);
-
-    const box = page.getByTestId('include-token');
-    await expect(box).toBeVisible({ timeout: 30000 });
-    await expect(box).toBeChecked();
-
-    // Ticked with no session: the prompt promises a token nothing can mint, so
-    // Copy stays disabled and the banner says how to get unstuck.
-    const copy = page.getByRole('button', { name: /copy/i }).first();
-    await expect(copy).toBeDisabled();
-    await expect(page.getByText('A Hypha token is required.')).toBeVisible();
-    await expect(page.getByText(/untick the box above/i)).toBeVisible();
-    await shot(page, testInfo, 'logged-out-ticked.png');
-
-    // This is the assertion that separates this page from the apps page, where
-    // the identical checkbox carries disabled={!isLoggedIn}. Logging out is
-    // exactly when someone wants the token-free prompt, so here it must be
-    // reachable with no session at all.
-    await expect(box).toBeEnabled();
-    await box.uncheck();
-    await expect(box).not.toBeChecked();
-
-    // With no credential promised there is nothing to report, so the banner
-    // goes away rather than flipping colour, and the only thing still missing
-    // is a worker.
-    await expect(page.getByText('A Hypha token is required.')).toHaveCount(0);
-    await expect(page.getByText(/is included in the prompt/i)).toHaveCount(0);
-    await expect(page.getByText('Select at least one worker below to enable copying.')).toBeVisible();
-
-    const prompt = await page.locator('pre').first().innerText();
-    expect(prompt).toContain('https://bioimage.io/skills/bioengine/SKILL.md');
-    expect(prompt).toContain(ENV_FALLBACK);
-    expect(prompt).not.toMatch(/HYPHA_TOKEN=\S/);
-    await shot(page, testInfo, 'logged-out-unticked.png');
-  });
-});
-
-test.describe('logged in', () => {
-  test('ticked copies a prompt with a token, unticked copies one without', async ({ page }, testInfo) => {
-    const token = readHyphaToken();
-    if (!token) {
-      testInfo.annotations.push({
-        type: 'skip-reason',
-        description: 'no HYPHA_TOKEN, so no session can be injected and the worker list stays empty.',
-      });
-      test.skip();
+async function blockExternalNetwork(page: Page) {
+  const origin = new URL(BASE_URL).origin;
+  await page.route('**/*', async (route) => {
+    const url = route.request().url();
+    if (url.startsWith(origin) || url.startsWith('data:') || url.startsWith('blob:')) {
+      await route.fallback();
       return;
     }
-    test.setTimeout(180000);
-
-    await page.addInitScript(({ tok, expiry }) => {
-      localStorage.setItem('token', tok);
-      localStorage.setItem('tokenExpiry', expiry);
-    }, injectToken(token));
-
-    await page.goto(PAGE);
-
-    const box = page.getByTestId('include-token');
-    await expect(box).toBeVisible({ timeout: 30000 });
-    await expect(box).toBeChecked();
-    await waitForWorkerSelected(page);
-
-    // --- ticked: today's behaviour, unchanged ---
-    const copy = page.getByRole('button', { name: /copy/i }).first();
-    await expect(copy).toBeEnabled({ timeout: 90000 });
-    await expect(page.getByText(/is included in the prompt/i)).toBeVisible();
-
-    const withToken = await page.locator('pre').first().innerText();
-    expect(withToken).toMatch(/HYPHA_TOKEN=\S{20,}/);
-    expect(withToken).toMatch(/Workers?:/);
-    expect(withToken).not.toContain(ENV_FALLBACK);
-    await shot(page, testInfo, 'logged-in-ticked.png', { maskPrompt: true });
-
-    // --- unticked: same prompt, no credential, Copy still live ---
-    await box.uncheck();
-    await expect(box).not.toBeChecked();
-    await expect(page.getByText(/is included in the prompt/i)).toHaveCount(0);
-    await expect(page.getByText('A Hypha token is required.')).toHaveCount(0);
-    await expect(copy).toBeEnabled();
-
-    const withoutToken = await page.locator('pre').first().innerText();
-    expect(withoutToken).not.toMatch(/HYPHA_TOKEN=\S/);
-    expect(withoutToken).toContain(ENV_FALLBACK);
-    // The worker selection survives the toggle: only the credential changed.
-    expect(withoutToken).toMatch(/Workers?:/);
-    await shot(page, testInfo, 'logged-in-unticked.png');
-
-    // --- re-ticking mints a fresh token rather than leaving the prompt bare ---
-    await box.check();
-    await expect(page.locator('pre').first()).toContainText(/HYPHA_TOKEN=\S{20,}/, { timeout: 60000 });
+    await route.abort();
   });
+}
+
+/**
+ * Put a fake logged-in Hypha session in the store: one bioengine-worker service
+ * in the user's own workspace, and a `generateToken` that hands back
+ * STUB_TOKEN. `tokenCalls` is left on `window` so a test can tell "the token is
+ * absent because it was cleared" from "the token is absent because minting it
+ * never happened".
+ */
+async function stubLoggedIn(page: Page) {
+  await page.evaluate(
+    ({ serviceId, workspace, featuredName, stubToken }) => {
+      (window as any).__tokenCalls = [];
+      const worker = {
+        get_status: async () => ({
+          bioengine_version: '0.16.61',
+          is_ready: true,
+          workspace,
+          geo_location: null,
+          ray_cluster: {},
+          bioengine_apps: { service_id: null },
+        }),
+        get_app_status: async () => ({}),
+      };
+      const server = {
+        // LoginButton reads server.config.user unguarded, so a fake server
+        // without a config crashes the navbar before the page renders.
+        config: { user: { id: 'stub-admin-id', email: 'stub-admin@example.org' }, workspace },
+        generateToken: async (opts: any) => {
+          (window as any).__tokenCalls.push(opts);
+          return stubToken;
+        },
+        listServices: async (_query: any) => [
+          { id: serviceId, name: featuredName, description: 'a stubbed worker' },
+        ],
+        getService: async (id: string) => {
+          if (id === 'public/artifact-manager') {
+            return { read: async () => ({}), list: async () => ({ items: [] }) };
+          }
+          if (id === serviceId) return worker;
+          // Every other workspace the list probes, including the public one,
+          // legitimately has no worker here.
+          throw new Error(`stub server has no service ${id}`);
+        },
+      };
+      (window as any).__hyphaStore.setState({
+        server,
+        user: { id: 'stub-admin-id', email: 'stub-admin@example.org', roles: [] },
+        isConnected: true,
+        isLoggedIn: true,
+        isAuthenticated: true,
+        connectionStatus: 'connected',
+      });
+      (window as any).__hyphaStore.getState().markHyphaReachable();
+    },
+    { serviceId: SERVICE_ID, workspace: WORKSPACE, featuredName: FEATURED_SERVICE_NAME, stubToken: STUB_TOKEN }
+  );
+}
+
+async function openPromptPage(page: Page) {
+  await blockExternalNetwork(page);
+  await page.goto(PAGE);
+  await page.waitForFunction(() => !!(window as any).__hyphaStore, null, { timeout: 30000 });
+  await stubLoggedIn(page);
+  await expect(page.getByText('Manage a BioEngine Worker')).toBeVisible({ timeout: 20000 });
+  // The default selection lands only once the stubbed worker has arrived, and
+  // the prompt names no worker until then.
+  await expect(page.locator('pre')).toContainText(SERVICE_ID, { timeout: 20000 });
+}
+
+const promptText = (page: Page) => page.locator('pre').first().innerText();
+const checkbox = (page: Page) => page.getByTestId('include-token');
+/** `exact` is load-bearing: every worker card carries a "Copy service ID"
+ *  button, whose accessible name contains "Copy", so a substring match resolves
+ *  to two elements and fails on strict mode rather than on the behaviour. */
+const copyButton = (page: Page) => page.getByRole('button', { name: 'Copy', exact: true });
+
+test('by default the token is included, and the prompt is copyable', async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await openPromptPage(page);
+
+  await expect(checkbox(page)).toBeChecked();
+  await expect(page.getByText('A read-write Hypha token for your workspace is included')).toBeVisible();
+
+  const prompt = await promptText(page);
+  expect(prompt).toContain(`HYPHA_TOKEN=${STUB_TOKEN}`);
+  expect(prompt).toContain(`Worker: ${SERVICE_ID}`);
+  expect(prompt).toContain('https://bioimage.io/skills/bioengine/SKILL.md');
+  await expect(copyButton(page)).toBeEnabled();
+
+  const shot = path.join(SHOTS, 'worker-admin-token-included.png');
+  await page.screenshot({ path: shot, fullPage: false });
+  console.log(`screenshot: ${shot}`);
+
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
+test('unticking the box removes the token from the prompt and still allows copying', async ({ page }, testInfo) => {
+  const errors: string[] = [];
+  page.on('pageerror', (e) => errors.push(String(e)));
+
+  await openPromptPage(page);
+  // Establish the token really was there first, so a later absence is the
+  // untick and not a prompt that never carried one.
+  expect(await promptText(page)).toContain(STUB_TOKEN);
+  expect(await page.evaluate(() => (window as any).__tokenCalls.length)).toBeGreaterThan(0);
+
+  await checkbox(page).uncheck();
+  await expect(checkbox(page)).not.toBeChecked();
+
+  const prompt = await promptText(page);
+  expect(prompt).not.toContain(STUB_TOKEN);
+  expect(prompt).not.toContain('HYPHA_TOKEN=');
+  // It must still say a token is needed, rather than silently omitting it.
+  expect(prompt).toContain('read-write Hypha token');
+  expect(prompt).toContain('HYPHA_TOKEN');
+  // Still names the worker and the skill, so unticking cost nothing else.
+  expect(prompt).toContain(`Worker: ${SERVICE_ID}`);
+  expect(prompt).toContain('https://bioimage.io/skills/bioengine/SKILL.md');
+
+  // The whole point: copying is no longer blocked.
+  await expect(copyButton(page)).toBeEnabled();
+  await expect(page.getByText('No token is included, so this prompt is safe to paste anywhere')).toBeVisible();
+
+  // And the cleared token is nowhere else on the page either.
+  expect(await page.content()).not.toContain(STUB_TOKEN);
+
+  const shot = path.join(SHOTS, 'worker-admin-token-excluded.png');
+  await page.screenshot({ path: shot, fullPage: false });
+  console.log(`screenshot: ${shot}`);
+
+  expect(errors, `page errors: ${errors.join(' | ')}`).toHaveLength(0);
+});
+
+test('re-ticking the box mints a fresh token and puts it back', async ({ page }) => {
+  await openPromptPage(page);
+
+  await checkbox(page).uncheck();
+  expect(await promptText(page)).not.toContain(STUB_TOKEN);
+  const callsAfterUntick = await page.evaluate(() => (window as any).__tokenCalls.length);
+
+  await checkbox(page).check();
+  await expect(page.locator('pre')).toContainText(`HYPHA_TOKEN=${STUB_TOKEN}`, { timeout: 15000 });
+
+  // A fresh mint, not a cached value that was never dropped. This is the
+  // control for the previous test: if `clearToken` had only hidden the token,
+  // this count would not move.
+  const callsAfterRecheck = await page.evaluate(() => (window as any).__tokenCalls.length);
+  expect(callsAfterRecheck).toBeGreaterThan(callsAfterUntick);
+});
+
+test('the token is requested read_write, not admin', async ({ page }) => {
+  await openPromptPage(page);
+
+  const calls = await page.evaluate(() => (window as any).__tokenCalls);
+  expect(calls.length).toBeGreaterThan(0);
+  for (const call of calls) {
+    expect(call.permission).toBe('read_write');
+    expect(call.expires_in).toBe(12 * 3600);
+  }
+});
+
+test('the prompt is flat: no blank lines, one line per fact', async ({ page }) => {
+  await openPromptPage(page);
+
+  // With the token: skill line, worker line, token line.
+  const withToken = await promptText(page);
+  expect(withToken).not.toContain('\n\n');
+  expect(withToken.trim().split('\n')).toHaveLength(3);
+
+  await checkbox(page).uncheck();
+  const withoutToken = await promptText(page);
+  expect(withoutToken).not.toContain('\n\n');
+  expect(withoutToken.trim().split('\n')).toHaveLength(3);
+});
+
+test('CONTROL: with no worker selected the copy is blocked even with a token', async ({ page }) => {
+  await openPromptPage(page);
+
+  // Deselect the default worker. The worker list's selection control is a
+  // toggle button carrying aria-pressed, not a checkbox. This is the control
+  // for the two copy-enabled assertions above: both would also pass if the
+  // Copy button had simply been left permanently enabled.
+  const selected = page.locator('button[aria-pressed="true"]');
+  const n = await selected.count();
+  expect(n, 'the default selection should have put one worker in the prompt').toBeGreaterThan(0);
+  for (let i = 0; i < n; i += 1) {
+    await selected.nth(0).click();
+  }
+
+  await expect(page.getByText('No worker selected')).toBeVisible({ timeout: 10000 });
+  await expect(copyButton(page)).toBeDisabled();
 });
