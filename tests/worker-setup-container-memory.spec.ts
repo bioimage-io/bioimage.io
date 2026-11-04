@@ -201,3 +201,31 @@ test('CONTROL: the cap is not emitted in external-cluster mode', async ({ page }
   await expect(pre).toBeVisible({ timeout: 20000 });
   expect(await pre.innerText()).not.toContain('--memory');
 });
+
+/**
+ * Writes the two desktop-viewport screenshots the issue thread shows. Kept as a
+ * test rather than a script so the images and the assertions above are produced
+ * by one command and cannot drift apart.
+ */
+test('SCREENSHOTS: the field at its default and with the warning showing', async ({ page }) => {
+  await openWizard(page);
+
+  const panel = page.locator('xpath=//h5[normalize-space(text())="Container & Compute"]/..');
+  await expect(panel).toBeVisible();
+
+  await panel.scrollIntoViewIfNeeded();
+  await panel.screenshot({ path: 'tests/screenshots/0042-container-memory-default.png' });
+
+  const cap = fieldByLabel(page, FIELD, 'input');
+  await cap.scrollIntoViewIfNeeded();
+  await cap.fill('16');
+  await expect(page.getByText(/Raise this above/)).toBeVisible();
+  await panel.screenshot({ path: 'tests/screenshots/0042-container-memory-warning.png' });
+
+  // The copied command, which is the thing a user actually takes away.
+  const cmd = await command(page);
+  expect(cmd).toContain('--memory=16g');
+  const pre = page.locator('pre', { hasText: 'python -m bioengine.worker' }).first();
+  await pre.scrollIntoViewIfNeeded();
+  await pre.screenshot({ path: 'tests/screenshots/0042-container-memory-command.png' });
+});
