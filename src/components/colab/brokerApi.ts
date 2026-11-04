@@ -17,6 +17,8 @@
 // reconnects the shared Hypha store, and retries once before giving up.
 
 import { useHyphaStore } from '../../store/hyphaStore';
+import type { ImageSourceRef } from './imageSource';
+import type { PixelRegion } from './ngffLayout';
 
 export const ANNOTATION_BROKER_SERVICE_ID = 'bioimage-io/annotation-broker';
 
@@ -63,6 +65,8 @@ export interface SharedDatasetSummary {
   labels: DatasetLabel[];
 }
 
+export type ImageState = 'local' | 'remote';
+
 export interface DatasetIndexImage {
   stem: string;
   // annotation-broker 0.8.0+: cached PNG-header read at registration/upload
@@ -70,6 +74,23 @@ export interface DatasetIndexImage {
   // missing as "unknown", never warn on it (round-31 follow-up).
   width?: number;
   height?: number;
+  // annotation-broker 0.10.0+: image-manifest fields. `state` is 'local' when
+  // the pixels are a file in the artifact and 'remote' when the manifest only
+  // references an external source. `path` is the artifact-relative file path,
+  // absent for a not-yet-materialised remote entry. Both are absent on a
+  // pre-0.10.0 broker, where every image is by definition local — treat
+  // `state === undefined` as 'local', never as "unknown".
+  state?: ImageState;
+  path?: string;
+}
+
+export interface SyncImageManifestResult {
+  /** True when the manifest file was actually rewritten. */
+  changed: boolean;
+  /** Total entries in the reconciled manifest. */
+  images: number;
+  /** How many of those are `remote` (no file in the artifact). */
+  remote: number;
 }
 
 export interface DatasetIndexEmbedding {
@@ -93,9 +114,82 @@ export interface DatasetIndex {
   role: BrokerRole;
 }
 
-export interface ImageUrl {
+/**
+ * Where to read one image from (broker v0.10.0).
+ *
+ * `kind: 'file'` is the pre-0.10.0 shape with a discriminator added, so the
+ * `read_url` field is in the same place it always was. `kind: 'ngff'` is a
+ * remote OME-Zarr source the browser reads directly, with any credential
+ * already spliced into the path by the broker (never stored in the artifact).
+ *
+ * `kind` is optional on the type because a broker older than 0.10.0 omits it;
+ * `imageSourceRefFor` treats a missing `kind` with a `read_url` as a file.
+ */
+export type ImageUrl =
+  | { stem: string; kind?: 'file'; read_url: string }
+  | {
+      stem: string;
+      kind: 'ngff';
+      store_root: string;
+      multiscale_path?: string | null;
+      /** Set when the image is a patch of a larger slide (broker v0.12.0). */
+      region?: PixelRegion | null;
+    };
+
+/**
+ * A rectangle of a store, in level-0 pixel coordinates (design §2).
+ *
+ * Re-exported rather than redeclared. `ngffLayout` owns it because that is
+ * where the arithmetic on it lives, and it has no imports of its own to drag
+ * along; this is a type-only re-export, so nothing is added to the bundle.
+ */
+export type { PixelRegion } from './ngffLayout';
+
+export interface ImportNgffResult {
   stem: string;
-  read_url: string;
+  state: 'remote';
+  /** The patch's dimensions when `source.region` is set, the store's otherwise. */
+  width: number;
+  height: number;
+  dtype?: string;
+  channels?: string[];
+  levels?: number;
+  source: {
+    kind: 'ngff';
+    store_root: string;
+    multiscale_path: string | null;
+    region: PixelRegion | null;
+    fetched_at: string;
+    content_hint: string | null;
+  };
+}
+
+/**
+ * What the broker learned about a store without writing anything (v0.12.0).
+ *
+ * Same metadata read and same CORS preflight `import_ngff_image` runs, split
+ * out so the import UI can show the slide and its size before the user has
+ * committed to a patch. Doing the check here rather than in the browser is
+ * deliberate and unchanged from §7: a CORS rejection is opaque to JS, so the
+ * broker is the only place that can turn one into a sentence worth reading.
+ */
+export interface NgffProbe {
+  store_root: string;
+  multiscale_path: string | null;
+  width: number;
+  height: number;
+  dtype: string;
+  channels: string[];
+  levels: number;
+  content_hint: string | null;
+  /** Default stem the broker would derive from the URL, for the name field. */
+  stem: string;
+  /**
+   * Largest image the browser is allowed to materialise, in bytes of decoded
+   * samples. Sent by the broker rather than hard-coded here so the picker's
+   * guard cannot drift from the gate that actually enforces it.
+   */
+  max_materialise_bytes: number;
 }
 
 export type MyAnnotationUrl =
@@ -436,6 +530,23 @@ export async function getDatasetIndex(server: any, artifactId: string): Promise<
 }
 
 /**
+ * Reconcile `images/manifest.json` against the actual `images/` listing
+ * (broker v0.10.0). Manager-min role. Call it after uploading or deleting
+ * image files.
+ *
+ * Best-effort by design: the broker unions the manifest with the listing on
+ * every read, so a failed or skipped sync costs those stems their manifest
+ * metadata (dimensions, source provenance), never their visibility. Callers
+ * should therefore log a failure and carry on rather than surfacing it.
+ */
+export async function syncImageManifest(
+  server: any,
+  artifactId: string,
+): Promise<SyncImageManifestResult> {
+  return callBroker(server, (broker) => broker.sync_image_manifest({ artifact_id: artifactId, _rkwargs: true }));
+}
+
+/**
  * Resolve a fresh presigned read URL for one image (broker v0.5.0). Public-min
  * role, safe to call before the caller's role on the dataset is known — this
  * is what lets the `&image=<stem>` deep link render before `get_dataset_index`
@@ -444,6 +555,152 @@ export async function getDatasetIndex(server: any, artifactId: string): Promise<
 export async function getImageUrl(server: any, artifactId: string, imageStem: string): Promise<ImageUrl> {
   return callBroker(server, (broker) =>
     broker.get_image_url({ artifact_id: artifactId, image_stem: imageStem, _rkwargs: true }),
+  );
+}
+
+/**
+ * Turn a broker `ImageUrl` into something `openImageSource` accepts.
+ *
+ * The two live in different modules on purpose: `imageSource` knows how to
+ * decode and nothing about the broker, and this is the one place the wire
+ * shape is translated.
+ */
+export function imageSourceRefFor(url: ImageUrl): ImageSourceRef {
+  if (url.kind === 'ngff') {
+    return {
+      kind: 'ngff',
+      storeRoot: url.store_root,
+      multiscalePath: url.multiscale_path ?? undefined,
+      region: url.region ?? null,
+    };
+  }
+  return url.read_url;
+}
+
+/**
+ * Read a store's metadata without importing it (broker v0.12.0). Manager-min
+ * role, and it writes nothing: this is what the import dialog calls to render
+ * a preview of the slide before the user picks the patch to take from it.
+ */
+export async function probeNgffSource(
+  server: any,
+  storeRoot: string,
+  multiscalePath?: string,
+): Promise<NgffProbe> {
+  return callBroker(server, (broker) =>
+    broker.probe_ngff_source({
+      store_root: storeRoot,
+      multiscale_path: multiscalePath || null,
+      origin: window.location.origin,
+      _rkwargs: true,
+    }),
+  );
+}
+
+/**
+ * Add a remote OME-Zarr source to a dataset (broker v0.10.0). Manager-min
+ * role. Nothing is copied: the broker reads the store's metadata, fetches a
+ * single chunk to prove the browser will be able to read it, and records the
+ * result. A source that fails that check is rejected here with a reason,
+ * rather than importing and then failing on every image open.
+ */
+export async function importNgffImage(
+  server: any,
+  artifactId: string,
+  storeRoot: string,
+  stem?: string,
+  multiscalePath?: string,
+  /** A patch of the store rather than the whole of it (broker v0.12.0). */
+  region?: PixelRegion | null,
+): Promise<ImportNgffResult> {
+  return callBroker(server, (broker) =>
+    broker.import_ngff_image({
+      artifact_id: artifactId,
+      store_root: storeRoot,
+      stem: stem || null,
+      multiscale_path: multiscalePath || null,
+      region: region || null,
+      origin: window.location.origin,
+      _rkwargs: true,
+    }),
+  );
+}
+
+/**
+ * Undo an `importNgffImage` (broker v0.10.0). Manager-min role.
+ *
+ * A remote entry has no file, so deleting one is not "remove the file and
+ * re-sync": `syncImageManifest` deliberately never prunes a remote entry,
+ * because absence of a file proves nothing about it. This RPC is the only
+ * way one leaves the manifest. It refuses on a local image.
+ */
+export async function forgetRemoteImage(
+  server: any,
+  artifactId: string,
+  stem: string,
+): Promise<{ stem: string; forgotten: boolean; images: number }> {
+  return callBroker(server, (broker) =>
+    broker.forget_remote_image({ artifact_id: artifactId, stem, _rkwargs: true }),
+  );
+}
+
+export interface MaterialiseStart {
+  already: false;
+  stem: string;
+  path: string;
+  put_url: string;
+  max_bytes: number;
+}
+
+export interface MaterialiseAlreadyDone {
+  already: true;
+  stem: string;
+  path: string;
+}
+
+export type MaterialiseResult = MaterialiseStart | MaterialiseAlreadyDone;
+
+/**
+ * Begin turning a remote source into a file in the artifact (broker v0.11.0).
+ * Annotator-min role, because materialisation is triggered by opening an
+ * image and every annotator can open one.
+ *
+ * Returns `{ already: true }` when another annotator already did it, which is
+ * the normal outcome for every open after the first, not an error.
+ */
+export async function startMaterialiseImage(
+  server: any,
+  artifactId: string,
+  stem: string,
+): Promise<MaterialiseResult> {
+  return callBroker(server, (broker) =>
+    broker.materialise_image({ artifact_id: artifactId, stem, done: false, _rkwargs: true }),
+  );
+}
+
+/**
+ * Finish a materialisation: the broker reads the uploaded object back, checks
+ * it is a TIFF, and flips the manifest entry to `local` (broker v0.11.0).
+ *
+ * Call only after the PUT has resolved. Skipping it is recoverable but not
+ * free: the file is there, so the next manifest read promotes the entry
+ * anyway, but until something triggers that read the image stays listed as
+ * remote and stays excluded from training.
+ */
+export async function finishMaterialiseImage(
+  server: any,
+  artifactId: string,
+  stem: string,
+  levels: number,
+): Promise<{ already: boolean; stem: string; path?: string }> {
+  return callBroker(server, (broker) =>
+    broker.materialise_image({
+      artifact_id: artifactId,
+      stem,
+      done: true,
+      levels,
+      _rkwargs: true,
+    }),
   );
 }
 

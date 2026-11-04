@@ -11,7 +11,7 @@ verifies the collection, and creates an ``ImageImportSession``.
 This module is intentionally narrow. It only (a) creates the dataset
 artifact (owner-only ACL) and (b) reads diverse local image formats
 (jpg/png/tif) from a mounted local folder and uploads them one at a time as
-PNG into ``images/``. Everything else (role metadata, presigned URL handout
+pyramidal OME-TIFF into ``images/``. Everything else (role metadata, presigned URL handout
 for annotators, label folder creation, ACL sharing, embeddings) is owned by
 the standing ``annotation-broker`` BioEngine app. Annotators never talk to
 this service, and the host does not need to keep a tab open once a dataset
@@ -89,10 +89,12 @@ except ImportError:
 
 try:
     from PIL import Image  # type: ignore
+    from tifffile import TiffWriter as _TiffWriter  # type: ignore
     from tifffile import imread as _tiffread  # type: ignore
 except ImportError:
     Image = None  # type: ignore
     _tiffread = None  # type: ignore
+    _TiffWriter = None  # type: ignore
 
 # ---------------------------------------------------------------------------
 # Constants
@@ -113,6 +115,24 @@ class ImageFormat(str, Enum):
 SUPPORTED_EXTENSIONS: frozenset[str] = frozenset(
     f".{fmt.value}" for fmt in ImageFormat
 )
+
+# The OME-TIFF profile (colab-c-ometiff-design.md §4). Fixed rather than
+# configurable so the browser-side reader can stay simple and the writer
+# stays verifiable.
+OME_TIFF_MIN_LONG_AXIS = 512  # coarsest pyramid level, long axis
+OME_TIFF_TILE = 512  # tile edge, matches what omezarr-view reports
+
+# Images land as ``images/<stem>.tif``, NOT ``<stem>.ome.tif``, even though
+# the bytes are a full OME-TIFF (the OME-XML lives in ImageDescription, so
+# Bio-Formats and QuPath detect it by content, not by name). A compound
+# extension would break every stem derivation in the stack at once, because
+# they all take the last extension only: `Path(name).stem` in the broker and
+# `name.replace(/\.[^./]+$/, '')` in the frontend would both turn
+# `cells.ome.tif` into the stem `cells.ome`. Stems key annotations,
+# embeddings and splits, so a missed call site would not throw, it would
+# silently orphan a user's work. One-extension naming removes the failure
+# mode instead of fixing N instances of it.
+OME_TIFF_EXTENSION = ".tif"
 
 # ---------------------------------------------------------------------------
 # Image I/O helpers
@@ -144,6 +164,13 @@ def list_image_files(
 
 def _read_pil(path: Path) -> "np.ndarray":
     with Image.open(path) as img:
+        # A palette image would otherwise come back as an index array, and a
+        # bilevel one as booleans. Both are silently wrong as pixel data, so
+        # expand them to real samples before handing over to numpy.
+        if img.mode in ("P", "PA"):
+            img = img.convert("RGBA" if "A" in img.mode else "RGB")
+        elif img.mode == "1":
+            img = img.convert("L")
         return np.array(img)
 
 
@@ -160,36 +187,123 @@ _READERS = {
 }
 
 
-def _process_image(arr: "np.ndarray") -> "np.ndarray":
-    """Normalise to HWC RGB uint8."""
-    if arr.ndim == 3:
-        if arr.shape[0] in (1, 3, 4) and arr.shape[0] < arr.shape[1] and arr.shape[0] < arr.shape[2]:
-            arr = np.transpose(arr, (1, 2, 0))
-    if arr.ndim == 2:
-        arr = np.stack([arr] * 3, axis=-1)
-    elif arr.ndim == 3:
-        c = arr.shape[2]
-        if c == 1:
-            arr = np.concatenate([arr] * 3, axis=-1)
-        elif c == 4:
-            arr = arr[..., :3]
-        elif c == 2:
-            arr = np.stack([arr[..., 0]] * 3, axis=-1)
-    if arr.dtype != np.uint8:
-        lo, hi = arr.min(), arr.max()
-        if hi > lo:
-            arr = ((arr - lo) / (hi - lo) * 255).astype(np.uint8)
-        else:
-            arr = np.zeros_like(arr, dtype=np.uint8)
+def normalise_axes(arr: "np.ndarray") -> "np.ndarray":
+    """Put an array into the profile's axis order: ``YX`` or ``YXC``.
+
+    Only the layout is touched. dtype, channel count and every sample value
+    survive unchanged, which is the whole point of the OME-TIFF path: the
+    artifact is meant to stop being a lossy derivative of what the user has
+    on disk.
+
+    A leading channel axis (``CYX``, how tifffile hands back many microscopy
+    files) is transposed to trailing. A trailing singleton is squeezed so a
+    single-channel image round-trips as 2-D rather than as ``(H, W, 1)``.
+    """
+    if arr.ndim == 3 and arr.shape[0] in (1, 2, 3, 4) and arr.shape[0] < arr.shape[1] and arr.shape[0] < arr.shape[2]:
+        arr = np.transpose(arr, (1, 2, 0))
+    if arr.ndim == 3 and arr.shape[2] == 1:
+        arr = arr[..., 0]
     return arr
 
 
-def read_image(path: Path) -> "np.ndarray":
-    """Read *path* and return an HWC RGB uint8 numpy array."""
+def read_image_native(path: Path) -> "np.ndarray":
+    """Read *path* preserving dtype and channels, in ``YX`` / ``YXC`` order."""
     reader = _READERS.get(path.suffix.lower())
     if reader is None:
         raise ValueError(f"Unsupported extension: {path.suffix}")
-    return _process_image(reader(path))
+    return normalise_axes(reader(path))
+
+
+def build_pyramid(
+    arr: "np.ndarray", min_long_axis: int = OME_TIFF_MIN_LONG_AXIS
+) -> "List[np.ndarray]":
+    """Factor-2 levels, finest first, down to a long axis of *min_long_axis*.
+
+    Box-averages in float so a uint8 source cannot wrap around, then casts
+    back, so every level keeps the source dtype (which is what lets the
+    browser pick a coarse level and still get representative intensities).
+    An odd dimension drops its last row/column rather than padding: a
+    one-pixel edge artifact at level n is preferable to inventing data.
+    """
+    levels = [arr]
+    while max(levels[-1].shape[0], levels[-1].shape[1]) > min_long_axis:
+        prev = levels[-1]
+        h, w = prev.shape[0] // 2, prev.shape[1] // 2
+        if h < 1 or w < 1:
+            break
+        crop = prev[: h * 2, : w * 2]
+        if crop.ndim == 2:
+            small = crop.reshape(h, 2, w, 2).mean(axis=(1, 3))
+        else:
+            small = crop.reshape(h, 2, w, 2, crop.shape[2]).mean(axis=(1, 3))
+        levels.append(small.astype(arr.dtype))
+    return levels
+
+
+def _photometric_for(arr: "np.ndarray") -> str:
+    """``rgb`` only for 3- and 4-sample images, ``minisblack`` otherwise.
+
+    Verified against both readers we depend on: 1- and 2-channel data written
+    as ``rgb`` is rejected outright by tifffile, and 2-channel data is
+    genuinely not RGB (two fluorescence channels is the common case).
+    """
+    return "rgb" if arr.ndim == 3 and arr.shape[2] in (3, 4) else "minisblack"
+
+
+def encode_ome_tiff(
+    arr: "np.ndarray",
+    min_long_axis: int = OME_TIFF_MIN_LONG_AXIS,
+    tile: int = OME_TIFF_TILE,
+) -> bytes:
+    """Encode *arr* as a SubIFD-pyramidal OME-TIFF per the profile.
+
+    Convenience wrapper over :func:`encode_ome_tiff_levels` for the common
+    case where the caller has only the full-resolution array.
+    """
+    return encode_ome_tiff_levels(build_pyramid(arr, min_long_axis), tile=tile)
+
+
+def encode_ome_tiff_levels(
+    levels: "List[np.ndarray]",
+    tile: int = OME_TIFF_TILE,
+) -> bytes:
+    """Encode an already-built pyramid, finest first, per the profile.
+
+    Split out of :func:`encode_ome_tiff` so a caller that needs the level
+    count as well as the bytes (materialisation reports it to the broker) can
+    build the pyramid once. Box-averaging every level a second time just to
+    count them is a full pass over the image, and in Pyodide that is not free.
+
+    Level 0 is IFD 0; levels 1..n are its SubIFDs, which is what makes
+    ``tifffile.imread`` and ``imageio.v3.imread`` return the *full* image
+    rather than the smallest level. Coarsest-first page order would be
+    cheaper for the browser but makes both readers return a thumbnail as if
+    it were the image, so it is not an option.
+
+    Deflate, because no browser Zarr/TIFF implementation ships an LZW codec.
+    """
+    if not levels:
+        raise ValueError("Cannot encode an OME-TIFF from an empty pyramid.")
+    arr = levels[0]
+    photometric = _photometric_for(arr)
+    buf = io.BytesIO()
+    with _TiffWriter(buf, bigtiff=arr.nbytes > 4 * 1024**3, ome=True) as writer:
+        writer.write(
+            levels[0],
+            subifds=len(levels) - 1,
+            photometric=photometric,
+            tile=(tile, tile),
+            compression="deflate",
+        )
+        for level in levels[1:]:
+            writer.write(
+                level,
+                subfiletype=1,  # REDUCEDIMAGE
+                photometric=photometric,
+                tile=(tile, tile),
+                compression="deflate",
+            )
+    return buf.getvalue()
 
 
 # ---------------------------------------------------------------------------
@@ -321,23 +435,25 @@ class ImageImportSession:
     async def _upload_image(self, info: dict) -> bool:
         """Upload one local image to ``images/`` in the artifact.
 
-        Converts the source file to PNG before uploading.
-        Returns ``True`` on success, ``False`` on failure.
+        Transcodes the source file to a pyramidal OME-TIFF before uploading,
+        preserving dtype and channel count. Returns ``True`` on success,
+        ``False`` on failure.
         """
         local_path: Optional[Path] = info["local_path"]
         if local_path is None:
             return True  # already remote, nothing to do
         try:
-            arr = read_image(local_path)
-            pil = Image.fromarray(arr, mode="RGB")
-            buf = io.BytesIO()
-            pil.save(buf, format="PNG")
+            arr = read_image_native(local_path)
+            body = encode_ome_tiff(arr)
             upload_url = await self.artifact_manager.put_file(
                 self.artifact_id,
                 file_path=f"images/{info['name']}",
             )
-            await _pyfetch(upload_url, method="PUT", body=buf.getvalue())
-            console.log(f"Uploaded {info['name']} to images/")
+            await _pyfetch(upload_url, method="PUT", body=body)
+            console.log(
+                f"Uploaded {info['name']} to images/ "
+                f"({arr.shape} {arr.dtype}, {len(body)} bytes)"
+            )
             return True
         except Exception as exc:
             console.error(f"Failed to upload {info.get('name')}: {exc}")
@@ -365,17 +481,24 @@ class ImageImportSession:
         ]
 
     async def upload_image(self, name: str, context=None) -> dict:
-        """Read one local file by name, convert to PNG, upload to ``images/``."""
+        """Read one local file by name, transcode to OME-TIFF, upload it.
+
+        Returns the artifact-relative ``name`` alongside the stem so the
+        caller never has to reconstruct the extension. It used to be able to
+        assume ``.png``; it cannot any more, and guessing is what would put a
+        row in the UI that points at a file that does not exist.
+        """
         stem = Path(name).stem
         if not self.images_path:
             console.warn("upload_image: no local folder mounted")
             return {"stem": stem, "uploaded": False}
 
+        target = f"{stem}{OME_TIFF_EXTENSION}"
         local_path = self.images_path / name
-        info = {"name": f"{stem}.png", "local_path": local_path, "source": "local"}
+        info = {"name": target, "local_path": local_path, "source": "local"}
         await self._ensure_artifact_exists()
         uploaded = await self._upload_image(info)
-        return {"stem": stem, "uploaded": uploaded}
+        return {"stem": stem, "name": target, "uploaded": uploaded}
 
     async def upload_all_images(self, context=None) -> dict:
         """Upload every supported image from the local folder to ``images/``.

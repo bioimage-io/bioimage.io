@@ -9,9 +9,18 @@
 // direct reads always succeed there too, but the broker index sidesteps
 // stage/permission edge cases for a caller with only `r+`).
 
+import type { ImageState } from './brokerApi';
+
 export const COLLECTION_ID = 'bioimage-io/colab-annotations';
 
 const ARTIFACT_WORKSPACE = COLLECTION_ID.split('/')[0];
+
+// The image manifest (annotation-broker 0.10.0+), mirroring broker_core's
+// IMAGE_MANIFEST_PATH / IMAGE_MANIFEST_VERSION. A version this code does not
+// know is treated as no manifest at all, never as an empty one.
+const IMAGE_MANIFEST_PATH = 'images/manifest.json';
+const IMAGE_MANIFEST_NAME = 'manifest.json';
+const IMAGE_MANIFEST_VERSION = 1;
 
 /**
  * Bare alias -> full artifact id (`bioimage-io/<alias>`) for artifact-manager
@@ -85,7 +94,16 @@ export interface DatasetLabelRef {
 
 export interface DatasetImage {
   stem: string;
+  /** Filename inside `images/`. For a remote image there is no file, so this
+   *  is the stem itself and must never be used to build a file path. */
   name: string;
+  // annotation-broker 0.10.0+ image manifest. `local` means the pixels are a
+  // file in the artifact, `remote` that only a reference to an external
+  // OME-Zarr store is recorded. Reading an older dataset that has no manifest
+  // yields `local` for every listed file, which is the truth there.
+  state: ImageState;
+  /** Artifact-relative path, absent for a remote (not yet materialised) image. */
+  path?: string;
 }
 
 export interface AnnotationPair {
@@ -257,13 +275,84 @@ export async function listMyDatasetsBasic(artifactManager: any, user: any): Prom
   }));
 }
 
+/**
+ * Entries out of `images/manifest.json` (annotation-broker 0.10.0+), mirroring
+ * `broker_core.parse_image_manifest`.
+ *
+ * Never throws and never reports a partial read as an error: a dataset that
+ * predates the manifest, or one whose manifest is malformed or written by a
+ * newer broker, has to degrade to the file listing rather than take the image
+ * list down. That is the same rule the broker applies on its own side.
+ */
+async function readImageManifest(
+  artifactManager: any,
+  artifactId: string,
+): Promise<Record<string, { state: ImageState; path?: string }>> {
+  try {
+    const url = await withStageRetry(() =>
+      artifactManager.get_file({
+        artifact_id: artifactId,
+        file_path: IMAGE_MANIFEST_PATH,
+        stage: true,
+        _rkwargs: true,
+      }),
+    );
+    const response = await fetch(url);
+    if (!response.ok) return {};
+    const doc = await response.json();
+    if (!doc || doc.manifest_version !== IMAGE_MANIFEST_VERSION) return {};
+    const images = doc.images;
+    if (!images || typeof images !== 'object') return {};
+    const parsed: Record<string, { state: ImageState; path?: string }> = {};
+    for (const [stem, entry] of Object.entries(images as Record<string, any>)) {
+      if (!stem || !entry || typeof entry !== 'object') continue;
+      if (entry.state !== 'local' && entry.state !== 'remote') continue;
+      parsed[stem] = { state: entry.state, path: entry.path };
+    }
+    return parsed;
+  } catch {
+    return {};
+  }
+}
+
+/**
+ * Every image of the dataset: the files under `images/`, unioned with the
+ * `remote` entries of the image manifest, which by definition have no file.
+ *
+ * This is union-on-read, the same asymmetry the broker applies
+ * (`broker_core.merge_image_manifest`): the listing is authoritative for what
+ * is local, the manifest is the only record of what is remote. Two files that
+ * share a stem collapse to the alphabetically last, again matching the broker,
+ * because every stem is one image everywhere else in the app.
+ */
 export async function listImages(artifactManager: any, artifactId: string): Promise<DatasetImage[]> {
-  const entries = await listFilesSafe(artifactManager, artifactId, 'images');
-  return entries
+  const [entries, manifest] = await Promise.all([
+    listFilesSafe(artifactManager, artifactId, 'images'),
+    readImageManifest(artifactManager, artifactId),
+  ]);
+
+  const byStem = new Map<string, DatasetImage>();
+  for (const [stem, entry] of Object.entries(manifest)) {
+    if (entry.state !== 'remote') continue;
+    byStem.set(stem, { stem, name: stem, state: 'remote' });
+  }
+
+  const names = entries
     .filter((entry) => !isDirectoryEntry(entry))
     .map((entry) => entryName(entry))
-    .filter(Boolean)
-    .map((name) => ({ stem: name.replace(/\.[^./]+$/, ''), name }));
+    // The manifest lives inside the directory it describes, so the listing
+    // must never be read as if it were an image.
+    .filter((name) => name && name !== IMAGE_MANIFEST_NAME)
+    .sort();
+  for (const name of names) {
+    const stem = name.replace(/\.[^./]+$/, '');
+    if (!stem) continue;
+    // A file wins over a remote entry of the same stem: that is what a
+    // materialised image looks like mid-transition.
+    byStem.set(stem, { stem, name, state: 'local', path: `images/${name}` });
+  }
+
+  return [...byStem.values()].sort((a, b) => a.stem.localeCompare(b.stem));
 }
 
 /**
@@ -588,7 +677,8 @@ export async function getLabelTotals(
 }
 
 /**
- * Remove every trace of an image: `images/{stem}.png`, every
+ * Remove every trace of an image: its file under `images/` (whatever the
+ * extension, resolved from the listing rather than assumed), every
  * annotation pair under each `label_<name>/user-<id>` folder, and
  * `embeddings/{stem}_<model>.npz`. Best-effort per file so one
  * missing/already-removed entry does not abort the rest.
@@ -609,9 +699,12 @@ export async function deleteImageEverywhere(
   };
 
   const images = await listImages(artifactManager, artifactId);
-  const imageEntry = images.find((image) => image.stem === stem);
-  if (imageEntry) {
-    await removeFile(`images/${imageEntry.name}`);
+  // A remote image has no `path` and so no file to remove; its manifest entry
+  // is dropped by the broker's `forgetRemoteImage` instead. Everything below
+  // (embeddings, annotations) applies to it exactly as it does to a local one.
+  const imagePath = images.find((image) => image.stem === stem)?.path;
+  if (imagePath) {
+    await removeFile(imagePath);
   }
 
   const embeddingEntries = await listFilesSafe(artifactManager, artifactId, 'embeddings');
