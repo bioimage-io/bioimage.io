@@ -66,6 +66,13 @@ one `TS6046` for that option, and 2,210 `TS1xxx` parse errors inside dependencie
     ./node_modules/.bin/react-scripts build
     npx react-scripts test --watchAll=false      # 108 cases across 11 suites
 
+Allow the build 15 minutes: measured 2026-11-04 at under 3 min idle but **12 min 44 s** under
+load, and once killed with no exit status when memory ran out, so a short timeout reports a
+failure that did not happen (180 s has done so twice). Judge it on `^Failed to compile`, the
+`build/` output and the exit status, never on elapsed time. A plain `error` grep is useless here:
+it matches third-party `Failed to parse source map ... Error: ENOENT` warnings and eslint
+warnings about variables merely NAMED `...Error...`, on builds that succeeded.
+
 **This file gets `skip-worktree` set in worktrees, and then edits to it never commit.** It is a
 per-worktree index bit, set so session-local notes can live here uncommitted. Seen with a local
 copy 101 lines longer than the tracked blob while `git status` and `git diff` both reported the
