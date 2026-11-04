@@ -1,0 +1,36 @@
+Production build verification, #0038/#0044 review follow-up
+Command: ./node_modules/.bin/react-scripts build
+Host: europa   Tree: c808505   Branch: quick-river
+
+PRE-STATE (build/ removed beforehand so its contents are attributable to THIS run)
+  build/index.html present: NO
+  build/ file count       : 0
+  free memory             : 21GB available, 9GB free
+  started                 : 2026-11-04 20:03:22 CET
+  epoch start             : 1793819002
+  epoch end               : 1793820177
+  finished                : 2026-11-04 20:22:57 CET
+
+EXIT STATUS: 0
+
+POST-STATE
+  build/index.html present: YES
+  build/index.html mtime  : 2026-11-04 20:22:56.034497153 +0100
+  build/index.html size   : 3092 bytes
+  build/index.html sha256 : 5dbf132ed4fd1f2db6e836ea290cd02bec6129f2e66f8c6ae92a101f3aaa223b
+  build/ file count       : 104
+  build/ total size       : 56M
+  main bundle             : build/static/js/main.65eb81de.js
+
+LOG ANALYSIS (anchored, not a bare 'error' grep)
+  '^Failed to compile' count : 0
+  verdict line               : 11:Compiled with warnings.
+  'ready to be deployed'     : 1
+
+LAST 6 LOG LINES
+  |   serve -s build
+  | 
+  | Find out more about deployment here:
+  | 
+  |   https://cra.link/deployment
+  | 

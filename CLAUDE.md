@@ -43,11 +43,10 @@ encoded in the check, so run it rather than reading the rule back out of here. I
     npm run check-ui-text                        # exits 1 and names the file:line of each violation
     node scripts/check-ui-text.js --self-test    # 22 checks, proves it can still go RED
 
-Do not grep for this. Measured 2026-11-04, `grep -rn '—' src --include='*.ts' --include='*.tsx'`
-matches 255 lines across 73 files, nearly all of them in exempt comments, so a grep gate is red
-on arrival and gets switched off. The check parses instead, so a comment, a JSDoc block, a `console.*` log and
-a regex literal are not nodes it ever reads. To keep a dash on purpose, put `ui-text-check:
-allow` on that line, or `ui-text-check: disable` anywhere in the file.
+Do not grep for this: a dash grep over `src` matches 255 lines across 73 files, nearly all of them
+in exempt comments, so a grep gate is red on arrival and gets switched off. The check parses, so a
+comment, a JSDoc block, a `console.*` log and a regex literal are not nodes it reads. To keep a
+dash on purpose, add `ui-text-check: allow` on the line or `ui-text-check: disable` in the file.
 
 One clause of the rule is not mechanisable and stays a judgement: prefer two sentences or a
 comma over a semicolon, and keep one only where it genuinely joins two independent clauses.
@@ -66,12 +65,14 @@ one `TS6046` for that option, and 2,210 `TS1xxx` parse errors inside dependencie
     ./node_modules/.bin/react-scripts build
     npx react-scripts test --watchAll=false      # 108 cases across 11 suites
 
-Allow the build 15 minutes: measured 2026-11-04 at under 3 min idle but **12 min 44 s** under
-load, and once killed with no exit status when memory ran out, so a short timeout reports a
-failure that did not happen (180 s has done so twice). Judge it on `^Failed to compile`, the
-`build/` output and the exit status, never on elapsed time. A plain `error` grep is useless here:
-it matches third-party `Failed to parse source map ... Error: ENOENT` warnings and eslint
-warnings about variables merely NAMED `...Error...`, on builds that succeeded.
+Allow the build 25 minutes: measured under 3 min idle but 12 min 44 s and 19 min 35 s under load,
+and once killed with no exit status at 3 GB free. A short timeout reports a failure that did not
+happen (180 s has, twice), so judge it on `^Failed to compile`, the `build/` output and the exit
+status, never on elapsed time, and check free memory before blaming the code. A bare `error` grep
+is useless: it matches third-party `Failed to parse source map ... Error: ENOENT` and eslint
+warnings about variables merely NAMED `...Error...` on builds that succeeded. Output is
+deterministic, so a repeated `main.<hash>.js` corroborates a real completion. Worked example:
+`notes/build-verification-2026-11-04.txt`.
 
 **This file gets `skip-worktree` set in worktrees, and then edits to it never commit.** It is a
 per-worktree index bit, set so session-local notes can live here uncommitted. Seen with a local
@@ -95,8 +96,7 @@ cannot touch the store. `pnpm` is right in CI, where the checkout is fresh.
 
 ## Where to find more
 
-Load the matching skill before touching that area. They hold the conventions, the component
-inventory and the architectural patterns, so none of that is repeated here:
+Load the matching skill before touching that area:
 
 - **`.claude/skills/bioimageio-website/SKILL.md`** — the code-level guide to this repository.
   Read it before any non-trivial change.
