@@ -1,5 +1,15 @@
 # BioImage.IO — Claude Code Guidelines
 
+This repository is the React/TypeScript frontend of the **BioImage Model Zoo**
+(<https://bioimage.io>): a community platform for sharing, testing and running deep learning
+models for bioimage analysis, with model records in the bioimageio RDF format, in-browser
+inference through BioEngine, and artifact storage and RPC through Hypha Cloud. It is a
+production site with a wide community, so a change here is visible to people who did not ask
+for it. There is no README.md at the repo root; `docs/` holds the user-facing documentation.
+
+This file carries only what the repository cannot tell you itself. The stack, the scripts and
+the dependency versions are in `package.json`; the component layout is in the skill below.
+
 ## Hard Rules
 
 These override every other instruction in this file, in any skill, and in any task brief.
@@ -23,84 +33,69 @@ does not unsend the notification. If a task seems to require touching #3, stop a
 
 ---
 
-## Project Goal
+## User-visible text: no em dashes, and there is a check for it
 
-**BioImage Model Zoo** (<https://bioimage.io>) is a community-driven, fully open platform for sharing, discovering, testing, and deploying deep learning models for bioimage analysis. The platform makes models truly **FAIR** — Findable, Accessible, Interoperable, and Reproducible — across frameworks, operating systems, and software ecosystems.
+Strings that render to a user (JSX text, `title`/`placeholder`/`aria-label` and friends, button
+labels, dialog copy, toast and error messages) carry no em dash (`—`, U+2014) and no en dash
+(`–`, U+2013) in prose. A bare `–` between numeric bounds in a compact label is fine (`5–95%`).
+Comments, JSDoc, `console.*`, commit messages, SKILL.md files and this file are all exempt.
 
-### Core Mission
+Do not grep for this: a plain `grep -rn '—' src` returns 255 hits, nearly all of them in exempt
+comments. Run the parser instead, and run it before you hand over any UI change:
 
-1. **Model repository** — Host pre-trained DL models (segmentation, restoration, classification, etc.) with standardized metadata (RDF/YAML), DOIs, memorable nicknames, and full provenance (training data, notebooks, authors).
-2. **Cross-tool interoperability** — A single model format (bioimageio spec) runs across ilastik, deepImageJ, QuPath, StarDist, ImJoy, ZeroCostDL4Mic, CSBDeep, Icy, and more — without per-tool re-integration.
-3. **In-browser testing via BioEngine** — Users can evaluate any model on their own images directly on the website; the BioEngine serves GPU inference from cloud infrastructure (de.NBI / Kubernetes + Triton).
-4. **Community contribution pipeline** — Model submission through Zenodo or the web upload form; automatic CI quality assurance; manual curator review; community partner collections via GitHub.
-5. **FAIR developer tooling** — Python (`bioimageio.core`) and Java libraries let developers programmatically load, run, export, and re-upload models in only a few lines of code.
+    node scripts/check-ui-text.mjs              # exits 1 and names the file:line of each violation
+    node scripts/check-ui-text.mjs --self-test  # 21 checks, proves it can still go RED
 
-### Active Feature: Collaborative Annotation & Fine-Tuning
+It walks the TypeScript AST and looks only at surfaces that reach a user. To keep a dash on
+purpose, put `ui-text-check: allow` in a comment on the same line.
 
-The current in-browser application layer extends the platform with:
-
-- **Collaborative annotation** — mount local folders or upload images to cloud, share annotation sessions with teammates via URL, collect segmentation masks in real time.
-- **AI-assisted annotation** — Cellpose / Cellpose-SAM auto-segmentation with interactive correction tools.
-- **Fine-tune Cellpose-SAM** — trigger training from the UI using annotated data stored in Hypha Artifacts, then deploy trained models back into the annotation workflow.
-
-This layer runs **entirely in the browser** (Python via Pyodide/WebAssembly, image visualization via OpenLayers) backed by **Hypha Cloud** for service registration, artifact storage, and RPC coordination.
+One part of the rule is not checkable and stays a judgement: prefer two sentences or a comma
+over a semicolon, and keep a semicolon only where it genuinely joins two independent clauses.
 
 ---
 
-## User-Visible Text Rules
+## Two measured facts that will mislead you
 
-Any string that renders to a user in the website UI (JSX text, `title`/`placeholder`/`aria-label` attributes, button labels, dialog copy, toast and error messages, comment-thread bodies posted through the app) must follow these punctuation rules:
+**`tsc --noEmit` is broken by design here, so do not gate on it.** TypeScript 3.9.10 is declared
+in `package.json` against a tsconfig needing 4.1+. Re-measured 2026-11-04: it exits 1 with 2,211
+errors, the first being `tsconfig.json(17,12): error TS6046: Argument for '--jsx' option must be:
+'preserve', 'react-native', 'react'`, and 2,132 of them are parse errors inside dependencies'
+`.d.ts` files that 3.9 cannot read. None of that is about your change. The real gate is:
 
-- **No em dashes (`—`, U+2014).** Rewrite the sentence with a period, comma, colon, or parentheses instead. This includes standalone `—` used as a placeholder.
-- **No en dashes (`–`, U+2013) in prose.** Use "to" for ranges in sentences (a bare `–` between numeric bounds in a compact label is acceptable, e.g. `5–95%`).
-- **No unnecessary semicolons.** Prefer splitting into two sentences or using a comma. Only keep a semicolon when it genuinely joins two closely related independent clauses and no cleaner rewrite exists.
+    ./node_modules/.bin/react-scripts build
 
-These rules apply ONLY to user-visible strings. Code comments, JSDoc, `console.*` logs, commit messages, SKILL.md files, and this CLAUDE.md are exempt (em dashes are fine there).
-
-## Tech Stack
-
-| Layer | Technology |
-|---|---|
-| Frontend framework | React 18 + TypeScript |
-| Package manager | pnpm |
-| Styling | Tailwind CSS + Material-UI (MUI) |
-| State management | Zustand |
-| Image visualization | OpenLayers |
-| In-browser Python | web-python-kernel (Pyodide/WebAssembly) |
-| Backend / services | Hypha RPC (`hypha-rpc` npm package) |
-| Artifact storage | Hypha Artifact Manager |
-| AI segmentation | Cellpose / Cellpose-SAM (via Hypha service) |
+**CLAUDE.md carries `skip-worktree` in some worktrees, so edits to it silently never commit.**
+Measured 2026-11-04: `git ls-files -v -- CLAUDE.md` printed `H` in the main checkout and `S` in
+a sibling worktree whose local copy was 101 lines longer than the tracked blob. Under `S` git
+reports the file clean no matter what you write to it, and both `git status` and `git diff`
+agree over the whole difference. Check the flag before editing this file, and edit a copy that
+reports `H`. `.github/copilot-instructions.md` is a symlink to it, so a committed change here
+also reaches GitHub Copilot.
 
 ---
 
 ## Where to find more
 
-Load these skills before touching the matching area of the codebase — they hold the deeper guidance (coding standards, architectural patterns, component inventory, dev rules):
+Load these skills before touching the matching area of the codebase. They hold the coding
+conventions, architectural patterns, component inventory and development rules:
 
 - **`.claude/skills/bioimageio-website/SKILL.md`** — code-level guide for this repository. Read it before any non-trivial change: coding conventions, component layout under `src/components/{colab,annotate}/`, store contracts, the Hypha-reachability banner pattern, the `HYPHA_SERVER_URL` config seam, and the development rules (read-before-edit, no speculative features, undo snapshots on every vector mutation, etc.).
 - **`public/skills/bioimageio-models/SKILL.md`** — agent-facing skill served at `https://bioimage.io/skills/bioimageio-models/SKILL.md`. Walks any AI agent through the full model contribution pipeline (gather info → build package → static + dynamic validation → submit to Hypha → optional BioEngine validation). The Upload page (`src/components/Upload.tsx`) advertises this URL to contributors.
 - **`public/skills/bioengine/SKILL.md`** — canonical deploy workflow and CLI reference for BioEngine apps. Load this before deploying or updating a BioEngine application. Critical rule: always pass `--app-id <running-id>` when updating; omitting it creates a new random instance.
 
-## Related Repositories
+## Related repositories
 
-Working copies of the sibling libraries live under `bioimageio-resources/` in this repo (added 2026-07-07) so they can be grepped side-by-side with the frontend:
+Working copies of the sibling libraries live under `bioimageio-resources/` in this repo (added
+2026-07-07) so they can be grepped side-by-side with the frontend:
 
-| Repo | Path | Current release | Role |
-|---|---|---|---|
-| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | 0.5.11.0 (2026-06-15) | RDF format spec + `bioimageio.spec` Python library |
-| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | 0.10.4 (pins spec 0.5.10.2) | `bioimageio.core` — what the Test button delegates to |
-| collection | `bioimageio-resources/collection` | dev (CI-only) | Community partner registry + reviewer roster (JSON config) |
-| bioengine | `../bioengine` | co-developed sibling | Ray-Serve inference backend behind the BioEngine button |
+| Repo | Path | Role |
+|---|---|---|
+| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | RDF format spec + `bioimageio.spec` Python library |
+| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | `bioimageio.core` — what the Test button delegates to |
+| collection | `bioimageio-resources/collection` | Community partner registry + reviewer roster (JSON config) |
+| bioengine | `../bioengine` | Ray-Serve inference backend behind the BioEngine button |
 
-The spec ↔ core versions are a pinned chain — bumping one without the other silently rejects otherwise-valid resources. See the bioimageio-website skill for the version-chain rule, the partner-registry file, and the YAML 1.2 / ruyaml gotcha.
-
----
-
-## Active Development Focus
-
-The primary ongoing work is extending the collaborative annotation + Cellpose-SAM fine-tuning pipeline:
-
-- Tighter integration between annotation masks and training data preparation.
-- Interactive correction of Cellpose-SAM predictions within the annotation viewer.
-- Model versioning and rollback in the Hypha artifact store.
-- Progress reporting during fine-tuning via streaming Hypha RPC updates.
+The spec ↔ core versions are a pinned chain: bumping one without the other silently rejects
+otherwise-valid resources. Read the versions out of the checkouts rather than from here. See the
+bioimageio-website skill for the version-chain rule, the partner-registry file, and the
+YAML 1.2 / ruyaml gotcha.
