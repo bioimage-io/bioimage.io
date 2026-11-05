@@ -6,6 +6,7 @@ metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
   app-skills:
     - apps/model-runner/model-runner.md
+    - apps/model-finetune.md
     - apps/cellpose3-runner.md
     - apps/cellpose-finetuning.md
     - apps/omezarr-view.md
@@ -87,7 +88,7 @@ export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker
 > | Task | App |
 > |---|---|
 > | Running a model, screening or testing models | `bioimage-io/model-runner` |
-> | Fine-tuning a foundation model | `bioimage-io/model-finetune` |
+> | Fine-tuning a foundation model | `bioimage-io/model-finetune` — see [apps/model-finetune.md](apps/model-finetune.md) |
 >
 > Both live in the public `bioimage-io` workspace and need no worker of the user's own. Resolve the concrete callable id at run time (see [references/service_ids.md](references/service_ids.md)) rather than hardcoding one: the client id embeds a ReplicaSet hash that changes on every pod roll. Only fall back to asking about a worker when the user says they have their own, or when the task genuinely needs one (deploying a new app, changing worker configuration).
 >
@@ -833,7 +834,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 |---|---|---|
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
 | Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | RETIRED for new work. model-runner 2.11.2+ serves Cellpose-3 natively; read this only when targeting a worker pinned below 2.11.2 |
-| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
+| Model Fine-Tune | [apps/model-finetune.md](apps/model-finetune.md) | Fine-tuning micro-SAM, Cellpose-SAM or Cellpose-DINO on annotated pairs; validating and staging a dataset from an external store before a run; image embeddings and the ONNX prompt decoder for browser annotation |
+| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Superseded by Model Fine-Tune above. Its artifact still exists (newest 1.1.1) but **no service is currently deployed for `bioimage-io/cellpose-finetuning`**, so calls against the id on that page resolve to nothing — measured 2026-11-05. Read it only for historical context |
 | OME-Zarr View | [apps/omezarr-view.md](apps/omezarr-view.md) | Serving existing OME-TIFF / CZI files as OME-Zarr without converting them — for a viewer, an annotation UI, or a training loader |
 
 > **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
