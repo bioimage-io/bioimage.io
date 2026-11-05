@@ -696,14 +696,35 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
 > ```python
 > {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
+> # a replica that has DIED carries one more key, from worker 0.16.65:
+> {"<replica-id>": {"…": "…", "death_cause": {"reason": "OOM", "message": "…"}}}
 > ```
-> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its four **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr` and read them as four log lines, with no error at all. Reach the lists explicitly:
+> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr`, and on a dead replica `death_cause` too, and read them as log lines, with no error at all. Count on the key *names*, never on how many there are: the set grew by one in 0.16.65 and may grow again. Reach the lists explicitly:
 > ```python
 > for replica_id, rec in dep.get("logs", {}).items():
 >     lines = rec.get("stdout", []) + rec.get("stderr", [])
 >     print(f"--- {replica_id}")
 >     print("\n".join(lines[-50:]))
 > ```
+> **A replica that died tells you why, and the logs alone will not.** From worker **0.16.65** each dead replica's entry carries `death_cause`, because Ray Serve's controller only logs "crashed, marking it unhealthy immediately" and keeps no cause — so the replica that matters most is the one whose logs explain least. The value is `{"reason": ..., "message": ...}` or `None`:
+>
+> | `reason` | means |
+> |---|---|
+> | `OOM` | Ray's own memory monitor killed it. `message` carries Ray's error text. |
+> | `WORKER_DIED` | the process exited on its own — a signal, or a crash. |
+> | `NODE_DIED` | the node went away; `message` is appended with the node's own reason. |
+> | `RAY_KILL` | a deliberate stop. |
+> | `UNKNOWN` | Ray held a cause but no reason field. |
+>
+> ```python
+> for replica_id, rec in dep.get("logs", {}).items():
+>     cause = rec.get("death_cause")          # absent or None on a live replica
+>     if cause:
+>         print(f"{replica_id} died: {cause['reason']} — {cause['message']}")
+> ```
+>
+> `None` and absent both mean "no cause to report", and they are **not** the same as healthy: Ray returns no cause for a live actor *and* for a dead one the GCS has already evicted, so a dead replica you ask about too late looks exactly like a live one. Use the replica's presence in `get_deployment_replicas` to tell those apart, not `death_cause`. Against a worker older than 0.16.65 the key is simply absent, so `rec.get("death_cause")` is the safe read and a `KeyError` means you indexed it instead.
+>
 > **Read both channels.** Which one your own lines land in depends on how you emitted them (see the logging note under [Key rules](#key-rules)), and the framework writes to `stderr` regardless. Reading only one hides half the picture, and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
 >
 > **The framework logs every call for you, and that line is often all you need.** Each `@bioengine.method` invocation emits an audit line carrying the method name, the outcome and the wall-clock duration:
