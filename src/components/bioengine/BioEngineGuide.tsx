@@ -624,8 +624,14 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   // apptainer and singularity take cgroup limits from a separate configuration
   // file, which is why the worker CLI refuses an explicit value for them rather
   // than dropping it silently (bioengine/cli/worker.py:377-395 at origin/main).
-  // The field is hidden for both; this also stops a value set before the
-  // runtime was switched from leaking into the command.
+  //
+  // This gates the FIELD only. Whether the flag reaches the command is decided
+  // structurally, by the apptainer/singularity branch of getCommand never
+  // interpolating `memoryFlag` at all. The guard used to repeat the runtime test
+  // there as well, which read like defence in depth and was in fact unreachable:
+  // removing that conjunct and re-running the suite leaves 8 of 8 passing, so no
+  // test could ever have redded it. Leaking `memoryFlag` into that branch DOES
+  // red the two apptainer cases, which is the regression they exist to catch.
   const containerMemoryApplies = containerRuntime !== 'apptainer' && containerRuntime !== 'singularity';
 
   // `--memory` caps the container. `--head-memory-in-gb` (the Memory field) is
@@ -727,7 +733,15 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     // mis-parse. Gated on single-machine, which is the only mode that renders
     // the field, so a value set and then abandoned cannot leak into a command
     // that does not show it.
-    const memoryFlag = (mode === 'single-machine' && containerMemoryGb > 0 && containerMemoryApplies)
+    //
+    // NOT gated on containerMemoryApplies, deliberately. That would be dead
+    // code: the apptainer/singularity branch below never interpolates
+    // `memoryFlag`, so the runtime can only reach here as docker or podman.
+    // Repeating the test was measured to be unreachable, and an unreachable
+    // guard is worse than none, because it reads as the thing protecting the
+    // invariant while no test can show it failing. Keep the invariant where it
+    // is enforced: do not add `memoryFlag` to that branch.
+    const memoryFlag = (mode === 'single-machine' && containerMemoryGb > 0)
       ? `--memory=${containerMemoryGb}g ` : '';
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
     const imageToUse = customImage || DEFAULT_IMAGE;

@@ -141,6 +141,14 @@ for (const runtime of ['apptainer', 'singularity']) {
     // Set a cap while on docker first, so the absence below is the runtime
     // gate and not an unset value. This is what catches a stale state leak:
     // switching runtime does not reset the number, only hides the field.
+    //
+    // What this case does and does not prove, measured by mutation rather than
+    // assumed. The guarantee is STRUCTURAL: the apptainer/singularity branch of
+    // getCommand never interpolates `memoryFlag`. Deleting the runtime test from
+    // the `memoryFlag` guard leaves 8 of 8 passing, so this case cannot red that
+    // conjunct and never could, which is why the conjunct is gone. Adding
+    // `memoryFlag` to that branch DOES red this case and its singularity twin
+    // and nothing else, so it is a live guard on the regression that matters.
     const field = fieldByLabel(page, FIELD, 'input');
     await field.scrollIntoViewIfNeeded();
     await field.fill('48');
