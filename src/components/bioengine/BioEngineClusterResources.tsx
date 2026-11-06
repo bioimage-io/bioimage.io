@@ -1,5 +1,16 @@
 import React, { useMemo, useState } from 'react';
 
+/** Ray's sentinel for "this node reports no value". It arrives from
+ *  `get_status` as the literal string, not as null, so a plain truthiness
+ *  check would render it. */
+const NOT_AVAILABLE = 'NA';
+
+/** Whether a node actually reported a value, as opposed to omitting it (an
+ *  older worker, or a field Ray never filled) or returning the `NA` sentinel
+ *  (a CPU-only node with no accelerator to describe). */
+const isReported = (value?: string | null): value is string =>
+  typeof value === 'string' && value.length > 0 && value !== NOT_AVAILABLE;
+
 interface ClusterData {
   head_address?: string;
   start_time?: number | "N/A";
@@ -42,6 +53,9 @@ interface ClusterData {
     available_object_store_memory?: number;
     used_object_store_memory?: number;
     accelerator_type?: string | null;
+    /** Full GPU device name as the driver reports it, e.g. "NVIDIA A40-16C".
+     *  Returned by BioEngine 0.16.11 and newer; absent on older workers. */
+    gpu_device_name?: string | null;
     slurm_job_id?: string | null;
   }>;
   slurm_jobs?: {
@@ -406,9 +420,29 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
                               <span className="text-gray-900 font-mono">{node.node_ip}</span>
                             </div>
                           )}
-                          {node.accelerator_type && (
+                          {/* The real device name first, because that is what
+                              tells a reader which card they actually get.
+                              `accelerator_type` is Ray's schedulable label and
+                              is truncated to a single letter on consumer cards
+                              ("G" for a GeForce), so it cannot stand in for
+                              the device name. Both are shown, matching
+                              `_format_gpu_label` in the BioEngine CLI. A worker
+                              older than 0.16.11 omits the device name and
+                              degrades to the label alone. */}
+                          {isReported(node.gpu_device_name) && (
                             <div className="flex justify-between">
-                              <span className="text-gray-600">Accelerator Type:</span>
+                              <span className="text-gray-600">GPU:</span>
+                              <span className="text-gray-900 font-semibold text-right">{node.gpu_device_name}</span>
+                            </div>
+                          )}
+                          {isReported(node.accelerator_type) && (
+                            <div className="flex justify-between">
+                              <span
+                                className="text-gray-600"
+                                title="The label Ray schedules on, which you pass as accelerator_type when requesting a GPU. Ray shortens it for consumer cards."
+                              >
+                                Accelerator Type:
+                              </span>
                               <span className="text-gray-900 font-semibold">{node.accelerator_type}</span>
                             </div>
                           )}
