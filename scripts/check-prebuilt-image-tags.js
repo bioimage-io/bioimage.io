@@ -10,17 +10,25 @@
  * offering an old image to every new worker. This turns that into a failure
  * someone can actually see.
  *
+ * The same tag is also written out longhand in the served skill docs, where it
+ * rots the same way and is read by agents rather than by the wizard. So the
+ * check has two arms: the constant must be the newest published tag, and every
+ * other copy of that image reference in the tree must agree with the constant.
+ * A guard that covers one of three copies leaves the other two to rot silently,
+ * which is the failure this script exists to end.
+ *
  *   node scripts/check-prebuilt-image-tags.js
  *
- * Exit 0 = the constant is the newest published tag. Exit 1 = it is behind (or
- * names a tag that does not exist). Exit 2 = the check itself could not run,
- * which is deliberately NOT a pass.
+ * Exit 0 = the constant is the newest published tag and every copy agrees.
+ * Exit 1 = it is behind, names a tag that does not exist, or a copy disagrees.
+ * Exit 2 = the check itself could not run, which is deliberately NOT a pass.
  */
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const GUIDE = path.join(__dirname, '..', 'src', 'components', 'bioengine', 'BioEngineGuide.tsx');
+const ROOT = path.join(__dirname, '..');
+const GUIDE = path.join(ROOT, 'src', 'components', 'bioengine', 'BioEngineGuide.tsx');
 
 // image repo -> the constant in the guide that pins its tag
 const PINS = [
@@ -28,18 +36,54 @@ const PINS = [
   { repo: 'aicell-lab/bioengine-worker', constant: 'DEFAULT_IMAGE_VERSION' },
 ];
 
-// ghcr.io paginates `tags/list` over DIGESTS, most of which carry no tag, so a
-// short page drops tagged versions out of the middle rather than off the end.
-// Measured 2026-11-06 on aicell-lab/bioengine-worker: no `n` and `n=100` both
-// returned 100 tags whose newest release was 0.6.14, while n=1000 returned 260
-// and found 0.16.92. Asking for one page this large is why the check can speak
-// about a repo with 260 tags at all.
-//
-// This went unnoticed because the only pin here was aicell-lab/model-runner,
-// which has 3 tags in total. The one repo the check covered is the one repo
-// where truncation cannot show up.
-const PAGE_SIZE = 1000;
+// Where a longhand `ghcr.io/<repo>:<tag>` may appear. Deliberately a short
+// explicit list rather than a whole-tree walk: build output and node_modules
+// carry compiled copies of these same strings, and failing on those would make
+// the check depend on whether someone had run a build.
+const COPY_ROOTS = [
+  path.join(ROOT, 'public', 'skills'),
+  path.join(ROOT, 'src'),
+];
+const COPY_EXTENSIONS = ['.md', '.tsx', '.ts', '.js', '.json', '.yml', '.yaml'];
 
+/** Every file under `dir` whose extension is one we scan. */
+function walk(dir) {
+  let out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out = out.concat(walk(full));
+    else if (COPY_EXTENSIONS.includes(path.extname(entry.name))) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Longhand `ghcr.io/<repo>:<tag>` references whose tag is a literal version.
+ * `${...}` interpolations are skipped on purpose: those derive from the
+ * constant, so they cannot disagree with it.
+ */
+function copiesOf(repo) {
+  const pattern = new RegExp(`ghcr\\.io/${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:([\\w.\\-]+)`, 'g');
+  const found = [];
+  for (const root of COPY_ROOTS) {
+    for (const file of walk(root)) {
+      const text = fs.readFileSync(file, 'utf8');
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        found.push({ file: path.relative(ROOT, file), tag: match[1] });
+      }
+    }
+  }
+  return found;
+}
+
+/** Resolves `{ body, headers }`; the headers carry the registry's pagination link. */
 function get(url, headers = {}) {
   return new Promise((resolve, reject) => {
     https
@@ -48,7 +92,7 @@ function get(url, headers = {}) {
         res.on('data', chunk => (body += chunk));
         res.on('end', () =>
           res.statusCode === 200
-            ? resolve(body)
+            ? resolve({ body, headers: res.headers })
             : reject(new Error(`${url} -> HTTP ${res.statusCode}`)),
         );
       })
@@ -56,25 +100,34 @@ function get(url, headers = {}) {
   });
 }
 
+/**
+ * Every published tag, following the registry's pagination to the end.
+ *
+ * The v2 tags/list endpoint caps a page at 100 and hands back the rest behind a
+ * `Link: <...>; rel="next"` header. Reading one page and stopping does NOT fail
+ * loudly: it returns a short list in lexical order, so for a repo with hundreds
+ * of tags the "newest" comes out as whatever sorts late within the first 100.
+ * Measured on ghcr.io/aicell-lab/bioengine-worker: one page gives 100 tags and a
+ * newest of 0.6.14, while following the link gives 260 tags and 0.16.92. A pin
+ * checked against the first answer is checked against nothing.
+ */
 async function publishedTags(repo) {
   const scope = encodeURIComponent(`repository:${repo}:pull`);
-  const { token } = JSON.parse(await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`));
-  const { tags } = JSON.parse(
-    await get(`https://ghcr.io/v2/${repo}/tags/list?n=${PAGE_SIZE}`, {
-      Authorization: `Bearer ${token}`,
-    }),
-  );
-  const list = tags || [];
-  // A page that comes back exactly full is indistinguishable from a page that
-  // was cut off, and a truncated list is not a smaller true answer: it can hide
-  // the newest tag entirely and bless an old pin as current. Refuse to judge.
-  if (list.length >= PAGE_SIZE) {
-    throw new Error(
-      `tag list came back full at ${list.length} (n=${PAGE_SIZE}), so it may be truncated ` +
-        `and cannot be compared against -- raise PAGE_SIZE or paginate with Link headers`,
-    );
+  const { body: tokenBody } = await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`);
+  const { token } = JSON.parse(tokenBody);
+
+  const tags = [];
+  let url = `https://ghcr.io/v2/${repo}/tags/list?n=1000`;
+  // Bounded so a registry that keeps handing back a next link cannot spin here.
+  // 100 pages is far past any real tag count and is an error, not a result.
+  for (let page = 0; url && page < 100; page += 1) {
+    const { body, headers } = await get(url, { Authorization: `Bearer ${token}` });
+    tags.push(...(JSON.parse(body).tags || []));
+    const link = headers.link;
+    const next = link && /rel="next"/.test(link) ? /<([^>]+)>/.exec(link) : null;
+    url = next ? new URL(next[1], 'https://ghcr.io').toString() : null;
   }
-  return list;
+  return tags;
 }
 
 // Numeric-segment compare, so 2.10.6 sorts above 2.8.0 rather than below it as
@@ -130,6 +183,19 @@ function newer(a, b) {
       failed = true;
     } else {
       console.log(`ok    ${constant}='${pinned}' is the newest tag on ghcr.io/${repo}`);
+    }
+
+    // Second arm: every longhand copy of the image must name the same tag the
+    // constant does. This is checked even when the constant itself is behind,
+    // so one run reports every place that needs editing rather than one.
+    const stale = copiesOf(repo).filter(copy => copy.tag !== pinned);
+    if (stale.length > 0) {
+      for (const copy of stale) {
+        console.error(`FAIL  ${copy.file} names ghcr.io/${repo}:${copy.tag}, but ${constant}='${pinned}'`);
+      }
+      failed = true;
+    } else {
+      console.log(`ok    every longhand ghcr.io/${repo} reference agrees with ${constant}`);
     }
   }
 

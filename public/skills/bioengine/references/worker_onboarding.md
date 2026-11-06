@@ -10,7 +10,7 @@ Do not skip the readiness checks. A worker that starts is not necessarily a work
 
 Mention these to the user before they pick a mode, so they know what they will need:
 
-- **External-cluster mode**: Ray Client requires the worker image's Ray version to **exactly match** the cluster's Ray version. The published image `ghcr.io/aicell-lab/bioengine-worker:0.9.1` ships Ray `2.55.1`. For any other cluster Ray version the user must build a thin overlay image first (covered in §3c below).
+- **External-cluster mode**: Ray Client requires the worker image's Ray version to **exactly match** the cluster's Ray version. The published image `ghcr.io/aicell-lab/bioengine-worker:0.16.92` ships Ray `2.55.1`. For any other cluster Ray version the user must build a thin overlay image first (covered in §3c below).
 - **SLURM mode**: needs login-node access, a SLURM allocation for the requested CPUs / GPUs / wall time, and Apptainer or Singularity available on compute nodes.
 - **Single-machine mode**: needs Docker, Podman, Apptainer, or Singularity on the host. GPU support requires the NVIDIA Container Toolkit.
 - **All modes**: the user needs an **admin** Hypha token (not read-only) to register the worker and to create the optional facility dashboard artifact. If they paste a token whose `permission` is anything other than `admin`, registration silently fails.
@@ -77,7 +77,7 @@ Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/p
 | Image | Use when |
 |---|---|
 | `ghcr.io/aicell-lab/bioengine-worker:<version>` | The default. Each app's environment is built by Ray on first deploy, so the first model takes minutes before it serves. |
-| `ghcr.io/aicell-lab/model-runner:2.10.6` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
+| `ghcr.io/aicell-lab/model-runner:2.11.2` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
 
 Swap the image name and change nothing else:
 
@@ -86,7 +86,7 @@ docker run -d --name bioengine-worker \
   --restart unless-stopped --shm-size=8g --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
-  ghcr.io/aicell-lab/model-runner:2.10.6 \
+  ghcr.io/aicell-lab/model-runner:2.11.2 \
   python -m bioengine.worker --mode single-machine --head-num-cpus 4 --head-num-gpus 1
 ```
 
@@ -107,7 +107,7 @@ docker run --rm -it \
   --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
-  ghcr.io/aicell-lab/bioengine-worker:0.10.1 \
+  ghcr.io/aicell-lab/bioengine-worker:0.16.92 \
   python -m bioengine.worker \
     --mode single-machine \
     --head-num-cpus 4 \
@@ -124,7 +124,7 @@ docker run -d --name bioengine-worker \
   --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
-  ghcr.io/aicell-lab/bioengine-worker:0.10.1 \
+  ghcr.io/aicell-lab/bioengine-worker:0.16.92 \
   python -m bioengine.worker \
     --mode single-machine \
     --head-num-cpus 4 \
@@ -226,17 +226,17 @@ Tell the user: their SLURM account must hold allocation for the head job **and**
 
 ### 3c. External-cluster (KubeRay or any existing Ray cluster)
 
-**Hard constraint**: Ray Client requires the **driver image's Ray version to exactly match the cluster's Ray version**. The published image `ghcr.io/aicell-lab/bioengine-worker:0.9.1` ships **Ray 2.55.1**.
+**Hard constraint**: Ray Client requires the **driver image's Ray version to exactly match the cluster's Ray version**. The published image `ghcr.io/aicell-lab/bioengine-worker:0.16.92` ships **Ray 2.55.1**.
 
 If the cluster runs a different Ray version, build a matching image first:
 
 ```bash
 # Fast: overlay the published image (pulls ~all of it, swaps only the Ray + env layers)
 docker build \
-  --build-arg BIOENGINE_IMAGE=ghcr.io/aicell-lab/bioengine-worker:0.9.1 \
+  --build-arg BIOENGINE_IMAGE=ghcr.io/aicell-lab/bioengine-worker:0.16.92 \
   --build-arg RAY_VERSION=<cluster-ray-version> \
   -f docker/worker-ray-overlay.Dockerfile \
-  -t bioengine-worker:0.9.1-ray<cluster-ray-version> .
+  -t bioengine-worker:0.16.92-ray<cluster-ray-version> .
 ```
 
 The supported Ray range is `>=2.33.0, <3.0.0`. After building, push to a registry your Kubernetes cluster can pull from.
