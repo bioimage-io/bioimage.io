@@ -1,3 +1,6 @@
 [build]
-  command = "CI=false npm run build"
+  # pnpm, not npm: package.json declares `packageManager: pnpm@11.1.1` and
+  # pnpm-lock.yaml is the only tracked lockfile, so npm ignores it and resolves
+  # fresh. CI=false keeps CRA's eslint warnings from being treated as errors.
+  command = "CI=false pnpm run build"
   publish = "build"
