@@ -60,4 +60,65 @@ describe('buildContributorPermissions', () => {
     expect(result.permissions['uploader@example.com']).toBe('*');
     expect(result.permissions['author@example.com']).toBe(CONTRIBUTOR_PERMISSION_LEVEL);
   });
+
+  it('grants to the first author only, not to a second author with an email', () => {
+    const result = buildContributorPermissions(
+      { authors: [{ email: 'first@example.com' }, { email: 'second@example.com' }] },
+      {},
+      undefined,
+    );
+    expect(result.permissions['first@example.com']).toBe(CONTRIBUTOR_PERMISSION_LEVEL);
+    expect(result.permissions['second@example.com']).toBeUndefined();
+    expect(result.contributorKeys).toEqual(['first@example.com']);
+  });
+
+  it('grants no author at all when the first author has no email, even if a later one does', () => {
+    const result = buildContributorPermissions(
+      { authors: [{ name: 'No Email' } as any, { email: 'second@example.com' }] },
+      {},
+      undefined,
+    );
+    expect(result.contributorKeys).toEqual([]);
+    expect(Object.keys(result.permissions)).toEqual([]);
+  });
+
+  it('grants every maintainer, whatever their position in the list', () => {
+    const result = buildContributorPermissions(
+      {
+        authors: [{ email: 'first@example.com' }, { email: 'second@example.com' }],
+        maintainers: [{ email: 'm1@example.com' }, { email: 'm2@example.com' }],
+      },
+      {},
+      undefined,
+    );
+    expect(result.contributorKeys.sort()).toEqual([
+      'first@example.com',
+      'm1@example.com',
+      'm2@example.com',
+    ]);
+    expect(result.permissions['second@example.com']).toBeUndefined();
+  });
+
+  it('revokes a non-first author that an earlier, wider sync had granted', () => {
+    const result = buildContributorPermissions(
+      { authors: [{ email: 'first@example.com' }, { email: 'second@example.com' }] },
+      {
+        'first@example.com': CONTRIBUTOR_PERMISSION_LEVEL,
+        'second@example.com': CONTRIBUTOR_PERMISSION_LEVEL,
+      },
+      ['first@example.com', 'second@example.com'],
+    );
+    expect(result.permissions['first@example.com']).toBe(CONTRIBUTOR_PERMISSION_LEVEL);
+    expect(result.permissions['second@example.com']).toBeUndefined();
+    expect(result.contributorKeys).toEqual(['first@example.com']);
+  });
+
+  it('does not revoke a non-first author whose entry is no longer this sync to own', () => {
+    const result = buildContributorPermissions(
+      { authors: [{ email: 'first@example.com' }, { email: 'second@example.com' }] },
+      { 'second@example.com': '*' },
+      ['second@example.com'],
+    );
+    expect(result.permissions['second@example.com']).toBe('*');
+  });
 });

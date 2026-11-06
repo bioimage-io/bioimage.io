@@ -58,7 +58,8 @@
     "postinstall": "node scripts/copy-ort-wasm.js",
     "test": "react-scripts test",
     "eject": "react-scripts eject",
-    "check-prebuilt-images": "node scripts/check-prebuilt-image-tags.js"
+    "check-prebuilt-images": "node scripts/check-prebuilt-image-tags.js",
+    "check-ui-text": "node scripts/check-ui-text.js"
   },
   "eslintConfig": {
     "extends": [

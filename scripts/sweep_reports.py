@@ -1,18 +1,21 @@
 #!/usr/bin/env python3
-"""File new bioimage.io problem reports into the svamp backlog.
+"""File new bioimage.io problem reports into the myco backlog.
 
     python scripts/sweep_reports.py            # normal daily run
     python scripts/sweep_reports.py --dry-run  # show what would be filed
     python scripts/sweep_reports.py --since 0  # ignore the watermark, list everything
 
-Reads `bioimage-io/issues` (created in svamp #0044) and files one svamp issue per
+Reads `bioimage-io/issues` (created in svamp #0044) and files one myco issue per
 unseen report. The report artifact stays put and remains the source of truth; the
-svamp issue is just the work item pointing at it.
+myco issue is just the work item pointing at it.
+
+Filing moved from svamp to myco on 2026-10-24: see `_myco_backlog.py` for why,
+and for how the destination session is chosen without hardcoding an id here.
 
 Two independent guards stop a report being filed twice, which is the part most
 easily got wrong:
 
-  the watermark   `.svamp/report-sweep-watermark.json`, the created_at of the
+  the watermark   `.mycolab/report-sweep-watermark.json`, the created_at of the
                   newest report filed so far.
   the type        a handled report has its type flipped to `*-solved`, so it is
                   skipped regardless of the watermark. This means losing the
@@ -28,11 +31,14 @@ Reports are NOT publicly readable, so BIOIMAGE_IO_TOKEN is required.
 import argparse
 import json
 import os
-import subprocess
 import sys
+import time
 import urllib.error
 import urllib.request
 from pathlib import Path
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import _myco_backlog  # noqa: E402  (path shim above must run first)
 
 AM = "https://hypha.aicell.io/public/services/artifact-manager"
 COLLECTION_ID = "bioimage-io/issues"
@@ -42,7 +48,10 @@ COLLECTION_ID = "bioimage-io/issues"
 # That is not hypothetical: it happened on the first scheduled sweep and
 # duplicated an issue that had already been filed by hand.
 REPO_ROOT = Path(__file__).resolve().parent.parent
-WATERMARK = REPO_ROOT / ".svamp" / "report-sweep-watermark.json"
+WATERMARK = REPO_ROOT / ".mycolab" / "report-sweep-watermark.json"
+# Where it lived before the 2026-10-24 move from svamp to myco. Read once if the
+# new path is absent: without this the move re-files every open report.
+LEGACY_WATERMARK = REPO_ROOT / ".svamp" / "report-sweep-watermark.json"
 OPEN_TYPES = ("skill-issue", "website-issue")
 
 
@@ -53,23 +62,45 @@ def token() -> str:
     return tok
 
 
+# Hypha can momentarily have no artifact-manager registered, which surfaces as
+# an HTTP error carrying "Service not found: public/*:artifact-manager@*". That
+# happened once in 19 scheduled runs (2026-10-18 05:23) and both runs after it
+# succeeded, so it is a blip in service discovery rather than a problem with
+# this sweep. Without a retry a blip auto-files a workflow-failure issue that a
+# human then has to read and close, which is worse than waiting six seconds.
+_TRANSIENT = ("service not found",)
+_RETRIES = 3
+_BACKOFF_SECONDS = 3
+
+
 def rpc(method: str, params: dict) -> object:
     req = urllib.request.Request(
         f"{AM}/{method}",
         data=json.dumps(params).encode(),
         headers={"Content-Type": "application/json", "Authorization": f"Bearer {token()}"},
     )
-    try:
-        return json.loads(urllib.request.urlopen(req, timeout=120).read())
-    except urllib.error.HTTPError as exc:
-        sys.exit(f"{method} failed: {exc.read().decode()[:300]}")
+    last = ""
+    for attempt in range(_RETRIES):
+        try:
+            return json.loads(urllib.request.urlopen(req, timeout=120).read())
+        except urllib.error.HTTPError as exc:
+            last = exc.read().decode()[:300]
+            # Only discovery blips are retried. A 401, a bad request or a
+            # genuine server error should fail now and loudly: retrying those
+            # just delays the same report by nine seconds.
+            if not any(t in last.lower() for t in _TRANSIENT) or attempt == _RETRIES - 1:
+                break
+            print(f"{method}: {last.strip()[:120]} — retrying in {_BACKOFF_SECONDS}s", file=sys.stderr)
+            time.sleep(_BACKOFF_SECONDS)
+    sys.exit(f"{method} failed: {last}")
 
 
 def read_watermark() -> float:
-    if not WATERMARK.exists():
+    path = WATERMARK if WATERMARK.exists() else LEGACY_WATERMARK
+    if not path.exists():
         return 0.0
     try:
-        return float(json.loads(WATERMARK.read_text()).get("last_created_at", 0))
+        return float(json.loads(path.read_text()).get("last_created_at", 0))
     except (ValueError, json.JSONDecodeError):
         # A corrupt watermark must not wedge the sweep. The type guard above
         # still prevents re-filing anything already dealt with.
@@ -113,14 +144,11 @@ When it has been dealt with, mark it so the daily sweep stops considering it ope
 The manifest carries structural fields only. The description, the steps and any logs are in the
 attached `report.md`, which is why reading it takes the command above rather than a glance here.
 """
-    result = subprocess.run(
-        ["svamp", "issue", "add", title, "--body", body],
-        capture_output=True, text=True,
-    )
-    if result.returncode != 0:
-        print(f"  FAILED to file {artifact_id}: {result.stderr.strip()[:200]}")
+    filed = _myco_backlog.file_issue(title, body, labels=("reports", "triage"))
+    if not filed:
+        print(f"  FAILED to file {artifact_id}")
         return False
-    print(f"  filed {artifact_id} -> {result.stdout.strip()}")
+    print(f"  filed {artifact_id} -> {filed}")
     return True
 
 
@@ -151,6 +179,13 @@ def main() -> None:
         return
 
     filed = sum(1 for r in fresh if file_issue(r))
+    if filed:
+        plural = "reports" if filed > 1 else "report"
+        _myco_backlog.notify(
+            f"Zoo sweep: {filed} new user problem {plural} filed to the backlog. "
+            "Read one with scripts/read_report.py, close it with scripts/solve_report.py.",
+            level="info",
+        )
     if filed == len(fresh):
         write_watermark(created_at(fresh[-1]))
         print(f"Filed {filed}; watermark now {created_at(fresh[-1]):.0f}")
