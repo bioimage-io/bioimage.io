@@ -197,6 +197,21 @@ const STARTUP_APP_DEFAULTS: Record<string, any> = {
   max_ongoing_requests: 10,
 };
 
+/** Emit a flag whose value may itself start with a dash, e.g.
+ *  `--further-slurm-args="--reservation=bioengine"`.
+ *
+ *  The value MUST be attached with `=` rather than separated by a space. The
+ *  worker parses its command line with argparse, which accepts a value
+ *  beginning with `-` only when that value ALSO contains a space. The shell
+ *  removes our quotes before argparse sees the token, so the space-separated
+ *  form `--further-slurm-args "--reservation=bioengine"` arrives as two flags
+ *  and the worker exits 2 with "expected one argument". The attached form
+ *  parses for one directive, for ten, and for the empty string.
+ *
+ *  The quotes are still needed, for the shell rather than for argparse: they
+ *  keep a multi-directive value as a single token. */
+const attachedFlag = (flag: string, value: string): string => `${flag}="${value}"`;
+
 const startupAppJson = (config: Record<string, any>): string => {
   const payload: Record<string, any> = {};
   Object.entries(config).forEach(([key, value]) => {
@@ -672,14 +687,15 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
       if (slurmDefaultTimeLimit && slurmDefaultTimeLimit !== '4:00:00') args.push(`--default-time-limit ${slurmDefaultTimeLimit}`);
       if (slurmMaxWorkers !== '' && Number(slurmMaxWorkers) > 0) args.push(`--max-workers ${slurmMaxWorkers}`);
       if (slurmGpuFlag !== '--gpus={n}') {
-        // Empty string is a valid value meaning "omit the GPU directive entirely".
-        args.push(slurmGpuFlag === '' ? `--gpu-slurm-flag ""` : `--gpu-slurm-flag "${slurmGpuFlag}"`);
+        // Empty string is a valid value meaning "omit the GPU directive entirely",
+        // and the attached form carries it as well as it carries a real template.
+        args.push(attachedFlag('--gpu-slurm-flag', slurmGpuFlag));
       }
       if (slurmFurtherArgs.trim()) {
-        args.push(`--further-slurm-args "${slurmFurtherArgs.trim()}"`);
+        args.push(attachedFlag('--further-slurm-args', slurmFurtherArgs.trim()));
       }
       if (slurmApptainerArgs.trim()) {
-        args.push(`--further-apptainer-args "${slurmApptainerArgs.trim()}"`);
+        args.push(attachedFlag('--further-apptainer-args', slurmApptainerArgs.trim()));
       }
       const nl = ' \\\n  ';
       const scriptCmd = [
