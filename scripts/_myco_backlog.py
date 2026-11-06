@@ -115,11 +115,23 @@ def file_issue(title: str, body: str, *, labels=(), verify_cmd: str = "") -> str
         # Do NOT let a misconfigured environment lose the finding. `myco issue
         # add --session <unknown>` refuses and writes nothing; project scope has
         # no owner, is visible to every session, and can be claimed. See #0022.
+        # Report the EFFECTIVE workspace, the one session_resolves() actually
+        # looked in, not the ambient one. They differ precisely when
+        # MYCO_SWEEP_WORKSPACE is doing its job, which is the moment an operator
+        # is most likely to be reading this line.
+        effective = _env().get("MYCOLAB_WORKSPACE") or "unset"
+        pinned = (os.environ.get(WORKSPACE_ENV) or "").strip()
+        remedy = (
+            f"{WORKSPACE_ENV} is set to '{pinned}' and the session is still unknown there,"
+            " so check the id and the workspace it actually lives in"
+            if pinned else
+            f"set {WORKSPACE_ENV} in the workflow to fix the routing"
+        )
         print(
             f"  WARNING: session '{session}' does not resolve"
-            f" (workspace {os.environ.get('MYCOLAB_WORKSPACE') or 'unset'});"
+            f" (looked in workspace {effective});"
             f" filing at PROJECT scope instead so the finding is not lost."
-            f" Set {WORKSPACE_ENV} in the workflow to fix the routing.",
+            f" {remedy}.",
             file=sys.stderr,
         )
         session = ""
