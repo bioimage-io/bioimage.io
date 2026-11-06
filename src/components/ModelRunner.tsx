@@ -347,9 +347,25 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       
       // Override tile sizes if tiling is enabled and custom size is set
       if (tilingEnabled && tileSize > 0) {
-        // Apply custom tile size to spatial dimensions (x, y)
-        if ('x' in tileSizes) tileSizes.x = tileSize;
-        if ('y' in tileSizes) tileSizes.y = tileSize;
+        // A fixed axis accepts exactly one extent, so a custom tile size on it produces a
+        // tile the model rejects outright. Honour the custom size only where the model
+        // actually has freedom, and say so rather than silently ignoring what was typed.
+        const fixedAxes = runner.getFixedAxes();
+        const ignored: string[] = [];
+        for (const axis of ['x', 'y']) {
+          if (!(axis in tileSizes)) continue;
+          if (fixedAxes.includes(axis)) {
+            ignored.push(axis);
+          } else {
+            (tileSizes as any)[axis] = tileSize;
+          }
+        }
+        if (ignored.length > 0) {
+          setInfoPanel(
+            `This model only accepts a fixed input size, so the custom tile size was not applied. Tiles of ${tileSizes.y} by ${tileSizes.x} pixels will be used instead.`,
+            true
+          );
+        }
       }
       
       // Create parameters store object with default values
