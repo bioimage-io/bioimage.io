@@ -236,6 +236,69 @@ const FALLBACK_PARAM_SPECS: TrainingParamSpec[] = [
   },
 ];
 
+/**
+ * Parameters whose reported minimum of 0 is an artefact rather than a real
+ * bound. The trainer's own schema types these with `exclusiveMinimum: 0`, but
+ * `get_training_capabilities` flattens the schema to a plain `min`/`max` pair
+ * before it reaches the browser, so the exclusivity is lost in transit and 0
+ * arrives looking legal.
+ *
+ * It is a per-parameter list rather than a blanket "0 is never allowed for a
+ * float", because `val_fraction` also reports `min: 0` and 0 is a legitimate
+ * choice there: it means train without a validation split.
+ */
+const ZERO_IS_INVALID: Record<string, string> = {
+  learning_rate: 'A learning rate of 0 trains the model to no effect and still reports success.',
+  diam_mean: 'A mean diameter of 0 gives Cellpose no object scale to work from.',
+};
+
+/**
+ * Values large enough to be worth a second look, with what they cost. These
+ * are advisory only: a long run is a legitimate thing to ask for, and the
+ * trainer, not this form, is the authority on what its GPU will take.
+ */
+const LARGE_VALUE_ADVICE: Record<string, { over: number; say: (v: number) => string }> = {
+  n_epochs: {
+    over: 50,
+    say: (v) => `${v} epochs is a long run. Training time grows roughly in step with this number.`,
+  },
+  batch_size: {
+    over: 16,
+    say: (v) =>
+      `A batch size of ${v} may not fit in GPU memory. The run starts first and fails later if it does not.`,
+  },
+  n_samples: {
+    over: 2000,
+    say: (v) => `${v} samples per epoch multiplies with the epoch count, so the two together set the run length.`,
+  },
+  n_objects_per_batch: {
+    over: 64,
+    say: (v) => `${v} objects per batch is memory-hungry, and the limit depends on the GPU that picks the run up.`,
+  },
+};
+
+/**
+ * Soft warnings for the current form values. Nothing here blocks a run, so
+ * every entry has to earn its place by naming a consequence the user can act
+ * on rather than restating the number back at them.
+ */
+export function trainingParamAdvisories(
+  specs: TrainingParamSpec[],
+  values: Record<string, string>,
+): string[] {
+  const out: string[] = [];
+  for (const spec of specs) {
+    const advice = LARGE_VALUE_ADVICE[spec.name];
+    if (!advice) continue;
+    const raw = (values[spec.name] ?? '').trim();
+    if (!raw) continue;
+    const parsed = Number(raw);
+    if (!Number.isFinite(parsed) || parsed <= advice.over) continue;
+    out.push(advice.say(parsed));
+  }
+  return out;
+}
+
 /** Field text for the parameter names whose snake_case does not read well. */
 const PARAM_LABELS: Record<string, string> = {
   n_epochs: 'Epochs',
@@ -348,6 +411,12 @@ export function validateTrainingParams(
     }
     if (spec.type === 'integer' && !Number.isInteger(parsed)) {
       return { values: out, error: `${spec.label} must be a whole number.` };
+    }
+    // Checked before the inclusive `min`, because for these parameters the
+    // reported minimum of 0 is the very value being rejected and the generic
+    // "must be at least 0" message would be both true and useless.
+    if (parsed === 0 && ZERO_IS_INVALID[spec.name]) {
+      return { values: out, error: `${spec.label} must be greater than 0. ${ZERO_IS_INVALID[spec.name]}` };
     }
     if (spec.min != null && parsed < spec.min) {
       return { values: out, error: `${spec.label} must be at least ${spec.min}.` };
