@@ -466,7 +466,12 @@ export class ImgPadder {
       const step = this.padStep;
       for (let d = 0; d < shape.length; d++) {
         if (step[d] === 0) {
-          paddedShape.push(shape[d]);
+          // A step of 0 means the axis is FIXED, so min[d] is the only extent the model
+          // accepts and therefore the only legal padded shape. Pushing shape[d] here made
+          // the padder an exact no-op on every fixed axis: an undersized tensor was never
+          // padded up, and an oversized one was handed to the model untouched, which is
+          // what produced "Input height (N) doesn't match model (256)".
+          paddedShape.push(min[d]);
         } else {
           const pad = Math.max(
             0,
@@ -484,8 +489,12 @@ export class ImgPadder {
     const pad = [];
     for (let d = 0; d < tensor.shape.length; d++) {
       if (paddedShape[d] < tensor.shape[d]) {
+        // ImgPadder has no `inputSpec` field, so the previous message threw a TypeError of
+        // its own while reporting this one, hiding both the shapes and the real cause.
         throw new Error(
-          `Invalid shape: ${tensor.shape} for ${this.inputSpec.shape}`
+          `Cannot pad tensor of shape [${tensor.shape}] to [${paddedShape}]: ` +
+            `axis ${d} is larger than the model accepts. Padding cannot shrink an axis, ` +
+            `so an oversized input has to be tiled instead.`
         );
       }
       const diff = paddedShape[d] - tensor.shape[d];

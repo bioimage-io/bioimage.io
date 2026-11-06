@@ -40,8 +40,17 @@ export const getMinShape = (inputSpec) => {
   if (Array.isArray(inputSpec.axes)) {
     return inputSpec.axes.map(axis => {
       // For 'space' type axes, get the minimum size
-      if (axis.type === 'space' && axis.size && axis.size.min) {
-        return axis.size.min;
+      if (axis.type === 'space') {
+        // A FIXED axis spells its extent as a plain number (`size: 256`); a flexible one as
+        // a dict (`size: {min: 64, step: 16}`). Reading `.min` off a number gives undefined,
+        // which used to fall through to the 1 below and told everything downstream that a
+        // model with a hard 256x256 requirement would accept an image of any size at all.
+        if (typeof axis.size === 'number') {
+          return axis.size;
+        }
+        if (axis.size && typeof axis.size.min === 'number') {
+          return axis.size.min;
+        }
       }
       // For channel type, use default or 1
       if (axis.type === 'channel') {
@@ -76,8 +85,19 @@ export const getStepShape = (inputSpec) => {
   if (Array.isArray(inputSpec.axes)) {
     return inputSpec.axes.map(axis => {
       // For 'space' type axes, get the step size
-      if (axis.type === 'space' && axis.size && axis.size.step) {
-        return axis.size.step;
+      if (axis.type === 'space') {
+        // A fixed extent (`size: 256`) has no flexibility, and 0 is how that is encoded
+        // everywhere else: it is what 0.4.x RDFs put in `shape.step`, and it is the case
+        // ImgPadder.getPaddedShape already branches on. Returning 1 here instead made a
+        // fixed axis indistinguishable from a 1px-granular flexible one.
+        if (typeof axis.size === 'number') {
+          return 0;
+        }
+        // `step: 0` is legal and means the same thing, so test the type rather than
+        // truthiness — `axis.size.step` of 0 used to fall through to the 1 below.
+        if (axis.size && typeof axis.size.step === 'number') {
+          return axis.size.step;
+        }
       }
       return 1; // Default step size
     });
@@ -461,6 +481,40 @@ export class ModelRunnerEngine {
     return res;
   }
 
+  /**
+   * Per-axis step, keyed by axis letter, e.g. {b: 1, c: 1, y: 0, x: 0}.
+   * A step of 0 marks an axis the model accepts at exactly one size.
+   */
+  getInputStepShape() {
+    if (!this.rdf || !this.rdf.inputs || !this.rdf.inputs[0]) {
+      throw new Error("RDF data not loaded properly");
+    }
+
+    const inputSpec = this.rdf.inputs[0];
+    const axes = parseAxes(inputSpec);
+    if (!axes) {
+      throw new Error("Could not parse axes information from input spec");
+    }
+
+    const stepShape = getStepShape(inputSpec);
+    if (!stepShape) {
+      throw new Error("Could not get step shape from input spec");
+    }
+
+    return axes.split("").reduce((acc, cur, i) => {
+      if (i < stepShape.length) {
+        acc[cur] = stepShape[i];
+      }
+      return acc;
+    }, {});
+  }
+
+  /** Axis letters the model accepts at exactly one size, e.g. ["y", "x"]. */
+  getFixedAxes() {
+    const stepShape = this.getInputStepShape();
+    return Object.keys(stepShape).filter((a) => stepShape[a] === 0);
+  }
+
   getInputMaxShape() {
     if (!this.rdf || !this.rdf.inputs || !this.rdf.inputs[0]) {
       throw new Error("RDF data not loaded properly");
@@ -489,12 +543,15 @@ export class ModelRunnerEngine {
   getDefaultTileSizes() {
     const inputMinShape = this.getInputMinShape();
     const tileSizes = Object.assign({}, inputMinShape);
+    const fixedAxes = this.getFixedAxes();
     const xyFactor = 4;
-    // Check if x and y are defined
-    if ('x' in tileSizes) {
+    // Give a flexible model room to work in by taking tiles a few multiples above its
+    // minimum. A FIXED axis has no multiples: the model accepts exactly inputMinShape, so
+    // leave it there. Scaling it up produced a tile the model rejects outright.
+    if ('x' in tileSizes && !fixedAxes.includes('x')) {
       tileSizes.x = xyFactor * inputMinShape.x;
     }
-    if ('y' in tileSizes) {
+    if ('y' in tileSizes && !fixedAxes.includes('y')) {
       tileSizes.y = xyFactor * inputMinShape.y;
     }
     return tileSizes;
@@ -515,10 +572,22 @@ export class ModelRunnerEngine {
     
     let overlaps = {};
     const halo = getHalo(outputSpec); // Use the new helper
-    
+    const fixedAxes = this.getFixedAxes();
+
     if (halo) {
       axes.split("").forEach((a, i) => {
-        if (i < halo.length && parseAxes(outputSpec)?.includes(a) && a !== "z") {
+        if (
+          i < halo.length &&
+          parseAxes(outputSpec)?.includes(a) &&
+          a !== "z" &&
+          // On a FIXED axis the tile cannot be enlarged to cover the halo, so every
+          // overlapped pixel is one the model is paid to compute twice while the tile still
+          // only yields its reliable centre. Take no overlap and accept the seam; the merged
+          // mask covers the whole image either way. If seams become a problem this is the
+          // one line to revisit, and it is safe to: overlap shifts tile starts only, it
+          // never changes the tile's shape (see ImgTiler.getTiles).
+          !fixedAxes.includes(a)
+        ) {
           overlaps[a] = 2 * halo[i];
         } else {
           overlaps[a] = 0;
@@ -666,8 +735,37 @@ export class ModelRunnerEngine {
 
     let padder = new ImgPadder(undefined, minShape, stepShape, 0);
 
+    // A fixed axis (step 0) accepts exactly one extent, and padding can only grow an axis,
+    // never shrink it. So an image larger than that extent can be run ONLY by tiling it,
+    // whatever the tiling checkbox says. Tiling defaults to off, which is why a fixed-size
+    // model used to fail outright on any image bigger than its own input.
+    const oversizedFixedAxes = inputAxes
+      .split("")
+      .filter((a, i) => stepShape[i] === 0 && tensor.shape[i] > minShape[i]);
+    const forceTiling = !enableTiling && oversizedFixedAxes.length > 0;
+
+    // Only a flexible model can honour a caller's custom tile geometry; when tiling is
+    // forced, the geometry is dictated by the model's fixed extent.
+    let effectiveTileSizes = tileSizes;
+    let effectiveTileOverlaps = tileOverlaps;
+    if (forceTiling) {
+      effectiveTileSizes = this.getDefaultTileSizes();
+      effectiveTileOverlaps = this.getDefaultTileOverlaps();
+      console.log(
+        "Tiling forced, fixed input axes exceeded:",
+        oversizedFixedAxes.join(", "),
+        "tensor:",
+        tensor.shape,
+        "fixed extent:",
+        minShape
+      );
+      reportFunc(
+        "Image is larger than this model's fixed input size, running it in tiles..."
+      );
+    }
+
     // Check if tiling is disabled or if tensor is small enough to process without tiling
-    if (!enableTiling) {
+    if (!enableTiling && !forceTiling) {
       console.log("Tiling disabled - Running on whole tensor");
       reportFunc("Running the model on whole image (tiling disabled)...");
       const result = await this.runOneTensor(tensor, padder, additionalParameters, progressCallback);
@@ -676,8 +774,8 @@ export class ModelRunnerEngine {
     }
 
     // Tiling enabled - proceed with original tiling logic
-    const tileSize = inputAxes.split("").map((a) => tileSizes[a]);
-    const overlap = inputAxes.split("").map((a) => tileOverlaps[a]);
+    const tileSize = inputAxes.split("").map((a) => effectiveTileSizes[a]);
+    const overlap = inputAxes.split("").map((a) => effectiveTileOverlaps[a]);
 
     console.log("Input tensor shape:", tensor.shape, "tile size:", tileSize, "overlap:", overlap);
     const tiler = new ImgTiler(tensor.shape, tileSize, overlap);
