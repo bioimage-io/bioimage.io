@@ -44,6 +44,10 @@ interface ClusterData {
     accelerator_type?: string | null;
     slurm_job_id?: string | null;
   }>;
+  // Host resource census (bioengine 0.16.75+): one warning string per check
+  // that fired, already written for a human by the worker. Absent entirely on
+  // every older worker, so every read of it must tolerate `undefined`.
+  co_tenancy_warnings?: string[];
   slurm_jobs?: {
     queued?: Array<{
       job_id: string;
@@ -279,6 +283,41 @@ const BioEngineClusterResources: React.FC<BioEngineClusterResourcesProps> = ({ r
             <h3 className="text-lg font-semibold text-gray-800">Cluster Status</h3>
           </div>
         </div>
+
+        {/* Host co-tenancy warnings.
+            These come from the worker's host resource census, which only
+            exists from bioengine 0.16.75, so the field is absent rather than
+            empty on every worker published before it — hence `?? []` and the
+            length guard, which also keep the panel out of the way in the
+            normal case of no warnings. The strings are rendered verbatim: the
+            worker is where the thresholds and the roster live, so re-wording
+            them here would mean restating facts this page cannot see. */}
+        {(rayCluster.co_tenancy_warnings ?? []).length > 0 && (
+          <div
+            data-testid="co-tenancy-warnings"
+            className="mb-6 p-4 bg-amber-50 border border-amber-200 rounded-xl"
+          >
+            <div className="flex items-center mb-2">
+              <svg className="w-5 h-5 text-amber-600 mr-2 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+              </svg>
+              <span className="font-semibold text-amber-900">
+                This host is shared with {(rayCluster.co_tenancy_warnings ?? []).length === 1 ? 'another BioEngine worker' : 'other BioEngine workers'}
+              </span>
+            </div>
+            <ul className="space-y-2">
+              {(rayCluster.co_tenancy_warnings ?? []).map((warning, index) => (
+                <li
+                  key={index}
+                  data-testid="co-tenancy-warning"
+                  className="text-sm text-amber-800 leading-relaxed"
+                >
+                  {warning}
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
 
         {/* Cluster Information */}
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6 p-4 bg-gray-50 rounded-xl">
