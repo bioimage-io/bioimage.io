@@ -56,6 +56,26 @@ function describeSamBoxPrepareError(e: unknown): string {
   return message || 'Failed to prepare the interactive segmentation model.';
 }
 
+// A presigned PUT that comes back 4xx/5xx is a failed save, but `fetch` only
+// rejects on a transport failure, so every upload has to be checked by hand.
+// S3 answers with an XML body whose first `<Message>` is the readable part;
+// anything else is truncated so a stray HTML error page can't flood the
+// banner.
+async function throwIfUploadFailed(res: Response, what: string): Promise<void> {
+  if (res.ok) return;
+  let detail = '';
+  try {
+    const body = await res.text();
+    const message = body.match(/<Message>([^<]*)<\/Message>/)?.[1];
+    detail = (message || body).trim().slice(0, 200);
+  } catch {
+    // Body already consumed or unreadable: the status alone is enough.
+  }
+  throw new Error(
+    `Could not upload the annotation ${what} (HTTP ${res.status}).${detail ? ' ' + detail : ''}`,
+  );
+}
+
 const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   const location = useLocation();
   const navigate = useNavigate();
@@ -424,6 +444,15 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // image has since changed — discards its output instead of painting
   // stale/mismatched polygons onto the current preview.
   const flowsRunSeqRef = useRef(0);
+  // Same idea for image loads. Opening an image now fetches the caller's
+  // saved annotation for it, so a fast switch between two images must not let
+  // the slower restore paint the wrong image's masks onto the canvas.
+  const imageLoadSeqRef = useRef(0);
+  // True once the canvas has been mutated since the last point at which it
+  // matched what is stored (image open, restore, or a successful save).
+  // Annotation lives only in the OpenLayers vector source until Save, so this
+  // is the only thing standing between a stray tab close and lost work.
+  const hasUnsavedRef = useRef(false);
   // OL features added by the latest Cellpose run. Replaced wholesale on each
   // "Show preview" / Done recompute so the preview stays in sync.
   const previewFeaturesRef = useRef<Feature[]>([]);
@@ -484,6 +513,15 @@ print('CLAHE packages ready')
   const [claheEnhancedUrl, setClaheEnhancedUrl] = useState<string | null>(null);
   const [resetView, setResetView] = useState<(() => void) | undefined>(undefined);
   const [getVectorSource, setGetVectorSource] = useState<(() => VectorSource | null) | undefined>(undefined);
+  // Mirror of the accessor above that is readable from a callback created
+  // before `AnnotationViewer` mounted and registered it. The deep-link load
+  // path starts as soon as the service resolves, which can be earlier, and a
+  // closure that captured `undefined` would silently have no canvas to work
+  // on. See `waitForVectorSource`.
+  const getVectorSourceRef = useRef<(() => VectorSource | null) | undefined>(undefined);
+  useEffect(() => {
+    getVectorSourceRef.current = getVectorSource;
+  }, [getVectorSource]);
   const [getImageLayer, setGetImageLayer] = useState<(() => ImageLayer<Static> | null) | undefined>(undefined);
   const [getOlMap, setGetOlMap] = useState<(() => OlMap | null) | undefined>(undefined);
 
@@ -699,16 +737,149 @@ print('CLAHE packages ready')
     }
   }, []);
 
+  // Watch the vector source for edits.
+  //
+  // Every feature in the source counts, Cellpose preview polygons included.
+  // `_cellpose_preview` marks a polygon that the NEXT run may replace, which
+  // is why `getExistingMaskCount` skips them for the overwrite warning, but
+  // it does not mean "not the user's work": `exportGeoJSON` and
+  // `renderInstanceSegmentationPNG` both take `getFeatures()` unfiltered, so
+  // a preview polygon is saved exactly like a hand-drawn one. Exempting them
+  // here would let a whole AI-assisted run be discarded without a prompt.
+  useEffect(() => {
+    const vs = getVectorSource?.();
+    if (!vs) return;
+    const mark = () => {
+      hasUnsavedRef.current = true;
+    };
+    vs.on('addfeature', mark);
+    vs.on('removefeature', mark);
+    vs.on('changefeature', mark);
+    return () => {
+      vs.un('addfeature', mark);
+      vs.un('removefeature', mark);
+      vs.un('changefeature', mark);
+    };
+  }, [getVectorSource]);
+
+  // Tab close, reload, and navigation away from the SPA. The browser shows
+  // its own generic wording here, so there is no message to write.
+  useEffect(() => {
+    const onBeforeUnload = (e: BeforeUnloadEvent) => {
+      if (!hasUnsavedRef.current) return;
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', onBeforeUnload);
+    return () => window.removeEventListener('beforeunload', onBeforeUnload);
+  }, []);
+
+  // In-app navigation. `HashRouter` is not a data router, so `useBlocker` is
+  // unavailable and each in-app exit has to ask for itself.
+  const confirmLeaveWithUnsavedWork = useCallback(() => {
+    if (!hasUnsavedRef.current) return true;
+    return window.confirm(
+      'You have annotation changes that have not been saved. Leaving this page discards them. Leave anyway?',
+    );
+  }, []);
+
+  // Resolve the OL vector source, waiting for `AnnotationViewer` to mount and
+  // register it if it has not yet. Reads the ref, never the captured state,
+  // so a callback created before the viewer existed still sees it.
+  //
+  // This is load-bearing rather than defensive. On a fresh page load the
+  // `&image=<stem>` fast path fires the moment the service resolves, which
+  // beats the viewer's registration, so the restore below genuinely did find
+  // no canvas and returned without drawing anything or saying so: exactly the
+  // empty-canvas-over-an-annotated-image symptom it exists to fix.
+  const waitForVectorSource = useCallback(async (timeoutMs = 15000): Promise<VectorSource | null> => {
+    const deadline = Date.now() + timeoutMs;
+    for (;;) {
+      const vs = getVectorSourceRef.current?.();
+      if (vs) return vs;
+      if (Date.now() >= deadline) return null;
+      await new Promise((r) => setTimeout(r, 100));
+    }
+  }, []);
+
+  // Fetch the caller's own latest annotation for (label, stem) and put it
+  // back on the canvas. `get_my_annotation_url` has existed in the service
+  // layer since broker v0.5.0 with no call site, which is why saved masks
+  // were invisible on reopening an image.
+  //
+  // A failure here is deliberately loud rather than silent: an empty canvas
+  // over an image that already has a saved annotation looks exactly like an
+  // unannotated image, and saving from that state replaces the real
+  // annotation with whatever is drawn now.
+  const restoreSavedAnnotation = useCallback(
+    async (stem: string, imageHeightPx: number, mySeq: number) => {
+      if (!service) {
+        console.warn('[AnnotatePage] restore skipped: no annotation service yet');
+        return;
+      }
+      try {
+        const saved = await service.getMyAnnotationUrl(stem);
+        if (mySeq !== imageLoadSeqRef.current) return;
+        if (!saved || !saved.exists) {
+          console.log('[AnnotatePage] No saved annotation of yours for', stem);
+          return;
+        }
+
+        const res = await fetch(saved.geojson_read_url);
+        if (!res.ok) throw new Error(`HTTP ${res.status} reading the saved annotation`);
+        const data = await res.json();
+        if (mySeq !== imageLoadSeqRef.current) return;
+
+        const vs = await waitForVectorSource();
+        if (mySeq !== imageLoadSeqRef.current) return;
+        if (!vs) throw new Error('the annotation canvas never became ready');
+        vs.clear();
+        // No overlap trimming: this has to reproduce what was stored, not
+        // re-resolve it like a fresh draw would. With trimming on, reloading
+        // and saving rewrites the user's masks a little on every cycle.
+        importGeoJSON(vs, data, imageHeightPx, activeLabel, { trimOverlaps: false });
+        // The restored state is the baseline, so an undo must not be able to
+        // step back past it into the empty canvas, and it is not unsaved work.
+        useAnnotationStore.setState({ undoStack: [], canUndo: false });
+        hasUnsavedRef.current = false;
+        const count = vs.getFeatures().length;
+        console.log('[AnnotatePage] Restored', count, 'saved masks for', stem);
+        addBanner(
+          `Loaded your saved annotation for this image (${count} mask${count === 1 ? '' : 's'}). Saving replaces it.`,
+          'info',
+          8000,
+        );
+      } catch (err: any) {
+        const detail = err?.message || String(err);
+        console.error('[AnnotatePage] restoreSavedAnnotation failed:', detail);
+        if (mySeq !== imageLoadSeqRef.current) return;
+        addBanner(
+          'Could not load your saved annotation for this image. It is still stored, but it is not shown here, and saving now would replace it.',
+          'warning',
+          0,
+          detail,
+        );
+      }
+    },
+    [service, waitForVectorSource, activeLabel, addBanner],
+  );
+
   // Load one image by stem: fetches a fresh presigned read url for just this
   // image (broker v0.5.0's `get_image_url`, public-min role) instead of
-  // looking it up in a full index fetch. Every image opens with a clean
-  // slate — any prior annotation for this (label, stem) pair is never
-  // auto-loaded; `get_my_annotation_url` is reserved for explicit user
-  // actions. This call doesn't depend on `datasetIndex`, which is what lets
-  // an `&image=<stem>` deep link render before the index or the μSAM probe
-  // resolve.
+  // looking it up in a full index fetch. This call doesn't depend on
+  // `datasetIndex`, which is what lets an `&image=<stem>` deep link render
+  // before the index or the μSAM probe resolve.
+  //
+  // Two things happen around the image itself. The vector source is emptied
+  // first, because it is shared across image switches and masks left in it
+  // would otherwise be exported against the next image's stem on save. Then
+  // the caller's own saved annotation for this (label, stem) pair is fetched
+  // and imported, so reopening an image shows the work already done on it.
+  // Without that fetch the round trip is one-way: you can save, but you can
+  // never come back and correct.
   const loadImageByStem = useCallback(async (stem: string, showBanner = true) => {
     if (!service || !serviceConfig) return;
+    const mySeq = ++imageLoadSeqRef.current;
     setIsLoadingImage(true);
     setError(null);
     setAllAnnotatedInfo(null);
@@ -717,6 +888,14 @@ print('CLAHE packages ready')
     setIsLowContrast(false);
     setOriginalImageUrl(null);
     setClaheEnhancedUrl(null);
+    // Read through the ref, not the captured state: on the deep-link fast
+    // path this callback can predate the viewer's registration. Nothing to
+    // clear in that case, but when switching images it is what stops the
+    // previous image's masks from being exported against this one's stem.
+    const vs = getVectorSourceRef.current?.();
+    if (vs) vs.clear();
+    useAnnotationStore.setState({ undoStack: [], canUndo: false });
+    hasUnsavedRef.current = false;
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
       const { read_url: url } = await service.getImageUrl(stem);
@@ -729,18 +908,25 @@ print('CLAHE packages ready')
         img.onload = () => resolve();
         img.onerror = () => reject(new Error('Failed to load image'));
       });
+      if (mySeq !== imageLoadSeqRef.current) return;
       console.log('[AnnotatePage] Image loaded:', img.naturalWidth, 'x', img.naturalHeight);
       setIsLowContrast(detectLowContrast(img));
       setImageInfo(url, img.naturalWidth, img.naturalHeight);
       setHasLoadedOnce(true);
+      await restoreSavedAnnotation(stem, img.naturalHeight, mySeq);
     } catch (err: any) {
       console.error('[AnnotatePage] loadImageByStem failed:', err);
-      setError(err.message || 'Failed to load image');
+      // Same sequence guard as the success path: a load the user has already
+      // switched away from must not replace the current image with its error.
+      if (mySeq === imageLoadSeqRef.current) setError(err.message || 'Failed to load image');
     } finally {
-      setIsLoadingImage(false);
+      if (mySeq === imageLoadSeqRef.current) setIsLoadingImage(false);
       if (bannerId) removeBanner(bannerId);
     }
-  }, [service, serviceConfig, setImageInfo, setError, addBanner, removeBanner, detectLowContrast]);
+  }, [
+    service, serviceConfig, setImageInfo, setError, addBanner, removeBanner,
+    detectLowContrast, restoreSavedAnnotation,
+  ]);
 
   // Deep-link fast path: as soon as the service is ready, render the
   // `&image=<stem>` image immediately, independent of the dataset index or
@@ -820,10 +1006,14 @@ print('CLAHE packages ready')
     setRefinePickerOpen(true);
   }, []);
 
+  // Switching images empties the vector source, so unsaved masks on the
+  // current image are gone. Ask first, and leave the picker open on a cancel
+  // so the click does not read as a no-op.
   const handlePickRefineImage = useCallback((stem: string) => {
+    if (!confirmLeaveWithUnsavedWork()) return;
     setRefinePickerOpen(false);
     loadImageByStem(stem);
-  }, [loadImageByStem]);
+  }, [loadImageByStem, confirmLeaveWithUnsavedWork]);
 
   // Cellpose feature-replacement helper: removes everything we added on the
   // previous run/preview and stamps in the new polygons. Non-Cellpose
@@ -1371,11 +1561,16 @@ print('CLAHE packages ready')
 
       const geojson = exportGeoJSON(vs, imageWidth > 0 ? imageHeight : undefined);
       const geojsonBlob = new Blob([JSON.stringify(geojson, null, 2)], { type: 'application/json' });
-      await fetch(saveUrls.geojson_put_url, { method: 'PUT', body: geojsonBlob });
+      const geojsonRes = await fetch(saveUrls.geojson_put_url, { method: 'PUT', body: geojsonBlob });
+      // `fetch` resolves on any HTTP status and rejects only on a transport
+      // failure, so without these checks a 403/404/429/500 would fall through
+      // to the success banner and `vs.clear()` below, losing the work.
+      await throwIfUploadFailed(geojsonRes, 'outline');
       console.log('[AnnotatePage] Uploaded GeoJSON');
 
       const pngBlob = renderInstanceSegmentationPNG(vs, imageWidth, imageHeight);
-      await fetch(saveUrls.png_put_url, { method: 'PUT', body: pngBlob });
+      const pngRes = await fetch(saveUrls.png_put_url, { method: 'PUT', body: pngBlob });
+      await throwIfUploadFailed(pngRes, 'mask image');
       console.log('[AnnotatePage] Uploaded PNG mask');
 
       removeBanner(saveBannerId);
@@ -1383,6 +1578,13 @@ print('CLAHE packages ready')
       console.log('[AnnotatePage] Save complete');
 
       vs.clear();
+      // After `vs.clear()`, not before: clear fires `removefeature` per
+      // feature, which the watcher above reads as an edit. Setting the flag
+      // first would leave it back on, and `advanceToNextImage` can return
+      // without loading another image (the "all annotated" screen), so
+      // nothing downstream would clear it and the next exit would prompt
+      // about work that was just saved.
+      hasUnsavedRef.current = false;
       useAnnotationStore.setState({ undoStack: [], canUndo: false });
       await advanceToNextImage();
     } catch (err: any) {
@@ -1759,7 +1961,7 @@ print("CLAHE_RESULT:" + result_b64)
                 size="small"
                 variant="outlined"
                 startIcon={<span style={{ fontSize: 14, lineHeight: 1 }}>←</span>}
-                onClick={() => navigate(backTarget)}
+                onClick={() => { if (confirmLeaveWithUnsavedWork()) navigate(backTarget); }}
                 sx={{
                   minWidth: 'auto',
                   padding: isMobile ? '5px 8px' : '3px 10px',
@@ -1786,7 +1988,13 @@ print("CLAHE_RESULT:" + result_b64)
         </div>
 
         <div className="absolute left-1/2 top-1/2 -translate-x-1/2 -translate-y-1/2 flex items-center gap-2">
-          <Link to="/" className="flex items-center group flex-shrink-0">
+          {/* An in-app hash navigation, so `beforeunload` never fires for it:
+              this exit has to ask for itself like the back button does. */}
+          <Link
+            to="/"
+            className="flex items-center group flex-shrink-0"
+            onClick={(e) => { if (!confirmLeaveWithUnsavedWork()) e.preventDefault(); }}
+          >
             <img
               src={`${process.env.PUBLIC_URL}/static/img/bioimage-io-logo.svg`}
               alt="BioImage.IO"
