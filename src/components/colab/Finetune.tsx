@@ -18,6 +18,7 @@ import {
   backendOfModel,
   buildTrainingModelOptions,
   defaultTrainingParams,
+  trainingParamAdvisories,
   trainingParamsFor,
   validateTrainingParams,
 } from '../../utils/trainingModels';
@@ -35,6 +36,47 @@ export interface FinetuneProps {
 }
 
 type TrainingStatusValue = 'PREPARING' | 'TRAINING' | 'COMPLETED' | 'FAILED' | 'STOPPED' | 'UNKNOWN';
+
+/**
+ * Whether the split named in the query string can actually be trained on.
+ * `idle` is the state before a run is armed at all, and is what keeps the
+ * check from reporting on a page that is only listing past sessions.
+ */
+type RunReadiness =
+  | { state: 'idle' }
+  | { state: 'checking' }
+  | { state: 'ready'; train: number; test: number }
+  | { state: 'unusable'; reason: string };
+
+/**
+ * The broker and hypha-rpc both answer a missing artifact, label or split
+ * with a Python traceback, which the page used to render verbatim. Keep the
+ * original on the console and show the last line, which is the only part that
+ * names what went wrong, capped so a stack cannot take over the card.
+ */
+function readableServiceError(err: unknown, fallback: string): string {
+  const message = err instanceof Error ? err.message : String(err ?? '');
+  if (!message.trim()) return fallback;
+  // The commonest failure by far, and the one whose own text is least use to
+  // a data owner: hypha reports it as a KeyError whose payload is the
+  // fully-qualified service id, workspace included. Which service it was
+  // looking for is on the console; what the user needs is which control to
+  // touch.
+  if (/Service not found/i.test(message)) {
+    return 'The training service did not answer. Check the service selected above, or try again in a few minutes.';
+  }
+  const lastLine = message
+    .split('\n')
+    .map((l) => l.trim())
+    .filter(Boolean)
+    .pop();
+  if (!lastLine) return fallback;
+  // A traceback's last line still carries the exception class, which reads as
+  // noise to a data owner. Drop it when there is a message after the colon.
+  const withoutClass = lastLine.replace(/^(?:\w+Error|\w+Exception):\s*/, '');
+  const cleaned = (withoutClass || lastLine).trim();
+  return cleaned.length > 240 ? `${cleaned.slice(0, 240)}...` : cleaned;
+}
 
 export interface TrainingSessionStatus {
   session_id: string;
@@ -173,7 +215,64 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   const pendingInitStaged = searchParams.get('initStaged') === '1';
   const hasPendingRun = !!(pendingLabel && pendingSplit && pendingModelType);
 
-  const { capabilities: trainingCapabilities } = useTrainingCapabilities(hasPendingRun ? server : null);
+  const {
+    capabilities: trainingCapabilities,
+    loading: capabilitiesLoading,
+    error: capabilitiesError,
+  } = useTrainingCapabilities(hasPendingRun ? server : null);
+  // The trainer answering at all is a precondition for starting a run, so
+  // unlike the model picker (which fails open on purpose) this page reads the
+  // capabilities failure as "do not let them press the button". See the hook's
+  // header for why that distinction exists.
+  const trainerUnreachable = hasPendingRun && !capabilitiesLoading && !!capabilitiesError;
+
+  // Whether the split named in the query string holds anything trainable.
+  // `hasPendingRun` is a truthiness check on three query parameters and
+  // nothing more, so without this the page renders a fully armed run card for
+  // a label or split that does not exist and the first thing to notice is
+  // `start_training`, minutes later. This calls `get_training_urls`, the same
+  // call the start path makes, so the card cannot disagree with what pressing
+  // the button would actually find.
+  const [readiness, setReadiness] = useState<RunReadiness>({ state: 'idle' });
+
+  useEffect(() => {
+    if (!hasPendingRun || !server || !pendingLabel || !pendingSplit) {
+      setReadiness({ state: 'idle' });
+      return;
+    }
+    let active = true;
+    setReadiness({ state: 'checking' });
+    getTrainingUrls(server, artifactId, pendingLabel, pendingSplit)
+      .then((urls) => {
+        if (!active) return;
+        if (!urls.train?.length) {
+          setReadiness({
+            state: 'unusable',
+            reason:
+              `Split "${pendingSplit}" of label "${pendingLabel}" has no annotated training images yet. ` +
+              'Annotate at least one image and assign it to this split, then start the run from the dataset page again.',
+          });
+          return;
+        }
+        setReadiness({ state: 'ready', train: urls.train.length, test: urls.test?.length ?? 0 });
+      })
+      .catch((err) => {
+        if (!active) return;
+        console.error('[Finetune] get_training_urls failed', { label: pendingLabel, split: pendingSplit }, err);
+        setReadiness({
+          state: 'unusable',
+          reason:
+            `Could not read split "${pendingSplit}" of label "${pendingLabel}". ` +
+            readableServiceError(err, 'The split may have been renamed or deleted.') +
+            ' Pick the split again in the finetune view for this dataset.',
+        });
+      });
+    return () => {
+      active = false;
+    };
+  }, [hasPendingRun, server, artifactId, pendingLabel, pendingSplit]);
+
+  const canStart = hasPendingRun && !trainerUnreachable && readiness.state === 'ready';
   // Which parameters start_training accepts depends on the backend the chosen
   // architecture belongs to: micro-sam takes n_objects_per_batch and
   // patch_size, Cellpose takes diam_mean, the rest are shared. The trainer
@@ -188,6 +287,10 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
   // decide" is expressed for a parameter with no default. Empty fields are
   // dropped from the call rather than sent as zero.
   const [params, setParams] = useState<Record<string, string>>(() => defaultTrainingParams(paramSpecs));
+  // Non-blocking notes on values that are legal but expensive. A long run is
+  // a legitimate thing to ask for, so these say what it costs and get out of
+  // the way rather than refusing it.
+  const advisories = trainingParamAdvisories(paramSpecs, params);
   const [starting, setStarting] = useState(false);
   const [startError, setStartError] = useState<string | null>(null);
   const [showEmptyTestWarning, setShowEmptyTestWarning] = useState(false);
@@ -210,6 +313,10 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
 
   const handleStartTraining = async (skipEmptyTestWarning = false) => {
     if (!pendingLabel || !pendingSplit || !pendingModelType) return;
+    // The button is disabled in these states, so reaching here means something
+    // raced the readiness check. Refuse rather than start a run the page has
+    // already established cannot work.
+    if (!canStart) return;
     setStartError(null);
     const parsed = validateTrainingParams(paramSpecs, params);
     if (parsed.error) {
@@ -367,7 +474,10 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
           pollTimer.current = setTimeout(tick, 5000);
         }
       } catch (err) {
-        if (active) setSessionsError((err as Error).message || 'Failed to load training sessions.');
+        if (active) {
+          console.error('[Finetune] list_training_sessions failed', err);
+          setSessionsError(readableServiceError(err, 'Failed to load training sessions.'));
+        }
       }
     };
 
@@ -396,7 +506,8 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
         }, 5000);
       }
     } catch (err) {
-      setSessionsError((err as Error).message || 'Failed to load training sessions.');
+      console.error('[Finetune] list_training_sessions failed', err);
+      setSessionsError(readableServiceError(err, 'Failed to load training sessions.'));
     } finally {
       setSessionsLoading(false);
     }
@@ -410,7 +521,8 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
       const status: TrainingSessionStatus = await svc.stop_training({ session_id: sessionId, _rkwargs: true });
       setSessions((prev) => ({ ...prev, [sessionId]: status }));
     } catch (err) {
-      setSessionsError((err as Error).message || 'Failed to stop training.');
+      console.error('[Finetune] stop_training failed', err);
+      setSessionsError(readableServiceError(err, 'Failed to stop training.'));
     } finally {
       setStoppingSessionId(null);
     }
@@ -526,7 +638,45 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
             ))}
           </div>
 
+          {advisories.length > 0 && (
+            <ul className="mb-4 space-y-1">
+              {advisories.map((a) => (
+                <li key={a} className="text-xs text-amber-700">
+                  {a}
+                </li>
+              ))}
+            </ul>
+          )}
+
           <TrainingServicePicker className="mb-4" />
+
+          {/* What the run would actually train on, resolved before the button
+              is live rather than after it is pressed. */}
+          {readiness.state === 'checking' && (
+            <div className="mb-3 flex items-center gap-2 text-sm text-gray-500">
+              <Spinner className="w-4 h-4 text-gray-400" />
+              Checking what this split holds...
+            </div>
+          )}
+          {readiness.state === 'ready' && (
+            <p className="mb-3 text-sm text-gray-600">
+              {readiness.train} training image{readiness.train === 1 ? '' : 's'}
+              {readiness.test > 0
+                ? `, ${readiness.test} validation image${readiness.test === 1 ? '' : 's'}.`
+                : ', no validation images.'}
+            </p>
+          )}
+          {readiness.state === 'unusable' && (
+            <div className="mb-3 px-3.5 py-2.5 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-800">
+              {readiness.reason}
+            </div>
+          )}
+          {trainerUnreachable && (
+            <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
+              The training service did not answer, so a run cannot be started right now. Check the service
+              selected above, or try again in a few minutes. The full error is in the browser console.
+            </div>
+          )}
 
           {startError && (
             <div className="mb-3 px-3.5 py-2.5 bg-red-50 border border-red-200 rounded-lg text-sm text-red-700">
@@ -537,7 +687,16 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
           <div className="flex items-center gap-2">
             <button
               onClick={() => handleStartTraining()}
-              disabled={starting}
+              disabled={starting || !canStart}
+              title={
+                trainerUnreachable
+                  ? 'The training service did not answer.'
+                  : readiness.state === 'checking'
+                    ? 'Checking what this split holds.'
+                    : readiness.state === 'unusable'
+                      ? readiness.reason
+                      : undefined
+              }
               className="px-4 py-2 bg-gradient-to-r from-emerald-600 to-teal-600 text-white rounded-lg hover:from-emerald-700 hover:to-teal-700 text-sm font-medium shadow-sm transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center gap-2"
             >
               {starting && <Spinner className="w-4 h-4 text-white" />}
