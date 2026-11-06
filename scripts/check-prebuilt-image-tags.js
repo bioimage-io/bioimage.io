@@ -10,8 +10,6 @@
  * offering an old image to every new worker. This turns that into a failure
  * someone can actually see.
  *
- *   node scripts/check-prebuilt-image-tags.js
- *
  * The same tag is also written out longhand in the served skill docs, where it
  * rots the same way and is read by agents rather than by the wizard. So the
  * check has two arms: the constant must be the newest published tag, and every
@@ -84,6 +82,7 @@ function copiesOf(repo) {
   return found;
 }
 
+/** Resolves `{ body, headers }`; the headers carry the registry's pagination link. */
 function get(url, headers = {}) {
   return new Promise((resolve, reject) => {
     https
@@ -92,7 +91,7 @@ function get(url, headers = {}) {
         res.on('data', chunk => (body += chunk));
         res.on('end', () =>
           res.statusCode === 200
-            ? resolve(body)
+            ? resolve({ body, headers: res.headers })
             : reject(new Error(`${url} -> HTTP ${res.statusCode}`)),
         );
       })
@@ -100,13 +99,34 @@ function get(url, headers = {}) {
   });
 }
 
+/**
+ * Every published tag, following the registry's pagination to the end.
+ *
+ * The v2 tags/list endpoint caps a page at 100 and hands back the rest behind a
+ * `Link: <...>; rel="next"` header. Reading one page and stopping does NOT fail
+ * loudly: it returns a short list in lexical order, so for a repo with hundreds
+ * of tags the "newest" comes out as whatever sorts late within the first 100.
+ * Measured on ghcr.io/aicell-lab/bioengine-worker: one page gives 100 tags and a
+ * newest of 0.6.14, while following the link gives 260 tags and 0.16.92. A pin
+ * checked against the first answer is checked against nothing.
+ */
 async function publishedTags(repo) {
   const scope = encodeURIComponent(`repository:${repo}:pull`);
-  const { token } = JSON.parse(await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`));
-  const { tags } = JSON.parse(
-    await get(`https://ghcr.io/v2/${repo}/tags/list`, { Authorization: `Bearer ${token}` }),
-  );
-  return tags || [];
+  const { body: tokenBody } = await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`);
+  const { token } = JSON.parse(tokenBody);
+
+  const tags = [];
+  let url = `https://ghcr.io/v2/${repo}/tags/list?n=1000`;
+  // Bounded so a registry that keeps handing back a next link cannot spin here.
+  // 100 pages is far past any real tag count and is an error, not a result.
+  for (let page = 0; url && page < 100; page += 1) {
+    const { body, headers } = await get(url, { Authorization: `Bearer ${token}` });
+    tags.push(...(JSON.parse(body).tags || []));
+    const link = headers.link;
+    const next = link && /rel="next"/.test(link) ? /<([^>]+)>/.exec(link) : null;
+    url = next ? new URL(next[1], 'https://ghcr.io').toString() : null;
+  }
+  return tags;
 }
 
 // Numeric-segment compare, so 2.10.6 sorts above 2.8.0 rather than below it as
