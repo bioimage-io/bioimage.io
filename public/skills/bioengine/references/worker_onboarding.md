@@ -175,7 +175,7 @@ bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scrip
     --min-workers 0 \
     --max-workers 4 \
     --scale-down-threshold-seconds 300 \
-    --further-slurm-args "-A <project> -C thin"
+    --further-slurm-args="-A <project> -C thin"
 ```
 
 Key knobs (most are forwarded directly to `python -m bioengine.worker` — see [cli_reference.md → `python -m bioengine.worker`](cli_reference.md#python--m-bioengineworker--worker-process) for the full list):
@@ -187,9 +187,9 @@ Key knobs (most are forwarded directly to `python -m bioengine.worker` — see [
 | `--head-num-cpus / --head-num-gpus / --head-memory-in-gb` | Resources Ray pretends the head has (it runs on the login node) | Login-node policy usually forbids long-running compute, so the head is coordination-only: keep `--head-num-gpus 0`. |
 | `--default-num-gpus / --default-num-cpus / --default-mem-in-gb-per-cpu / --default-time-limit` | Defaults baked into every `sbatch` Ray-worker submission | Per-deployment overrides are possible later but these are the cluster's "house" allocations. |
 | `--min-workers / --max-workers / --scale-down-threshold-seconds` | Autoscaler bounds | `--min-workers 0` keeps the cluster idle until a deploy_app request comes in. |
-| `--further-slurm-args "<one quoted string>"` | Extra `sbatch` directives appended to every Ray-worker job | **One quoted string, not multiple tokens** (argparse rejects flag-shaped tokens). Use for `-A <project>` (account), `-C thin` (constraint), `-p <partition>`, `--qos=<qos>`. |
+| `--further-slurm-args=<one string>` | Extra `sbatch` directives appended to every Ray-worker job | **Join it with `=`**, one string, not multiple tokens. Use for `-A <project>` (account), `-C thin` (constraint), `-p <partition>`, `--qos=<qos>`, `--reservation=<name>`. Quoting after a space is not enough on its own — see the `expected one argument` row in §troubleshooting. |
 | `--gpu-slurm-flag '--gres=gpu:{n}'` | Use `--gres=gpu:N` instead of `--gpus=N` for the sbatch GPU directive | Default `--gpus={n}` works on Berzelius and generic clusters; switch to `--gres=gpu:{n}` for clusters that require it (some Slurm setups). Pass `''` to omit entirely when GPUs are requested via `--further-slurm-args`. |
-| `--further-apptainer-args "<one quoted string>"` | Extra flags forwarded to `apptainer exec` inside each worker job | Useful for `--bind /proj/<lab>:/proj/<lab>` to expose extra filesystems. |
+| `--further-apptainer-args=<one string>` | Extra flags forwarded to `apptainer exec` inside each worker job | Useful for `--bind /proj/<lab>:/proj/<lab>` to expose extra filesystems. Join with `=`, for the same reason as `--further-slurm-args`. |
 | `--sandbox` | **Launcher-only.** Build/reuse an apptainer sandbox dir instead of pulling a SIF | See below; required on most RHEL-8 HPC systems. |
 
 #### `--sandbox` — required on most HPC systems
@@ -218,7 +218,7 @@ bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scrip
     --mode slurm \
     --client-id bioengine-worker-<facility> \
     --sandbox \
-    --further-slurm-args "-A <project> -C thin" \
+    --further-slurm-args="-A <project> -C thin" \
     # … rest of the knobs above
 ```
 
@@ -450,7 +450,8 @@ After all checks pass, present a short summary table to the user with the worker
 | `Multiple services found` when calling worker | More than one worker registered with the same alias | Pass the full service ID `<workspace>/<client-id>:bioengine-worker`, not just the alias |
 | `get_status()` reports `total_memory: 0` in single-machine Docker mode | Ray's auto-detection mis-reads cgroups in some Docker setups (other resource fields are fine) | Cosmetic; not a worker fault. The CPU and GPU counts in the same payload are still correct, so the dashboard / scheduler aren't affected — only the memory card on the dashboard renders as `0 GB / 0 GB`. |
 | SLURM launcher fails during `apptainer pull` or hangs in `apptainer build` (RHEL-8 / Rocky-8) | Kernel `yama.ptrace_scope=2` breaks the default `proot/mksquashfs` SIF build path | Add `--sandbox` to the launcher invocation; it builds an apptainer sandbox dir (no proot needed) and caches it at `<workspace-dir>/images/`. See §3b. |
-| `--further-slurm-args` raises `expected one argument` or `unrecognized arguments` | Multi-token args are not quoted | Pass as a **single quoted string**, e.g. `--further-slurm-args "-A <project> -C thin"`. Internally `shlex.split` re-tokenises. |
+| `--further-slurm-args` raises `expected one argument` or `unrecognized arguments` | The value is a separate token that looks like a flag. Quoting does **not** fix this by itself: the shell strips the quotes, and argparse only accepts a flag-shaped value if it contains a space — so `"-A <project> -C thin"` works while `"--reservation=safe"` still exits 2 | Join with `=`: `--further-slurm-args=--reservation=safe`, or `--further-slurm-args="-A <project> -C thin"`. `shlex.split` re-tokenises either. Same for `--further-apptainer-args`. |
+| Ray-worker jobs are cancelled by root about an hour in, for low power efficiency | Sites that bill GPU time cancel jobs holding an idle GPU. A worker with no deployment yet draws idle power and looks like a stalled job; NSC Berzelius cancels below a 90 W moving average and exempts only jobs younger than an hour, interactive jobs, and jobs inside a reservation | Submit into an exempt reservation: `--further-slurm-args=--reservation=<name>` (on Berzelius, `safe`). Confirm it admits you first with `sbatch --test-only --reservation=<name> ...`, which creates no job. Scaling idle workers down sooner (`--scale-down-threshold-seconds`) reduces the exposure but does not exempt you. |
 | Worker exits cleanly after a brief Hypha 503 / upstream outage | WebSocket reconnect timeout is ~100 s; longer Hypha blips trigger a clean shutdown | Re-submit the sbatch / restart the process. Hypha artifacts persist, but Ray Serve deployments **do not auto-recover** — see §7. |
 | `am.get_file(path=...)` raises `unexpected keyword argument 'path'` | The artifact-manager API uses `file_path=`, not `path=` | Call `await am.get_file(artifact_id=..., file_path="manifest.yaml")`. |
 | `list_services({"type": "bioengine-apps"})` returns 0 entries despite a running app | Service type is **singular** `bioengine-app` (worker is `bioengine-worker`) | Use `{"type": "bioengine-app"}`. To enumerate apps on a specific worker, prefer `worker.get_app_status(None)`. |

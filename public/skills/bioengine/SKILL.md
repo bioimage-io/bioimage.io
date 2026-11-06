@@ -6,6 +6,7 @@ metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
   app-skills:
     - apps/model-runner/model-runner.md
+    - apps/model-finetune.md
     - apps/cellpose3-runner.md
     - apps/cellpose-finetuning.md
     - apps/omezarr-view.md
@@ -71,17 +72,9 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 > **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.15.x; earlier installs shipped 0.11.x–0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
 
-> **Two of the three things you can get wrong are checkable offline. The third is not.**
+> **The manifest has an offline checker; the decorator does not.** Run `bioengine apps validate ./my-app/` before every upload. It applies the v0.6.0 manifest validator locally — required fields, legacy `deployments:` lists (rejected with a migration hint), and `entry:` matching `package.module:ClassName` — printing `OK: …` and exiting 0 when the manifest is good, or exiting 1 and naming the offending field when it is not. A typo'd manifest field costs a second to find, not a deploy round-trip.
 >
-> | What | How to check it without deploying |
-> |---|---|
-> | `manifest.yaml` | `bioengine apps validate ./my-app/` — runs the v0.6.0 manifest validator locally. Checks required fields, rejects a legacy `deployments:` list with a migration hint, and verifies `entry:` parses as `package.module:ClassName`. Prints `OK: …/manifest.yaml is a valid v0.6.0 BioEngine app manifest.` |
-> | `@bioengine.app` kwargs | `python -c "import your_app"` in a `[cli]` venv. Reaching `ModuleNotFoundError: No module named 'ray'` **is the pass condition**: the decorator is evaluated at import time, so a bad kwarg raises before Ray is ever reached. See the undecorated-core-module note above for why you cannot go further than this locally |
-> | Method signatures | **Nothing.** Only a deploy confirms these, so a typo'd parameter costs a full round-trip to find. Budget for it |
->
-> The local loop described below covers your *logic* thoroughly and covers the BioEngine wire surface not at all. Copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
->
-> (Earlier revisions of this skill stated flatly that no offline checker existed. `apps validate` was confirmed present and working on 0.16.6; if your CLI predates it, `bioengine apps --help` will say so.)
+> It stops at the manifest. `@bioengine.app` kwargs and method signatures are confirmed only by pushing the artifact and watching the worker's response, so a typo'd *kwarg* still costs a full deploy round-trip — budget for that. The local loop described below covers your *logic* thoroughly and covers that decorator surface not at all: copy the decorator line from a working template rather than composing it from memory, and change one thing at a time.
 
 **Environment**:
 ```bash
@@ -95,7 +88,7 @@ export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker
 > | Task | App |
 > |---|---|
 > | Running a model, screening or testing models | `bioimage-io/model-runner` |
-> | Fine-tuning a foundation model | `bioimage-io/model-finetune` |
+> | Fine-tuning a foundation model | `bioimage-io/model-finetune` — see [apps/model-finetune.md](apps/model-finetune.md) |
 >
 > Both live in the public `bioimage-io` workspace and need no worker of the user's own. Resolve the concrete callable id at run time (see [references/service_ids.md](references/service_ids.md)) rather than hardcoding one: the client id embeds a ReplicaSet hash that changes on every pod roll. Only fall back to asking about a worker when the user says they have their own, or when the task genuinely needs one (deploying a new app, changing worker configuration).
 >
@@ -368,7 +361,7 @@ async def measure(self) -> dict:
     return {"peak_mb": round(torch.cuda.max_memory_allocated() / 2**20)}
 ```
 
-Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle GPU), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
+Deploy once with `gpu_memory_mb=-1` (whole device, schedulable on an idle GPU — but **not** on a VRAM-packing cluster that already has a replica resident; see [references/hpc_apps.md](references/hpc_apps.md#gpu-sizing-on-an-elastic-cluster)), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
 
 **It is a scheduling reservation, not a cap.** Nothing enforces it at runtime. A replica declaring `gpu_memory_mb=8192` was observed allocating **12 GiB** and continuing to run. So the number does not protect you from your own OOM, and it does not protect co-tenants from you either. Two consequences: your headroom estimate has to be right, because the runtime will not clip you at the boundary, and a card that looks half-free by reservation can be full in fact.
 
@@ -380,6 +373,8 @@ Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle
 | VRAM | stays `DEPLOYING` indefinitely — measured at **10.8 minutes** before it was killed by hand |
 
 Ray has nothing to schedule the replica onto, so it queues forever rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm) and treat "still `DEPLOYING` at the deadline" as the diagnosis *over-requested VRAM*, not as slowness. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
+
+**On a SLURM worker this diagnosis is invalid** — pending is the designed cold-start path there, and the wait includes the site's own queue. Read [references/hpc_apps.md](references/hpc_apps.md#2-a-deploy-is-a-queue-submission-so-still-deploying-is-not-a-diagnosis) before putting a deadline on anything.
 
 **The insufficient-resources error does not name the resource that was short.** It prints the whole request dict and leaves you to compare it against the cluster yourself. Change one resource at a time when you are converging on a working set, or you will not know which one moved.
 
@@ -411,6 +406,12 @@ And do not use GPU utilisation to answer this. NVML averages over roughly a **1 
 
 For VRAM sizing procedure, release-between-calls patterns and per-strategy examples, **load [references/model_serving.md](references/model_serving.md#gpu-allocation-strategies)**.
 
+### Apps on an HPC (SLURM) worker
+
+If the worker you are targeting runs `--mode slurm`, four things change for your app, and two pieces of advice above become wrong. **Load [references/hpc_apps.md](references/hpc_apps.md) before you write the app**, not after it fails.
+
+The short version: every Ray worker node is an `sbatch` job with a wall clock (default `4:00:00`), so **any unit of work that can outlive it must checkpoint and resume**; a deploy may wait in the site's SLURM queue, so "still `DEPLOYING`" is not a diagnosis; a live replica holds its node (and its allocation charge) until that wall clock, so do not park idle replicas on a shared cluster; and cross-replica coordination must go through the shared workspace directory, whose shared-ness an app currently cannot detect at runtime.
+
 ### Composition apps and frontends
 
 For apps with multiple deployments (e.g. one entry deployment routing to several runtimes) or a frontend HTML UI, **load [references/app_templates.md](references/app_templates.md)** — full working templates for simple, composition, and frontend cases.
@@ -440,12 +441,12 @@ bioengine apps status my-app --logs 50
 #    then call it. Calling <workspace>/my-app directly returns only {offer}, not the methods.
 bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
+#   → the same payload carries "static_site_url", the app's frontend URL
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 
-# 4. Pass arguments with --arg (repeatable, auto-typed) or --args (one JSON object).
-#    Bare key=value is NOT accepted: it fails with "Got unexpected extra arguments".
-bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --arg name=Wei --arg excited=true --json
-bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --args '{"name": "Wei", "excited": true}' --json
+# A method that takes arguments needs --arg/--args. A bare key=value is NOT
+# accepted and fails with "Error: Got unexpected extra arguments":
+bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --json --arg name=Wei
 ```
 
 > **That one `--json` call gives you everything a deployer needs.** `bioengine apps status <id> --json` returns `service_ids.websocket_service_id` *and* `static_site_url`, the latter already carrying the injected `server=` / `ws_service_id=` / `webrtc_service_id=` query parameters. So if you did the deploy yourself, you never need the Python `get_app_status` discovery recipe in [references/service_ids.md](references/service_ids.md) — that is for callers who did not. The plain (non-`--json`) status output prints neither.
@@ -482,7 +483,7 @@ A committed artifact version is **immutable** and its content is exactly what a 
 
 To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
 
-**Order matters: delete the pre-releases BEFORE uploading the release.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift. The helper does exactly this:
+**Order matters: delete the pre-releases BEFORE uploading the release, and delete them newest-first.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift; within them, working backwards keeps that true for every single delete. `worker.delete_app_version` enforces this from BioEngine 0.16.53 — it refuses any version that has a later committed version, naming the ones at risk. The helper does exactly this:
 
 ```bash
 # iterate — uploads <version>-devN (auto), deploys <app>-dev; test, fix, repeat
@@ -670,7 +671,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >   "my-app-id": {
 >     "status": "RUNNING",
 >     "version": "1.0.3",              // target: the artifact version the worker was last told to run
->     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing
+>     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing — can be null, see below
 >     "version_verified": true,        // do not trust as an update signal — see below
 >     "deployments": {
 >       "MyDeployment":    {"status": "HEALTHY", "message": "...",
@@ -685,6 +686,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
 >
+> **`running_version` is not always a version string — it can be `null` (Python `None`) on a perfectly healthy app.** The worker derives it from the *entry* deployment's replica identity, which the proxy records separately from Serve's own health. Three situations therefore yield `null`: no replica is in `RUNNING` state yet; replicas are up but the proxy has not recorded an identity for the entry replica yet; or the proxy could not be read at all. `status: RUNNING`, every deployment `HEALTHY`, `version: 1.0.0` and `running_version: null` therefore co-occur legitimately, and that is the normal reading a few seconds into a first deploy. A readiness gate written as `running_version == manifest_version` hangs forever on an app that is already serving traffic — which is the same trap as the frontend-only case above, reached a different way. Gate on a real call, as the live-test cycle does.
+>
 > **Three reported values do not echo your decorator, and none of them means it was ignored.** `max_ongoing_requests` has been observed reporting `10` against a declared `4`, `memory` reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
 >
 > **`application_resources` is the better field, not a reliable one, and on GPU it is neither.** The same field read `num_gpus: 0` for an app that was demonstrably running on the device. Nothing in this payload settles whether your work reached a GPU — assert on tensor placement inside the app instead, see [GPU apps](#gpu-apps).
@@ -698,14 +701,35 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
 > ```python
 > {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
+> # a replica that has DIED carries one more key, from worker 0.16.65:
+> {"<replica-id>": {"…": "…", "death_cause": {"reason": "OOM", "message": "…"}}}
 > ```
-> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its four **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr` and read them as four log lines, with no error at all. Reach the lists explicitly:
+> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr`, and on a dead replica `death_cause` too, and read them as log lines, with no error at all. Count on the key *names*, never on how many there are: the set grew by one in 0.16.65 and may grow again. Reach the lists explicitly:
 > ```python
 > for replica_id, rec in dep.get("logs", {}).items():
 >     lines = rec.get("stdout", []) + rec.get("stderr", [])
 >     print(f"--- {replica_id}")
 >     print("\n".join(lines[-50:]))
 > ```
+> **A replica that died tells you why, and the logs alone will not.** From worker **0.16.65** each dead replica's entry carries `death_cause`, because Ray Serve's controller only logs "crashed, marking it unhealthy immediately" and keeps no cause — so the replica that matters most is the one whose logs explain least. The value is `{"reason": ..., "message": ...}` or `None`:
+>
+> | `reason` | means |
+> |---|---|
+> | `OOM` | Ray's own memory monitor killed it. `message` carries Ray's error text. |
+> | `WORKER_DIED` | the process exited on its own — a signal, or a crash. |
+> | `NODE_DIED` | the node went away; `message` is appended with the node's own reason. |
+> | `RAY_KILL` | a deliberate stop. |
+> | `UNKNOWN` | Ray held a cause but no reason field. |
+>
+> ```python
+> for replica_id, rec in dep.get("logs", {}).items():
+>     cause = rec.get("death_cause")          # absent or None on a live replica
+>     if cause:
+>         print(f"{replica_id} died: {cause['reason']} — {cause['message']}")
+> ```
+>
+> `None` and absent both mean "no cause to report", and they are **not** the same as healthy: Ray returns no cause for a live actor *and* for a dead one the GCS has already evicted, so a dead replica you ask about too late looks exactly like a live one. Use the replica's presence in `get_deployment_replicas` to tell those apart, not `death_cause`. Against a worker older than 0.16.65 the key is simply absent, so `rec.get("death_cause")` is the safe read and a `KeyError` means you indexed it instead.
+>
 > **Read both channels.** Which one your own lines land in depends on how you emitted them (see the logging note under [Key rules](#key-rules)), and the framework writes to `stderr` regardless. Reading only one hides half the picture, and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
 >
 > **The framework logs every call for you, and that line is often all you need.** Each `@bioengine.method` invocation emits an audit line carrying the method name, the outcome and the wall-clock duration:
@@ -747,7 +771,7 @@ async def main():
 asyncio.run(main())
 PY
 ```
-This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead.
+This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead — it takes only versions tagged `…dev…`, and only the artifact's newest, since deleting any earlier one would corrupt everything committed after it.
 
 > **Verifying deletion.** `delete_app` returns `None` on success — don't treat the return value as confirmation either way. Verify with `bioengine apps list` (artifact should be gone) or `bioengine apps status <id>`. After deletion, `apps status <id>` can report the app as `NOT_RUNNING` rather than an outright "not found" error — treat `NOT_RUNNING` or absence from `apps list` as "gone".
 
@@ -814,7 +838,8 @@ When working with a specific deployed app, load its dedicated subskill for the m
 |---|---|---|
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
 | Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | RETIRED for new work. model-runner 2.11.2+ serves Cellpose-3 natively; read this only when targeting a worker pinned below 2.11.2 |
-| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
+| Model Fine-Tune | [apps/model-finetune.md](apps/model-finetune.md) | Fine-tuning micro-SAM, Cellpose-SAM or Cellpose-DINO on annotated pairs; validating and staging a dataset from an external store before a run; image embeddings and the ONNX prompt decoder for browser annotation |
+| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Superseded by Model Fine-Tune above. Its artifact still exists (newest 1.1.1) but **no service is currently deployed for `bioimage-io/cellpose-finetuning`**, so calls against the id on that page resolve to nothing — measured 2026-11-05. Read it only for historical context |
 | OME-Zarr View | [apps/omezarr-view.md](apps/omezarr-view.md) | Serving existing OME-TIFF / CZI files as OME-Zarr without converting them — for a viewer, an annotation UI, or a training loader |
 
 > **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
@@ -868,6 +893,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
 | [references/model_serving.md](references/model_serving.md) | GPU VRAM sizing, multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
+| [references/hpc_apps.md](references/hpc_apps.md) | Writing an app for a SLURM worker: wall clocks, queue-time cold starts, node pinning, VRAM packing (Task 2) |
 | [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive, IDR / OMERO, and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |

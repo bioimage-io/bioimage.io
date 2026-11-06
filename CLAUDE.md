@@ -31,6 +31,18 @@ The thread is a live record that people read and add to. There is no fix-it-afte
 a stray comment, or an edit is visible to every subscriber the moment it lands, and reverting it
 does not unsend the notification. If a task seems to require touching #3, stop and ask.
 
+### A PR stays a DRAFT until the issue is cleared to land
+
+Ready does not mean "the code is finished"; it means "this goes to production now". Open as draft,
+iterate in draft, and mark ready only once the change is cleared — then merge in the same sitting.
+
+Clearance is the whole of the rule here: **everything user-facing on these pages needs the user's go,
+on top of an independent reviewer agent's APPROVE.** A reviewer's APPROVE alone is enough only for a
+fix, a test or a doc change that users do not see.
+
+This repo has no `check-version` and no version file, so the bump-last sequencing in
+`../bioengine/CLAUDE.md` does not apply — do not go looking for a version gate here.
+
 ---
 
 ## User-visible text: no em dashes, and a check that enforces it
