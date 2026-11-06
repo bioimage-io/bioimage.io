@@ -25,7 +25,20 @@ const GUIDE = path.join(__dirname, '..', 'src', 'components', 'bioengine', 'BioE
 // image repo -> the constant in the guide that pins its tag
 const PINS = [
   { repo: 'aicell-lab/model-runner', constant: 'PREBUILT_MODEL_RUNNER_VERSION' },
+  { repo: 'aicell-lab/bioengine-worker', constant: 'DEFAULT_IMAGE_VERSION' },
 ];
+
+// ghcr.io paginates `tags/list` over DIGESTS, most of which carry no tag, so a
+// short page drops tagged versions out of the middle rather than off the end.
+// Measured 2026-11-06 on aicell-lab/bioengine-worker: no `n` and `n=100` both
+// returned 100 tags whose newest release was 0.6.14, while n=1000 returned 260
+// and found 0.16.92. Asking for one page this large is why the check can speak
+// about a repo with 260 tags at all.
+//
+// This went unnoticed because the only pin here was aicell-lab/model-runner,
+// which has 3 tags in total. The one repo the check covered is the one repo
+// where truncation cannot show up.
+const PAGE_SIZE = 1000;
 
 function get(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -47,9 +60,21 @@ async function publishedTags(repo) {
   const scope = encodeURIComponent(`repository:${repo}:pull`);
   const { token } = JSON.parse(await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`));
   const { tags } = JSON.parse(
-    await get(`https://ghcr.io/v2/${repo}/tags/list`, { Authorization: `Bearer ${token}` }),
+    await get(`https://ghcr.io/v2/${repo}/tags/list?n=${PAGE_SIZE}`, {
+      Authorization: `Bearer ${token}`,
+    }),
   );
-  return tags || [];
+  const list = tags || [];
+  // A page that comes back exactly full is indistinguishable from a page that
+  // was cut off, and a truncated list is not a smaller true answer: it can hide
+  // the newest tag entirely and bless an old pin as current. Refuse to judge.
+  if (list.length >= PAGE_SIZE) {
+    throw new Error(
+      `tag list came back full at ${list.length} (n=${PAGE_SIZE}), so it may be truncated ` +
+        `and cannot be compared against -- raise PAGE_SIZE or paginate with Link headers`,
+    );
+  }
+  return list;
 }
 
 // Numeric-segment compare, so 2.10.6 sorts above 2.8.0 rather than below it as
