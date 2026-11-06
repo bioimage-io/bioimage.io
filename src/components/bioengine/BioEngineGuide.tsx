@@ -114,7 +114,7 @@ const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
-const PREBUILT_MODEL_RUNNER_VERSION = '2.10.6';
+const PREBUILT_MODEL_RUNNER_VERSION = '2.11.2';
 const PREBUILT_MODEL_RUNNER_IMAGE = `ghcr.io/aicell-lab/model-runner:${PREBUILT_MODEL_RUNNER_VERSION}`;
 
 // The standard worker builds each app's environment on first deploy; the prebuilt
