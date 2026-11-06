@@ -148,7 +148,17 @@ async function getBroker(server) {
   console.log(`FIXTURE_ALIAS=${alias} FIXTURE_LABEL=${LABEL} FIXTURE_STEM=${STEM}`);
   console.log(`delete with: node notes/verify/make_fixture.cjs --delete ${artifactId}`);
   await server.disconnect();
-})().catch((e) => {
-  console.error('ERR', e.message);
-  process.exit(1);
-});
+})()
+  .then(() => {
+    // `disconnect()` resolves but leaves the websocket's handles on the event
+    // loop, so node never exits on its own. Measured: five runs of this file
+    // sat alive for 40 to 100 minutes AFTER the delete had landed, which made
+    // verify-0035.sh hang forever at its cleanup step and would have made the
+    // close gate wait on it indefinitely. The work is done by this point, so
+    // exit explicitly rather than waiting for a loop that will not drain.
+    process.exit(0);
+  })
+  .catch((e) => {
+    console.error('ERR', e.message);
+    process.exit(1);
+  });

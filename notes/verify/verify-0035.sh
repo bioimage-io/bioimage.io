@@ -63,7 +63,10 @@ echo "verify-0035: target $BASE_URL"
 echo "verify-0035: viewport ${VIEWPORT} (desktop, read from $SPEC)"
 echo "verify-0035: revision $(git rev-parse --short HEAD) on $(git rev-parse --abbrev-ref HEAD)"
 echo "verify-0035: building fixture $ARTIFACT"
-if ! env -u HYPHA_TOKEN FIXTURE_ALIAS="$ALIAS" node "$BUILDER" \
+# `timeout` on both builder calls: a hypha-rpc client that fails to drain its
+# event loop would otherwise hang this script, and a hung evidence command is
+# worse than a failing one because nothing ever reports it.
+if ! timeout 180 env -u HYPHA_TOKEN FIXTURE_ALIAS="$ALIAS" node "$BUILDER" \
      > /tmp/verify-0035-fixture.$$.log 2>&1; then
   echo "verify-0035: fixture build FAILED" >&2
   tail -20 /tmp/verify-0035-fixture.$$.log >&2
@@ -77,7 +80,7 @@ rm -f /tmp/verify-0035-fixture.$$.log
 # strand a staged artifact in the shared collection.
 cleanup() {
   echo "verify-0035: deleting $ARTIFACT"
-  env -u HYPHA_TOKEN node "$BUILDER" --delete "$ARTIFACT" 2>&1 | grep -E 'deleted|ERR' || true
+  timeout 180 env -u HYPHA_TOKEN node "$BUILDER" --delete "$ARTIFACT" 2>&1 | grep -E 'deleted|ERR' || true
 }
 trap cleanup EXIT
 
@@ -85,7 +88,7 @@ echo "verify-0035: running $SPEC"
 RUN_LOG=/tmp/verify-0035-run.$$.log
 env -u HYPHA_TOKEN E2E_BASE_URL="$BASE_URL" \
   FIXTURE_ALIAS="$ALIAS" FIXTURE_LABEL=cells FIXTURE_STEM=verify35_cells \
-  npx playwright test "$SPEC" --reporter=list 2>&1 | tee "$RUN_LOG"
+  timeout 900 npx playwright test "$SPEC" --reporter=list 2>&1 | tee "$RUN_LOG"
 STATUS=${PIPESTATUS[0]}
 
 PASSED=$(grep -oE '[0-9]+ passed' "$RUN_LOG" | tail -1 | grep -oE '^[0-9]+' || true)
