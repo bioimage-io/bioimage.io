@@ -139,7 +139,15 @@ function scan(root, relativeTo) {
 
     const report = (node, where, value) => {
       const { line } = sf.getLineAndCharacterOfPosition(node.getStart(sf));
-      if ((lines[line] || '').includes('ui-text-check: allow')) return;
+      // The hatch is documented as going "on the line", but a JSX text node or a
+      // template literal can SPAN lines, and the dash is then one or two lines
+      // below where the node starts. Checking only the start line silently
+      // ignored a correctly-placed hatch, leaving the file-wide `disable` as the
+      // only escape that worked. Honour it anywhere in the node's own span.
+      const { line: endLine } = sf.getLineAndCharacterOfPosition(node.getEnd());
+      for (let i = line; i <= endLine; i += 1) {
+        if ((lines[i] || '').includes('ui-text-check: allow')) return;
+      }
       const kinds = offences(value);
       if (!kinds.length) return;
       violations.push({

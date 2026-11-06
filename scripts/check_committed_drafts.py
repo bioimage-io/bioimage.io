@@ -89,6 +89,19 @@ def rpc(method: str, params: dict) -> object:
 
 
 def list_committed() -> list:
+    """Every committed child of the collection, paged.
+
+    Two guards, because this runs unattended from a daily workflow and both
+    failure modes are silent. `sweep_reports.py` already guards the shape the
+    same way; this function did not.
+
+    1. A response that is not the paginated shape exits instead of raising a
+       KeyError inside a scheduled run.
+    2. A page that comes back EMPTY while `total` still exceeds what we hold
+       would otherwise re-request the same offset forever, because the offset
+       is derived from len(items) and len(items) stops growing. That is a hang,
+       not a crash, so nothing would ever alarm.
+    """
     items = []
     while True:
         page = rpc("list", {
@@ -97,7 +110,16 @@ def list_committed() -> list:
             "limit": 10000,
             "pagination": True,
         })
-        items.extend(page["items"])
+        if not isinstance(page, dict) or "items" not in page or "total" not in page:
+            sys.exit(f"unexpected list response: {str(page)[:200]}")
+        batch = page["items"]
+        if not batch:
+            if page["total"] > len(items):
+                print(f"  WARNING: the listing stopped early at {len(items)} of "
+                      f"{page['total']} committed children; checking what arrived.",
+                      file=sys.stderr)
+            return items
+        items.extend(batch)
         if page["total"] <= len(items):
             return items
 
