@@ -75,7 +75,6 @@ const MyArtifactCard: React.FC<AdminResourceCardProps> = ({
   };
 
   return (
-    <span title="CI red-run probe em dash — must FAIL CI" />
     <div className={`relative bg-white rounded-lg shadow-md overflow-hidden hover:shadow-lg transition-shadow duration-200 flex flex-col ${
       isStaged ? 'bg-yellow-50' : ''
     }`}>
