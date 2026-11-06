@@ -45,7 +45,22 @@ cd "$REPO" || { echo "verify-0035: no checkout at $REPO" >&2; exit 2; }
 ALIAS="verify35-$(head -c6 /dev/urandom | od -An -tx1 | tr -d ' \n')"
 ARTIFACT="bioimage-io/$ALIAS"
 
+# Read the viewport back out of the spec rather than restating it here, so the
+# number reported cannot drift from the number that ran.
+VIEWPORT=$(grep -oE 'viewport: \{ width: [0-9]+, height: [0-9]+ \}' "$SPEC" \
+  | grep -oE '[0-9]+, height: [0-9]+' | sed 's/, height: /x/' | head -1)
+if [ -z "$VIEWPORT" ]; then
+  echo "verify-0035: FAIL, $SPEC states no viewport, so this cannot report the one it ran at." >&2
+  exit 2
+fi
+VIEWPORT_W=${VIEWPORT%x*}
+if [ "$VIEWPORT_W" -lt 1024 ]; then
+  echo "verify-0035: FAIL, viewport ${VIEWPORT} is not a desktop width." >&2
+  exit 2
+fi
+
 echo "verify-0035: target $BASE_URL"
+echo "verify-0035: viewport ${VIEWPORT} (desktop, read from $SPEC)"
 echo "verify-0035: revision $(git rev-parse --short HEAD) on $(git rev-parse --abbrev-ref HEAD)"
 echo "verify-0035: building fixture $ARTIFACT"
 if ! env -u HYPHA_TOKEN FIXTURE_ALIAS="$ALIAS" node "$BUILDER" \
