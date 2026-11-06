@@ -119,7 +119,7 @@ type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 // Three readers: DEFAULT_IMAGE below, the `BIOENGINE_VERSION=` line and the
 // `-ray<version>` push tag in getDockerBuildCommand(). All three interpolate
 // this one constant, so they cannot disagree.
-const DEFAULT_IMAGE_VERSION = '0.16.1';
+const DEFAULT_IMAGE_VERSION = '0.16.92';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 

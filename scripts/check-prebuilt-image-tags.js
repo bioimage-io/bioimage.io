@@ -112,7 +112,10 @@ function newer(a, b) {
     try {
       tags = await publishedTags(repo);
     } catch (err) {
-      console.error(`SKIP  ${repo}: could not reach GHCR (${err.message})`);
+      // Deliberately does not name a cause. The truncation guard throws here
+      // too, and GHCR had answered perfectly well in that case -- saying "could
+      // not reach GHCR" would send the reader to look at the network.
+      console.error(`SKIP  ${repo}: no verdict (${err.message})`);
       process.exit(2);
     }
 

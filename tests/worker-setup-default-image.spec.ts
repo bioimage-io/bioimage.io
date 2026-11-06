@@ -146,3 +146,57 @@ test('a custom image still wins over the default', async ({ page }) => {
   expect(cmd).toContain('ghcr.io/example/my-worker:1.2.3');
   expect(cmd).not.toContain(`ghcr.io/aicell-lab/bioengine-worker:${VERSION}`);
 });
+
+/**
+ * DONE WHEN asks that the build-your-own-image instructions agree with the run
+ * command. They are not in the single-machine flow: they live inside
+ * `{mode === 'external-cluster' && ...}` and are further gated on a Ray version
+ * being set, because their whole purpose is rebuilding the image on a different
+ * Ray pin. Both gates have to be opened, or the block does not exist and a
+ * search for it reports a broken page instead of a missing assertion.
+ *
+ * Two readers live in getDockerBuildCommand(): the `BIOENGINE_VERSION=` line and
+ * a push tag of the form `<version>-ray<rayVersion>`. A third, which the issue
+ * did not name, is the Kubernetes YAML's `image:` key. All of them interpolate
+ * DEFAULT_IMAGE_VERSION, so what is guarded here is that they are still readers
+ * of the constant rather than literals that drifted.
+ */
+test('the build-your-own-image instructions agree with the run command', async ({ page }) => {
+  await openWizard(page, 'external-cluster');
+
+  const toggles = page.locator('button[aria-expanded="false"]');
+  for (let i = (await toggles.count()) - 1; i >= 0; i -= 1) {
+    const t = toggles.nth(i);
+    await t.scrollIntoViewIfNeeded();
+    await t.click();
+  }
+
+  const rayField = page.locator(
+    'xpath=//label[normalize-space(text())="Ray Version"]/following::input[@type="text"][1]',
+  );
+  await expect(rayField.first()).toBeVisible({ timeout: 20000 });
+  await rayField.first().scrollIntoViewIfNeeded();
+  await rayField.first().fill('2.55.1');
+
+  const cmd = await allCommands(page);
+  if (!cmd.includes('BIOENGINE_VERSION=')) {
+    throw new Error(
+      'the docker build block is not on the page, so this case asserted nothing. Its two gates are ' +
+        "mode === 'external-cluster' and a non-empty Ray Version.",
+    );
+  }
+  expect(cmd).toContain(`BIOENGINE_VERSION=${VERSION}`);
+  expect(cmd).toContain('bioengine-worker:${BIOENGINE_VERSION}-ray');
+  expect(cmd).not.toContain(RETIRED_TAG);
+});
+
+/**
+ * A floating or placeholder tag would satisfy every assertion above while making
+ * the generated command unreproducible: `latest` moves under the user, and a
+ * pre-release is not something to hand someone setting up their first worker.
+ */
+test('the pin is a plain release tag, not latest or a pre-release', async ({ page }) => {
+  expect(VERSION).toMatch(/^\d+\.\d+\.\d+$/);
+  await openWizard(page, 'single-machine');
+  expect(await allCommands(page)).not.toContain('bioengine-worker:latest');
+});
