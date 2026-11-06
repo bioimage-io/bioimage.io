@@ -110,7 +110,16 @@ const TagInput: React.FC<{
 type ModeType = 'single-machine' | 'slurm' | 'external-cluster';
 type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 
-const DEFAULT_IMAGE_VERSION = '0.16.1';
+// Carried in the source rather than looked up: ghcr.io answers its tag list but
+// sends no Access-Control-Allow-Origin, so a browser fetch from bioimage.io is
+// blocked. `scripts/check-prebuilt-image-tags.js` is what keeps this honest, and
+// it covers this constant by name -- a carried version rots with nothing
+// attached to say so, which is how this sat 91 releases behind.
+//
+// Three readers: DEFAULT_IMAGE below, the `BIOENGINE_VERSION=` line and the
+// `-ray<version>` push tag in getDockerBuildCommand(). All three interpolate
+// this one constant, so they cannot disagree.
+const DEFAULT_IMAGE_VERSION = '0.16.92';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
