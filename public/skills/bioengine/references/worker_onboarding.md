@@ -99,7 +99,7 @@ Pass `-e HYPHA_TOKEN` with no value so the token comes from your environment —
 >
 > Keep `--memory` **above** `--head-memory-in-gb`, or Ray schedules into memory it cannot get. A workable rule is reservation + shared-memory size + ~4 GB of overhead: the examples here reserve 16 GB with an 8 GB `--shm-size`, hence `--memory=28g`. Ray's object store lives in shared memory and counts against the same cgroup, which is why it is in the sum.
 >
-> Apptainer and Singularity take cgroup limits from a separate configuration file rather than a command-line flag, so there is no `--memory` equivalent in those invocations.
+> `bioengine worker start` applies a memory cap for Docker and Podman only. For `apptainer`, `singularity` and `native` it **refuses** an explicit `--memory` rather than silently dropping it, so a command that looks accepted never is. Apptainer does have `--memory` of its own, alongside `--memory-reservation`, `--memory-swap` and `--oom-kill-disable`, but those apply cgroups: rootless use needs cgroups v2 with systemd delegation, and `--apply-cgroups` is root-only. So cap those runtimes from outside the worker instead, with a systemd `MemoryMax=` or the cgroup you place the job in.
 
 Two things to know before you pick it.
 
