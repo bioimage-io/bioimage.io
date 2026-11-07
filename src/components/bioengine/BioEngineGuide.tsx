@@ -621,9 +621,15 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     .map(app => app.config)
     .filter((config): config is Record<string, any> => Boolean(config?.artifact_id));
 
-  // apptainer and singularity take cgroup limits from a separate configuration
-  // file, which is why the worker CLI refuses an explicit value for them rather
-  // than dropping it silently (bioengine/cli/worker.py:377-395 at origin/main).
+  // The worker CLI refuses an explicit --memory for apptainer and singularity
+  // rather than dropping it silently (bioengine/cli/worker.py:377-395 at
+  // origin/main), and the wizard keeps the same scope.
+  //
+  // Note the CLI's reason is not that those runtimes have no --memory: apptainer
+  // documents one on run/exec/shell, with --memory-reservation and
+  // --memory-swap. It applies cgroups, so a non-root user needs cgroups v2 with
+  // systemd delegation, which the wizard cannot detect from a browser. That is
+  // why the field is scoped out here rather than offered and sometimes ignored.
   //
   // This gates the FIELD only. Whether the flag reaches the command is decided
   // structurally, by the apptainer/singularity branch of getCommand never
@@ -1926,7 +1932,7 @@ spec:
                               <br /><br />
                               Keep the cap above <strong>Memory (GB)</strong> plus <strong>Shared Memory Size (GB)</strong>, or Ray can schedule into memory the cap will not grant. Ray's object store lives in shared memory and counts against the same limit.
                               <br /><br />
-                              Apptainer and Singularity read cgroup limits from a separate configuration file rather than a flag, so this field does not apply to them.
+                              This field is for Docker and Podman. Apptainer and Singularity do have a <code className="bg-gray-100 px-1 rounded">--memory</code> of their own, but it applies cgroups, which for a non-root user needs cgroups v2 with systemd delegation. The wizard cannot tell whether your host provides that, so it leaves capping those runtimes to the host, for example <code className="bg-gray-100 px-1 rounded">systemd-run --user --scope -p MemoryMax=28G</code>, or to your scheduler.
                             </InfoPopover>
                           </div>
                           <input type="number" min="0" max="2048" value={containerMemoryGb}
