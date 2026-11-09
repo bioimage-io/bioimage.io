@@ -102,10 +102,18 @@ Job registries are **in-memory per Entry replica** and expire after completion (
 
 Two blocking helpers used throughout this skill. `mr` is the resolved model-runner handle (see [Service ID](#service-id--discover-before-calling)):
 
-```python
-import asyncio, time
+⚠️ **Poll every 10 seconds or slower, and do not shorten it.** Every `get_infer_status` call is a
+request against the app's admission limit, exactly like `infer` itself, and a status poll holds its
+slot for the whole round trip. Measured on the live KTH app: at a 3-second interval 20 concurrent
+clients saw **36-40% of their calls rejected**; at a 10-second interval the same 20 clients saw
+**zero rejections and the same throughput**. The rejections were produced by the polling, not by the
+work. A warm inference takes about 5 seconds, so a 10-second poll costs you a few seconds of waiting
+and costs everyone else nothing — a 1-second poll does the reverse.
 
-async def run_infer(mr, model_id, inputs, *, poll=1.0, timeout=300, **kwargs):
+```python
+import asyncio, random, time
+
+async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300, **kwargs):
     """Submit an inference job and block until the result dict is ready.
     Extra kwargs (weights_format, device, return_download_url, ...) pass through."""
     request_id = await mr.infer(model_id=model_id, inputs=inputs, **kwargs)
@@ -119,9 +127,10 @@ async def run_infer(mr, model_id, inputs, *, poll=1.0, timeout=300, **kwargs):
             return result
         if time.monotonic() > deadline:
             raise TimeoutError(f"infer {request_id} timed out after {timeout}s")
-        await asyncio.sleep(poll)
+        # jittered so that N clients starting together do not all poll on the same tick
+        await asyncio.sleep(poll * random.uniform(0.8, 1.2))
 
-async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
+async def run_test(mr, model_id, *, poll=10.0, timeout=600, **kwargs):
     """Submit a test job and block until the report is ready.
     Extra kwargs: stage, cache, custom_environment."""
     test_run_id = await mr.test(model_id=model_id, **kwargs)
@@ -135,7 +144,7 @@ async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
             return report
         if time.monotonic() > deadline:
             raise TimeoutError(f"test {test_run_id} timed out after {timeout}s")
-        await asyncio.sleep(poll)
+        await asyncio.sleep(poll * random.uniform(0.8, 1.2))
 ```
 
 Everywhere below, `await run_infer(mr, model_id, inputs)` returns the output dict directly — it is the submit-and-poll wrapper, not a raw `mr.infer` (which returns only the id).
