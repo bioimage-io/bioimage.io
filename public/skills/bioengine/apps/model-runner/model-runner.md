@@ -891,6 +891,32 @@ result = await run_infer(mr, model_id, slot["file_path"])   # submit + poll
 
 The slot has a **1-hour TTL**, so request it immediately before the upload rather than reusing one.
 
+#### The same thing from the shell, with no Python
+
+Verified end to end against the live KTH app. `jq` is not present in the worker image, so the
+extraction below uses `sed` and needs nothing installed:
+
+```bash
+MR='bioimage-io/bioengine-worker-<host>-<hash>-<replica>:model-runner'   # see § Service ID
+
+SLOT=$(bioengine call "$MR" get_upload_url --args '{"file_type": ".png"}' --json)
+URL=$(printf '%s' "$SLOT" | sed -n 's/.*"upload_url": "\([^"]*\)".*/\1/p')
+FP=$(printf  '%s' "$SLOT" | sed -n 's/.*"file_path": "\([^"]*\)".*/\1/p')
+
+curl -X PUT --data-binary @cell.png "$URL"          # the worker does not fetch it for you
+
+RID=$(bioengine call "$MR" infer \
+        --args "{\"model_id\": \"idealistic-eagle\", \"inputs\": \"$FP\"}" --json | tr -d '" ')
+
+bioengine call "$MR" get_infer_status --args "{\"request_id\": \"$RID\"}" --json
+```
+
+`infer` returns the id alone, so poll `get_infer_status` until `state` is `completed`, `failed` or
+`cancelled` — a warm replica takes about five seconds. Quoting note: the `--args` value is JSON
+inside a shell string, so the inner quotes have to be escaped as above; a single-quoted `--args`
+cannot interpolate `$FP`.
+
+
 **Why this path rather than passing the array.** `infer()` resolves URL and uploaded-path inputs and spills them to disk under `$HOME/.model-runner-inference/<request_id>/input/`, so a large image does not occupy RAM during the queue-and-download wait. An `np.ndarray` sent over RPC is instead held decoded in the ProxyDeployment actor for the lifetime of the call, and that actor admits a bounded number of concurrent requests precisely because a queued caller keeps its payload resident. Under concurrency the array path is what turns a busy app into a memory problem; the upload path is not. If you are writing a client that many people will run at once, use the upload path.
 
 **Shape is not negotiable, and a wrong shape does not fail cleanly.** A model declaring a fixed input size accepts that size only — there is no resize anywhere in the runner. Measured against Cellpose-SAM (`idealistic-eagle`), whose RDF declares `[batch, channel(3), y=256, x=256]`: a 256x256 RGB input completes in ~5 s against a warm replica and ~30 s when the model still has to download; 192x192 is rejected server-side; 512x512 and 640x480 neither complete nor return an error within several minutes. Read `rdf["inputs"][0]["axes"]` and conform to it before sending, and treat "no response" as a probable shape mismatch rather than a slow model.
