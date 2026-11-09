@@ -122,20 +122,50 @@ capacity knob: at 50 clients, 26% were rejected even at a 10-second interval whi
 throughput stayed flat (368 against 374 at 20 clients), so beyond a certain load the service is
 limited downstream of admission and politeness is the only thing that still helps.
 
-```python
-import asyncio, random, time
+⚠️ **Ask for `return_download_url=True`, and bound every status call.** Any input whose size is
+not the model's declared size is tiled server-side, and the assembled multi-tile array **fails to
+marshal back to the caller** — the `get_infer_status` call then never returns, so a client without a
+per-call timeout waits for ever rather than seeing an error. Asking for a download URL avoids the
+marshalling entirely. Measured on the live KTH app with Cellpose-SAM, same model and upload path:
 
-async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300, **kwargs):
+| input | inline result | `return_download_url=True` |
+|---|---|---|
+| 256x256 (native) | completed ~3 s | completed 4.6 s |
+| 320x320 | never returns | **completed 4.3 s** |
+| 512x512 | never returns | **completed 5.0 s** |
+| 640x480 | never returns | **completed 4.6 s** |
+| 192x192 | server-side failure | server-side failure (smaller than one tile; a separate defect) |
+
+In a 100-client run with mixed sizes, 27 of 100 completed on the inline path; with the download URL
+the same shapes complete, which is why the helper below asks for it by default and fetches the array
+for you.
+
+```python
+import asyncio, io, random, time, urllib.request
+import numpy as np
+
+async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
+                    return_download_url=True, **kwargs):
     """Submit an inference job and block until the result dict is ready.
-    Extra kwargs (weights_format, device, return_download_url, ...) pass through."""
-    request_id = await mr.infer(model_id=model_id, inputs=inputs, **kwargs)
+
+    ``return_download_url=True`` is the default deliberately — see the warning below.
+    Extra kwargs (weights_format, device, ...) pass through."""
+    request_id = await mr.infer(model_id=model_id, inputs=inputs,
+                                return_download_url=return_download_url, **kwargs)
     deadline = time.monotonic() + timeout
     while True:
-        st = await mr.get_infer_status(request_id=request_id)
+        # wait_for is NOT optional: for some inputs the status call does not return at all,
+        # and without a per-call bound the client waits for ever rather than erroring.
+        st = await asyncio.wait_for(mr.get_infer_status(request_id=request_id), timeout=30)
         if st["completed_at"] is not None:                 # queue_position == 0
             result = st["result"]
             if isinstance(result, dict) and "error" in result:
                 raise RuntimeError(f"inference failed: {result['error']}")
+            if return_download_url:
+                # each value is a presigned .npy URL rather than an inline array
+                return {k: np.load(io.BytesIO(urllib.request.urlopen(v).read()),
+                                   allow_pickle=False) if isinstance(v, str) else v
+                        for k, v in result.items()}
             return result
         if time.monotonic() > deadline:
             raise TimeoutError(f"infer {request_id} timed out after {timeout}s")
