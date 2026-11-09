@@ -102,16 +102,25 @@ Job registries are **in-memory per Entry replica** and expire after completion (
 
 Two blocking helpers used throughout this skill. `mr` is the resolved model-runner handle (see [Service ID](#service-id--discover-before-calling)):
 
-⚠️ **Poll every 10 seconds or slower, and do not shorten it.** Every `get_infer_status` call is a
-request against the app's admission limit, exactly like `infer` itself, and a status poll holds its
-slot for the whole round trip. Measured on the live KTH app: at a 3-second interval 20 concurrent
-clients saw **36-40% of their calls rejected**; at a 10-second interval the same 20 clients saw
-**zero rejections and the same throughput**. The rejections were produced by the polling, not by the
-work. A warm inference takes about 5 seconds, so a 10-second poll costs you a few seconds of waiting
-and costs everyone else nothing — a 1-second poll does the reverse. The headroom is visible in the
-slot count: the 3-second run peaked at **10 of 10** admission slots, the 10-second run at **4 of 10**,
-and end-to-end p50 barely moved (10.9 s → 12.0 s). If you need a faster first answer, back off
-(2 s, then 5 s, then 10 s) rather than holding a tight constant.
+⚠️ **Poll every 10 seconds or slower, and do not shorten it.** Measured on the live KTH app, 20
+concurrent clients for 240 s: at a 3-second interval **36-40% of calls were rejected** with
+`has reached its maximum of N concurrent requests`; at 10 seconds, **none were**, and the same number
+of jobs completed (395 against 374). End-to-end p50 barely moved, 10.9 s → 12.0 s.
+
+The reason is not that polling is expensive — it is cheap. A `get_infer_status` call occupies an
+admission slot for only **~19 ms**, so even 90 clients polling once a second use under a fifth of the
+limit. What a tight poll actually does is **pace you**: noticing completion sooner makes you submit
+sooner, and a *submit* holds its slot for **0.74-2.8 s** — two orders of magnitude longer. At the
+3-second interval those 20 clients issued 618 requests instead of 374 and the concurrent submissions
+saturated admission; the extra 244 requests produced no extra results, only errors. Polling harder
+does not get your result sooner. It starts your next job sooner, and crowds out somebody else's for
+no additional completed work.
+
+So treat 10 s as a floor, not a target, and if you want a faster first answer back off
+(2 s, then 5 s, then 10 s) rather than holding a tight constant. Note also that this is not a
+capacity knob: at 50 clients, 26% were rejected even at a 10-second interval while completed
+throughput stayed flat (368 against 374 at 20 clients), so beyond a certain load the service is
+limited downstream of admission and politeness is the only thing that still helps.
 
 ```python
 import asyncio, random, time
