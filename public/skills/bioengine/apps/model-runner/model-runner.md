@@ -957,10 +957,30 @@ FP=$(printf  '%s' "$SLOT" | sed -n 's/.*"file_path": "\([^"]*\)".*/\1/p')
 curl -X PUT --data-binary @cell.png "$URL"          # the worker does not fetch it for you
 
 RID=$(bioengine call "$MR" infer \
-        --args "{\"model_id\": \"idealistic-eagle\", \"inputs\": \"$FP\"}" --json | tr -d '" ')
+        --args "{\"model_id\": \"idealistic-eagle\", \"inputs\": \"$FP\",
+                 \"return_download_url\": true}" --json | tr -d '" ')
 
-bioengine call "$MR" get_infer_status --args "{\"request_id\": \"$RID\"}" --json
+ST=$(bioengine call "$MR" get_infer_status --args "{\"request_id\": \"$RID\"}" --json)
+
+# the result is a presigned .npy URL; --compressed is REQUIRED (see below)
+RES=$(printf '%s' "$ST" | sed -n 's/.*"labels": "\([^"]*\)".*/\1/p')
+curl -s --compressed -o result.npy "$RES"
 ```
+
+**Two things here will cost you an hour if you skip them.** Quote `"$RES"` — a presigned URL is
+full of `&`, and an unquoted one is split by the shell into a truncated URL that S3 answers with a
+403 `AccessDenied` document. And pass `--compressed`: the object is served `Content-Encoding: gzip`,
+so a plain `curl` writes the **1887-byte gzip body** instead of the array, and `np.load` then fails
+with `Cannot load file containing pickled data` — an error that names the wrong cause entirely.
+Measured on the live app:
+
+```
+curl --compressed -o result.npy "$RES"   -> 1,048,704 bytes, magic \x93NUMPY, np.load OK (1,1,512,512)
+curl              -o result.npy "$RES"   ->     1,887 bytes, gzip blob, np.load raises
+```
+
+Note also that `curl -w '%{size_download}'` reports the **wire** size, 1887, in both cases — so a
+size check on that number cannot tell a good fetch from a bad one. Check the written file instead.
 
 `infer` returns the id alone, so poll `get_infer_status` until `state` is `completed`, `failed` or
 `cancelled` — a warm replica takes about five seconds. Quoting note: the `--args` value is JSON
