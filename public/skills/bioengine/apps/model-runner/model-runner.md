@@ -100,8 +100,6 @@ The shared status shape (same for infer and test):
 
 Job registries are **in-memory per Entry replica** and expire after completion (infer ~1 h, test ~24 h). A job id is only known to the replica that created it, and is lost on replica restart — poll it through to completion rather than stashing the id for later.
 
-**The poll interval is load-bearing, not a style choice.** `get_infer_status` goes through the *same* admission control as `infer()` itself, so polling competes with submitting for one fixed pool of slots — and because each job is polled many times, poll traffic dominates. Measured on production KTH, 20 clients for 240 s, identical except for the interval: at **3 s**, 618 requests were issued, 395 completed and **223 (36%) were refused** with `has reached its maximum of 10 concurrent requests`, peaking at 10 of 10 slots; at **10 s**, 374 were issued and **374 completed, none refused**, peaking at 4 of 10. The same useful work — 395 against 374 — and the aggressive run's extra 65% of requests bought only errors. End-to-end p50 moved 10.9 s → 12.0 s, so polling ten times slower cost about one second. Polling harder does not get your result sooner; it refuses somebody else's request. Raise the interval before you raise concurrency, and if you need a faster first answer use a backoff (2 s, then 5 s, then 10 s) rather than a tight constant.
-
 Two blocking helpers used throughout this skill. `mr` is the resolved model-runner handle (see [Service ID](#service-id--discover-before-calling)):
 
 ⚠️ **Poll every 10 seconds or slower, and do not shorten it.** Every `get_infer_status` call is a
@@ -110,7 +108,10 @@ slot for the whole round trip. Measured on the live KTH app: at a 3-second inter
 clients saw **36-40% of their calls rejected**; at a 10-second interval the same 20 clients saw
 **zero rejections and the same throughput**. The rejections were produced by the polling, not by the
 work. A warm inference takes about 5 seconds, so a 10-second poll costs you a few seconds of waiting
-and costs everyone else nothing — a 1-second poll does the reverse.
+and costs everyone else nothing — a 1-second poll does the reverse. The headroom is visible in the
+slot count: the 3-second run peaked at **10 of 10** admission slots, the 10-second run at **4 of 10**,
+and end-to-end p50 barely moved (10.9 s → 12.0 s). If you need a faster first answer, back off
+(2 s, then 5 s, then 10 s) rather than holding a tight constant.
 
 ```python
 import asyncio, random, time
