@@ -980,7 +980,16 @@ curl              -o result.npy "$RES"   ->     1,887 bytes, gzip blob, np.load 
 ```
 
 Note also that `curl -w '%{size_download}'` reports the **wire** size, 1887, in both cases — so a
-size check on that number cannot tell a good fetch from a bad one. Check the written file instead.
+size check on that number cannot tell a good fetch from a bad one. **Assert on the magic bytes of
+the file you wrote, not on any size:**
+
+```bash
+head -c6 result.npy | grep -q NUMPY || { echo "not an npy — did you forget --compressed?"; exit 1; }
+```
+
+Sizes are the wrong thing to pin. 1887 is the gzipped body and 1,048,704 the array *today*; if the
+endpoint ever stops serving `Content-Encoding: gzip` the wire size becomes the larger number and any
+check written against either literal breaks. The magic survives both.
 
 `infer` returns the id alone, so poll `get_infer_status` until `state` is `completed`, `failed` or
 `cancelled` — a warm replica takes about five seconds. Quoting note: the `--args` value is JSON
