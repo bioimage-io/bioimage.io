@@ -861,9 +861,39 @@ When in doubt, call `search_models(keywords=[...])` first — these IDs are stab
 | `inputs` type | Behaviour |
 |---|---|
 | `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
-| `str` file path from `get_upload_url` | Upload the array to the presigned URL first, then pass the returned `file_path`. Preferred for large arrays. |
-| `numpy.ndarray` | Sent over RPC. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
+| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. |
+| `numpy.ndarray` | Sent over RPC, which means the decoded array is held in the proxy actor's memory for the whole call. Fine for one caller, and the wrong choice under concurrency — see the note after the example. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
 | `dict[str, np.ndarray \| str]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
+
+### Uploading a local image — the full contract
+
+Three steps, and none of the names are guessable from the signature, so copy them:
+
+```python
+import io, numpy as np, urllib.request
+from PIL import Image
+
+# 1. ask for a slot. The kwarg is `file_type` (NOT `suffix`), and it must be one of
+#    ".npy" ".png" ".tiff" ".tif" ".jpeg" ".jpg"
+slot = await mr.get_upload_url(file_type=".png")
+# -> {"upload_url": "https://…", "file_path": "…"}   NOTE: "upload_url", not "url"
+
+# 2. PUT the bytes yourself — the worker does not fetch them for you
+buf = io.BytesIO()
+Image.fromarray(arr.astype("uint8")).save(buf, format="PNG")
+urllib.request.urlopen(urllib.request.Request(
+    slot["upload_url"], data=buf.getvalue(), method="PUT",
+    headers={"Content-Type": "application/octet-stream"}))
+
+# 3. infer on the RETURNED PATH, not the URL
+result = await run_infer(mr, model_id, slot["file_path"])   # submit + poll
+```
+
+The slot has a **1-hour TTL**, so request it immediately before the upload rather than reusing one.
+
+**Why this path rather than passing the array.** `infer()` resolves URL and uploaded-path inputs and spills them to disk under `$HOME/.model-runner-inference/<request_id>/input/`, so a large image does not occupy RAM during the queue-and-download wait. An `np.ndarray` sent over RPC is instead held decoded in the ProxyDeployment actor for the lifetime of the call, and that actor admits a bounded number of concurrent requests precisely because a queued caller keeps its payload resident. Under concurrency the array path is what turns a busy app into a memory problem; the upload path is not. If you are writing a client that many people will run at once, use the upload path.
+
+**Shape is not negotiable, and a wrong shape does not fail cleanly.** A model declaring a fixed input size accepts that size only — there is no resize anywhere in the runner. Measured against Cellpose-SAM (`idealistic-eagle`), whose RDF declares `[batch, channel(3), y=256, x=256]`: a 256x256 RGB input completes in ~5 s against a warm replica and ~30 s when the model still has to download; 192x192 is rejected server-side; 512x512 and 640x480 neither complete nor return an error within several minutes. Read `rdf["inputs"][0]["axes"]` and conform to it before sending, and treat "no response" as a probable shape mismatch rather than a slow model.
 
 Once resolved, the `result` (from `get_infer_status` / `run_infer`) is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read the key from the RDF; do **not** hard-code `"output0"`:
 
