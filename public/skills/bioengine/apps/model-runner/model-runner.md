@@ -6,6 +6,17 @@ Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io)
 >
 > On **older workers** (before 2.11.2) this runner's runtime shipped Cellpose 4 only and rejected Cellpose-3 models, which were served by a separate `cellpose3-runner` app. Workers are pinned and roll independently, so check the worker's deployed version before assuming which behaviour you get.
 >
+> **A grayscale image is refused by Cellpose-SAM — replicate the channel before sending.** Cellpose-4 / Cellpose-SAM declares its channel axis as `min=3, max=3`, so a single-channel array is rejected before inference starts, at any image size. A large share of real microscopy is single-channel, so this is the most common input failure, and it is a *different* axis from the size gotcha below — the size can be perfectly fine. Fix it on your side, because the runner will not reshape your array for you:
+>
+> ```python
+> # arr is (y, x) or (1, 1, y, x) grayscale; Cellpose-SAM wants 3 channels
+> import numpy as np
+> arr = np.atleast_3d(arr)                      # -> (y, x, 1) if it was 2-D
+> rgb = np.repeat(arr, 3, axis=-1)              # -> (y, x, 3)
+> ```
+>
+> That replication is a deliberate choice you are making about your data, which is why the runner does not do it silently: it returns segmentations people treat as measurements, and a caller who sent one channel because their data IS one channel would otherwise get a plausible result computed on an array they never supplied. From the version carrying myco #0308 the error names the axis, the required count and this remedy instead of reprinting bioimageio's raw `AxisInfo` objects.
+>
 > Cellpose-3 models declare large minimum input sizes. Sending a smaller array fails with an axis-size error before inference starts, which looks like a loading failure but is not: `famous-fish` needs at least 565x807, `happy-elephant` 1024x1024, `merry-gorilla` 1440x1920, `thoughtful-chipmunk` 1680x1475.
 
 ## Use this skill when
