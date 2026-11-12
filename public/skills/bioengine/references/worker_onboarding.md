@@ -77,7 +77,7 @@ Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/p
 | Image | Use when |
 |---|---|
 | `ghcr.io/aicell-lab/bioengine-worker:<version>` | The default. Each app's environment is built by Ray on first deploy, so the first model takes minutes before it serves. |
-| `ghcr.io/aicell-lab/model-runner:2.10.6` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
+| `ghcr.io/aicell-lab/model-runner:2.11.2` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
 
 Swap the image name and change nothing else:
 
@@ -86,7 +86,7 @@ docker run -d --name bioengine-worker \
   --restart unless-stopped --shm-size=8g --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
-  ghcr.io/aicell-lab/model-runner:2.10.6 \
+  ghcr.io/aicell-lab/model-runner:2.11.2 \
   python -m bioengine.worker --mode single-machine --head-num-cpus 4 --head-num-gpus 1
 ```
 
