@@ -39,7 +39,11 @@ else
 fi
 
 # Clause 3 -- the redirect must survive for memory and gpu_enabled.
-if grep -q 'read `application_resources` for what the app actually requested' "$F"; then
+# Case-insensitive on purpose: whether this sentence opens with "Read" or
+# continues with "read" is a function of how the surrounding prose was split,
+# not of whether the redirect is still there. Matching only the lowercase form
+# failed a correct fix over one character -- measured, see the row.
+if grep -qi 'read `application_resources` for what the app actually requested' "$F"; then
   echo "ok    clause 3: memory / gpu_enabled keep their application_resources redirect"
 else
   echo "FAIL  clause 3: the application_resources redirect is gone for memory / gpu_enabled too" >&2
