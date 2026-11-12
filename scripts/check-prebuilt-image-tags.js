@@ -22,6 +22,9 @@
  * Exit 0 = the constant is the newest published tag and every copy agrees.
  * Exit 1 = it is behind, names a tag that does not exist, or a copy disagrees.
  * Exit 2 = the check itself could not run, which is deliberately NOT a pass.
+ *          Reached by an unreachable registry, a tag list that may be truncated,
+ *          and a copies arm that has lost the tree it was meant to read. All
+ *          three are the check losing its coverage, and none of them is a pass.
  */
 const fs = require('fs');
 const path = require('path');
@@ -46,16 +49,17 @@ const COPY_ROOTS = [
 ];
 const COPY_EXTENSIONS = ['.md', '.tsx', '.ts', '.js', '.json', '.yml', '.yaml'];
 
-/** Every file under `dir` whose extension is one we scan. */
+/**
+ * Every file under `dir` whose extension is one we scan.
+ *
+ * Deliberately lets a `readdirSync` failure propagate. Swallowing it returned an
+ * empty list, which the copies arm below could not tell from "every copy
+ * agrees" -- so renaming `public/skills` made the arm green while examining
+ * nothing. That is the same silent-coverage-loss this script exists to end.
+ */
 function walk(dir) {
   let out = [];
-  let entries;
-  try {
-    entries = fs.readdirSync(dir, { withFileTypes: true });
-  } catch (err) {
-    return out;
-  }
-  for (const entry of entries) {
+  for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
     const full = path.join(dir, entry.name);
     if (entry.isDirectory()) out = out.concat(walk(full));
     else if (COPY_EXTENSIONS.includes(path.extname(entry.name))) out.push(full);
@@ -64,20 +68,45 @@ function walk(dir) {
 }
 
 /**
+ * The files the copies arm will read, or a throw naming why it cannot.
+ *
+ * Both failures are the arm losing its coverage rather than finding nothing
+ * wrong: a `COPY_ROOT` that has moved, and a root tree that holds no file with
+ * an extension we scan. Either one must reach exit 2, never exit 0.
+ */
+function filesToScan() {
+  const files = [];
+  for (const root of COPY_ROOTS) {
+    let stat;
+    try {
+      stat = fs.statSync(root);
+    } catch (err) {
+      throw new Error(`COPY_ROOT ${path.relative(ROOT, root)} does not exist (${err.code || err.message})`);
+    }
+    if (!stat.isDirectory()) {
+      throw new Error(`COPY_ROOT ${path.relative(ROOT, root)} is not a directory`);
+    }
+    files.push(...walk(root));
+  }
+  if (files.length === 0) {
+    throw new Error(`no file under ${COPY_ROOTS.map(r => path.relative(ROOT, r)).join(', ')} has an extension this check scans`);
+  }
+  return files;
+}
+
+/**
  * Longhand `ghcr.io/<repo>:<tag>` references whose tag is a literal version.
  * `${...}` interpolations are skipped on purpose: those derive from the
  * constant, so they cannot disagree with it.
  */
-function copiesOf(repo) {
+function copiesOf(repo, files) {
   const pattern = new RegExp(`ghcr\\.io/${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:([\\w.\\-]+)`, 'g');
   const found = [];
-  for (const root of COPY_ROOTS) {
-    for (const file of walk(root)) {
-      const text = fs.readFileSync(file, 'utf8');
-      let match;
-      while ((match = pattern.exec(text)) !== null) {
-        found.push({ file: path.relative(ROOT, file), tag: match[1] });
-      }
+  for (const file of files) {
+    const text = fs.readFileSync(file, 'utf8');
+    let match;
+    while ((match = pattern.exec(text)) !== null) {
+      found.push({ file: path.relative(ROOT, file), tag: match[1] });
     }
   }
   return found;
@@ -110,22 +139,45 @@ function get(url, headers = {}) {
  * Measured on ghcr.io/aicell-lab/bioengine-worker: one page gives 100 tags and a
  * newest of 0.6.14, while following the link gives 260 tags and 0.16.92. A pin
  * checked against the first answer is checked against nothing.
+ *
+ * Every way this can end up with a short list throws instead of returning one,
+ * because a short list is exactly what blesses a stale pin as current:
+ *   - the chain is still unterminated after MAX_PAGES;
+ *   - a page comes back at the full requested size with no next link, which
+ *     cannot be told apart from a silent truncation.
+ * The second needs saying: the link-following above assumes the registry
+ * advertises `rel="next"` whenever it truncates. That was measured true at the
+ * default page size, but NOT at `n=PAGE_SIZE` -- no repo in scope has that many
+ * tags, so the assumption is untested where this code relies on it. This guard
+ * is what makes the untested case loud rather than wrong.
  */
+const PAGE_SIZE = 1000;
+const MAX_PAGES = 100;
+
 async function publishedTags(repo) {
   const scope = encodeURIComponent(`repository:${repo}:pull`);
   const { body: tokenBody } = await get(`https://ghcr.io/token?scope=${scope}&service=ghcr.io`);
   const { token } = JSON.parse(tokenBody);
 
   const tags = [];
-  let url = `https://ghcr.io/v2/${repo}/tags/list?n=1000`;
+  let url = `https://ghcr.io/v2/${repo}/tags/list?n=${PAGE_SIZE}`;
   // Bounded so a registry that keeps handing back a next link cannot spin here.
-  // 100 pages is far past any real tag count and is an error, not a result.
-  for (let page = 0; url && page < 100; page += 1) {
+  let page = 0;
+  for (; url && page < MAX_PAGES; page += 1) {
     const { body, headers } = await get(url, { Authorization: `Bearer ${token}` });
-    tags.push(...(JSON.parse(body).tags || []));
+    const pageTags = JSON.parse(body).tags || [];
+    tags.push(...pageTags);
     const link = headers.link;
     const next = link && /rel="next"/.test(link) ? /<([^>]+)>/.exec(link) : null;
     url = next ? new URL(next[1], 'https://ghcr.io').toString() : null;
+    if (!url && pageTags.length >= PAGE_SIZE) {
+      throw new Error(
+        `ghcr.io/${repo} returned a full page of ${pageTags.length} tags with no rel="next" link, so the list may be truncated and cannot be judged`,
+      );
+    }
+  }
+  if (url) {
+    throw new Error(`ghcr.io/${repo} still had a rel="next" link after ${MAX_PAGES} pages, so the tag list is incomplete`);
   }
   return tags;
 }
@@ -148,6 +200,16 @@ function newer(a, b) {
     source = fs.readFileSync(GUIDE, 'utf8');
   } catch (err) {
     console.error(`cannot read ${GUIDE}: ${err.message}`);
+    process.exit(2);
+  }
+
+  // Resolved once, before any verdict, so a lost COPY_ROOT stops the run rather
+  // than quietly shrinking the second arm's coverage to nothing.
+  let copyFiles;
+  try {
+    copyFiles = filesToScan();
+  } catch (err) {
+    console.error(`SKIP  copies arm: no verdict (${err.message})`);
     process.exit(2);
   }
 
@@ -188,14 +250,17 @@ function newer(a, b) {
     // Second arm: every longhand copy of the image must name the same tag the
     // constant does. This is checked even when the constant itself is behind,
     // so one run reports every place that needs editing rather than one.
-    const stale = copiesOf(repo).filter(copy => copy.tag !== pinned);
+    const copies = copiesOf(repo, copyFiles);
+    const stale = copies.filter(copy => copy.tag !== pinned);
     if (stale.length > 0) {
       for (const copy of stale) {
         console.error(`FAIL  ${copy.file} names ghcr.io/${repo}:${copy.tag}, but ${constant}='${pinned}'`);
       }
       failed = true;
     } else {
-      console.log(`ok    every longhand ghcr.io/${repo} reference agrees with ${constant}`);
+      // The count is printed because "agrees" over zero copies and "agrees" over
+      // five read identically otherwise, and this repo has had both.
+      console.log(`ok    ${copies.length} longhand ghcr.io/${repo} reference(s) agree with ${constant} (${copyFiles.length} files scanned)`);
     }
   }
 
