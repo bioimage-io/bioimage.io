@@ -30,11 +30,25 @@ else
   echo "ok    clause 1: max_ongoing_requests no longer redirected to application_resources"
 fi
 
-# Clause 1b -- and it must say what the top-level number actually is.
-if grep -q 'proxy admission limit' "$F"; then
-  echo "ok    clause 1: the top-level number is named as the proxy admission limit"
+# Clause 1b -- and it must say what the top-level number actually is: the limit the
+# application's proxy admits across the whole instance.
+#
+# Matched on the CLAIM, not on one phrasing. This assertion previously grepped for the
+# single literal 'proxy admission limit', which is this branch's own wording -- and it
+# therefore FAILED the text that actually landed on main in 1d2b49d, which makes the same
+# point as "the application's ProxyDeployment admits across the whole instance" and never
+# uses the four-word phrase. A guard that only passes the wording its author happened to
+# choose is not a guard, it is a diff. Measured over the three refs that matter:
+#
+#   904bf29  old main, defect present       0 matches -> FAIL, correct
+#   1d2b49d  main after docs/0323 landed    2 matches -> ok,  was a FALSE FAIL before
+#   63d599c  this cluster's prose branch    1 match   -> ok
+#
+# The clause keeps its teeth: deleting the explanation from 1d2b49d drops it to 0.
+if grep -qiE 'proxy admission limit|ProxyDeployment admits|proxy admit(s|ting)|admits across the whole instance' "$F"; then
+  echo "ok    clause 1: the top-level number is named as the proxy's instance-wide admission limit"
 else
-  echo "FAIL  clause 1: nothing calls the top-level max_ongoing_requests the proxy admission limit" >&2
+  echo "FAIL  clause 1: nothing says the top-level max_ongoing_requests is what the proxy admits" >&2
   rc=1
 fi
 
