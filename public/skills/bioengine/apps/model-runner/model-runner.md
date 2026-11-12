@@ -1012,6 +1012,34 @@ cannot interpolate `$FP`.
 
 **Shape is not negotiable, and a wrong shape does not fail cleanly.** A model declaring a fixed input size accepts that size only — there is no resize anywhere in the runner. Measured against Cellpose-SAM (`idealistic-eagle`), whose RDF declares `[batch, channel(3), y=256, x=256]`: a 256x256 RGB input completes in ~5 s against a warm replica and ~30 s when the model still has to download; 192x192 is rejected server-side; 512x512 and 640x480 neither complete nor return an error within several minutes. Read `rdf["inputs"][0]["axes"]` and conform to it before sending, and treat "no response" as a probable shape mismatch rather than a slow model.
 
+**Channel count is checked too, and grayscale is the common way to trip it.** Cellpose-SAM
+(`idealistic-eagle`) declares three channels, so a single-channel image is refused before inference
+starts — measured in production, a 1-channel array fails in ~3 s while the same pixels as 3 channels
+complete in ~32 s. A real workshop participant hit this with an 807x696 grayscale micrograph, and
+most microscopy is single-channel, so expect it.
+
+```python
+rdf = await mr.get_model_rdf(model_id=model_id)
+ch = next((a for a in rdf["inputs"][0]["axes"] if a.get("type") == "channel"), None)
+need = len(ch.get("channel_names") or []) if ch else None     # 3 for Cellpose-SAM
+```
+
+**The remedy is yours to choose, and it is not free.** Stacking one channel into three lets the model
+run, but the extra channels are *invented*: the mask you get back was computed partly on data you did
+not supply. For a model whose channels carry no declared meaning — Cellpose-SAM's are named
+`channel0/1/2` — two obvious fabrications (repeat the channel; put it in channel 0 and zero the rest)
+agree to 0.9997 per pixel on the same image, so neither is obviously better than the other. That
+agreement says they are *similarly* wrong, not that either is faithful. Decide deliberately, and
+record which you used alongside the result:
+
+```python
+arr3 = np.repeat(arr1, 3, axis=channel_axis)     # explicit, and worth noting in your provenance
+```
+
+If your single channel means something specific — one stain, one wavelength — a model that wants
+three is arguably the wrong model for it, and that is worth knowing before the mask informs a
+measurement.
+
 Once resolved, the `result` (from `get_infer_status` / `run_infer`) is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read the key from the RDF; do **not** hard-code `"output0"`:
 
 ```python
