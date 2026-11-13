@@ -652,7 +652,8 @@ CLI: `--hypha-token`.
 ```bash
 bioengine apps list                            # what artifacts are available to deploy
 bioengine apps status [APP_ID]                 # what's actually running on the worker
-bioengine apps status <app-id> --logs 50 --json  # actor logs (see the caveat below)
+bioengine apps status <app-id> --logs 50 --json  # actor logs, LIVE replicas only (see the caveat below)
+bioengine apps logs <app-id> -n 50             # the same logs plus the last DEAD replica — use after a crash
 bioengine apps stop <app-id> -y                # stop a running instance (-y skips the confirmation prompt)
 ```
 
@@ -697,7 +698,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > ```
 > So it is `result["<workspace>/<alias>"]["manifest"]["version"]`, against `result["<app-id>"]["status"]` for `apps status --json`. A filter written for one shape returns an empty result against the other, with no error to tell you which one you were holding.
 
-> **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
+> **`logs` is nested two levels deep, and `bioengine apps logs` prints it — from client 0.16.45 on.** Older clients read `logs` off the replica projection, where that key never exists, so the command printed empty per-deployment sections while thousands of characters sat one level up; fixed in **0.16.45**, so upgrade rather than work around it. **After a crash `apps logs` is the one to reach for, not `apps status`**: only `apps logs` asks for a dead replica (`n_previous_replica=1`), and the crashed replica is the one whose logs you want. Measured on a live worker — per deployment, `apps logs` returned 2 replicas and `apps status --logs N --json` returned 1, the live one. In either payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
 > ```python
 > {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
 > # a replica that has DIED carries one more key, from worker 0.16.65:

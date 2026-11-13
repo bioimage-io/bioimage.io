@@ -162,7 +162,7 @@ Arguments:
   APP_ID...   One or more app IDs (default: all running apps)
 
 Options:
-  --logs N   Log lines per replica [default: 30]
+  --logs N   Log lines per replica [default: 10]
   --json
 ```
 
@@ -173,7 +173,11 @@ Usage: bioengine apps logs [OPTIONS] APP_ID
 Options: -n/--tail N [default: 100], --json
 ```
 
-**Caveat:** this has been observed printing empty per-deployment sections while the replica had thousands of characters of logs. Prefer `bioengine apps status APP_ID --logs N --json`, where `deployments[<name>]["logs"]` is a dict keyed by replica id whose values are **lists of lines** (not a string — slicing it directly raises `TypeError: unhashable type: 'slice'`).
+**Use this, not `apps status`, after a crash.** Only `apps logs` requests a dead replica's logs (`n_previous_replica=1`); `apps status` fetches live replicas only, because every dead replica adds a GCS lookup to a command meant for polling. Measured on a live worker: per deployment `apps logs` returned 2 replicas, `apps status --logs N --json` returned 1.
+
+Clients **before 0.16.45** printed empty per-deployment sections here while the replica had thousands of characters of logs — they read `logs` off the replica projection, which never carries that key. Upgrade; `apps status --logs N --json` was the workaround and it is the wrong command for a crash.
+
+`--json` on either command returns the same shape — the full status dict keyed by app id — in which `deployments[<name>]["logs"]` is a dict keyed by replica id whose values are **dicts** — `creation_timestamp`, `timezone`, `stdout`, `stderr`, plus `death_cause` on a dead replica — with `stdout`/`stderr` the lists of lines. Slicing the outer dict as text raises `TypeError: unhashable type: 'slice'`; iterating a replica value yields its key names, which is the silent failure. See the logs section in `SKILL.md` for the loop.
 
 ### `bioengine apps stop`
 
