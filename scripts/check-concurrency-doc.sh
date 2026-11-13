@@ -131,10 +131,108 @@ fi
 # continues with "read" is a function of how the surrounding prose was split,
 # not of whether the redirect is still there. Matching only the lowercase form
 # failed a correct fix over one character -- measured, see the row.
-if grep -qi 'read `application_resources` for what the app actually requested' "$F"; then
+# Counted, not merely detected -- see clause 4 below for why.
+c3=$(grep -ci 'read `application_resources` for what the app actually requested' "$F")
+if [ "$c3" -ge 1 ]; then
   echo "ok    clause 3: memory / gpu_enabled keep their application_resources redirect"
 else
   echo "FAIL  clause 3: the application_resources redirect is gone for memory / gpu_enabled too" >&2
+  rc=1
+fi
+
+# Clause 4 -- each guarded line must appear ONCE. BOTH of them.
+#
+# Every assertion above is a presence test, and a presence test is satisfied
+# twice over by a file that says the same thing twice. That is not a theoretical
+# gap: duplicating this blockquote is exactly what a naive both-sides resolution
+# of two branches editing it produces, and four branches rewrote this paragraph
+# inside two days. Measured before this clause existed: a tree built from main
+# with the guarded blockquote inserted a second time verbatim passed all three
+# assertions and exited 0, while the same tree with the proxy statement stripped
+# exited 1 -- so the guard was working as designed and the design was short.
+#
+# ⚠ TWO counts, not one, and the first version of this clause had only the
+# first. The guarded passage is two DIFFERENT lines of one blockquote: line 688
+# of main carries clause 3's redirect, line 690 carries clause 1b's proxy
+# explanation. Counting only clause 3's anchor caught a duplicate of 688 and
+# waved a duplicate of 690 straight through -- that is, the single line #0058
+# exists to protect -- while printing "appears exactly once" about it. Measured
+# on the served file (md5 e5663e3b…) against this script's own earlier head:
+#
+#   served unmutated     rc=0      line 688 duplicated  rc=1
+#   line 690 deleted     rc=1      line 690 duplicated  rc=0   <- the residual
+#
+# Found by Backlog head (nice-bird-njonwf) on the draft and reproduced here 4/4
+# before being fixed.
+#
+# The two counts have DIFFERENT scopes, and each takes the scope its own anchor
+# allows -- which is the same argument clause 1b's scoping rests on:
+#
+#   c3  FILE-WIDE. Its anchor is unique across the whole file on every ref this
+#       paragraph has lived on (904bf29, 1d2b49d, origin/main, 63d599c, f810feb,
+#       a564f3a, 83a1e7f, 25014fb all read exactly 1), so a stray copy anywhere
+#       in SKILL.md is detectable, including one a merge drops outside the
+#       section. Measured, not assumed.
+#
+#   c1b IN-PASSAGE. File-wide this claim is legitimately 2 on main, because the
+#       line-245 Key rules bullet makes the same point for a different audience,
+#       so no file-wide count is correct for it. Inside the App lifecycle passage
+#       it is exactly 1 wherever the fix is present (1d2b49d, origin/main,
+#       63d599c, f810feb, a564f3a) and 0 where it is not. Measured.
+#
+# Neither count is over a new pattern: each reuses the anchor its own clause
+# already greps, so this adds no brittleness those clauses do not already carry.
+# If a reword breaks either match, that clause fails today regardless.
+#
+# Both counts are of LINES (grep -c), and that is FORCED, not the lazy choice it
+# looks like. Main's line 690 satisfies two branches of clause 1b's alternation
+# in the one sentence, so counting MATCHES reads 2 on text nobody has touched:
+#
+#   grep -c  on main's line 690   1    <- correct, and the only usable count
+#   grep -o  on main's line 690   2    <- a match-counting clause 4 fails main
+#
+# The messages therefore say "on exactly one line", which is what was measured,
+# rather than "exactly once", which is a claim about occurrences that these
+# counts cannot support. The two readings part company on a tree where a second
+# copy is appended WITHIN the line: both counts still read 1, correctly, and
+# "exactly once" would have been false there while "on one line" stays true.
+# Raised by the reviewer (polar-shark-grvryd) on the APPROVE of PR #142.
+#
+# What this does not catch: a copy of the clause-1b line dropped OUTSIDE the App
+# lifecycle section (c1b cannot see it and no file-wide count of that claim is
+# usable), a second copy appended within an existing line (see above -- a line
+# count cannot see it, and a match count that could would fail correct text),
+# and duplication of some other passage of the file entirely. This guard is
+# scoped to the concurrency paragraph and clause 4 is scoped the same way.
+c1b=$(printf '%s\n' "$PASSAGE" | grep -ciE 'proxy admission limit|ProxyDeployment admits|proxy admit(s|ting)|admits across the whole instance')
+
+# Each arm names WHICH line it counted, AND over what. "The guarded passage"
+# alone over-claims: a reader who has just read clause 1b takes it to mean the
+# proxy explanation, and in the residual above that reading was false. The two
+# arms are deliberately scoped differently -- c3 file-wide, c1b in-passage --
+# so each message says which, or someone reading output rather than source
+# learns the scope of one count and not the other, and would read the c3 line
+# as the same passage-scoped claim the c1b line makes. Raised by the reviewer
+# (polar-shark-grvryd) on the APPROVE of PR #142.
+if [ "$c3" -gt 1 ]; then
+  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears on $c3 lines of $F -- a merge resolution duplicated it" >&2
+  rc=1
+elif [ "$c3" -eq 1 ]; then
+  echo "ok    clause 4: the application_resources redirect appears on exactly one line of $F (counted file-wide)"
+else
+  # c3 = 0, already failed as clause 3. Say so rather than report a count of
+  # zero as "not duplicated", which reads as a pass for the wrong reason.
+  echo "FAIL  clause 4: cannot count the application_resources redirect -- clause 3 found none of it" >&2
+  rc=1
+fi
+
+if [ "$c1b" -gt 1 ]; then
+  echo "FAIL  clause 4: the proxy-admission explanation (clause 1b's line) appears on $c1b lines of the App lifecycle passage -- a merge resolution duplicated it" >&2
+  rc=1
+elif [ "$c1b" -eq 1 ]; then
+  echo "ok    clause 4: the proxy-admission explanation appears on exactly one line of the App lifecycle passage (counted in-passage; main carries it twice file-wide, so a file-wide count of it is not usable)"
+else
+  echo "FAIL  clause 4: cannot count the proxy-admission explanation -- clause 1b found none of it in the passage" >&2
   rc=1
 fi
 
