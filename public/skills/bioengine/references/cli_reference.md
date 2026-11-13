@@ -270,6 +270,7 @@ Beware that a vGPU slice reports its *host card* as the label: a 16 GB A40 slice
 | `BIOENGINE_WORKER_SERVICE_ID` | Worker service ID (required for `apps` and `cluster` commands) |
 | `HYPHA_TOKEN` or `BIOENGINE_TOKEN` | Auth token |
 | `BIOENGINE_SERVER_URL` | Hypha server URL (default: `https://hypha.aicell.io`) |
+| `BIOENGINE_CLI_TRACEBACK` | Set to `1` to keep the full remote traceback on errors. By default the CLI prints only the exception a remote failure ended on, because a server-side traceback arrives doubled and buries the actionable line |
 
 ---
 
