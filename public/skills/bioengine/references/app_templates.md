@@ -2878,6 +2878,29 @@ async def segment(
     return await loop.run_in_executor(None, self._segment_sync, raw, str(threshold_method).lower())
 ```
 
+> **That `bytes` annotation documents the parameter, it does not enforce it, so a caller who sends base64 anyway reaches your code.** `@bioengine.method` is `hypha_rpc`'s `@schema_method`, which publishes the annotation in the RPC schema and substitutes `Field(...)` defaults but runs **no type validation** on what arrives. Measured over a real Hypha RPC boundary (`hypha_rpc` 0.21.40, `pydantic` 2.12.0, worker image 0.16.96) by registering a service and calling it from a second connection:
+>
+> ```
+> image_bytes: bytes   <- raw bytes   -> bytes, 8 bytes, PNG magic intact   [CONTROL]
+> image_bytes: bytes   <- base64 str  -> str,  the base64 text, delivered verbatim
+> image_bytes: Any     <- raw bytes   -> bytes, byte-identical
+> image_bytes: Any     <- base64 str  -> str,  the base64 text, delivered verbatim
+> ```
+>
+> The enforcement is absent in general, not just for `bytes`: through the same decorator an `n: int` parameter accepted the string `'not a number'` unchanged, and a `bytes` parameter accepted the integer `12345`.
+>
+> Two consequences for this recipe. First, the normalisation line above is the right place to find out: `bytes(<str>)` raises `TypeError: string argument without an encoding`, which names the problem immediately. If you want to accept both formats, branch explicitly rather than relying on the annotation:
+>
+> ```python
+> if isinstance(image_bytes, str):            # a caller sent base64 after all
+>     import base64
+>     raw = base64.b64decode(image_bytes)
+> else:
+>     raw = bytes(image_bytes)
+> ```
+>
+> Second, **do not switch the annotation to `Any` to "let both formats through"**. Measured above, it changes nothing about what arrives, and it costs you the schema: `bytes` publishes `{"type": "string", "format": "binary"}` for the parameter while `Any` publishes only its description, so a client generating a form or a call from the schema no longer learns the parameter is binary. Keep `bytes` as the declared contract and branch in the body if you need the tolerance.
+
 Note the return direction is still governed by the `.tolist()` rule — send masks and coordinate arrays back as plain lists (or, for a preview image, a base64 PNG string).
 
 ### Capping what you send back
