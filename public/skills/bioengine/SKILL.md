@@ -335,10 +335,13 @@ class MyDeployment:
   # test_version.py — offline, imports nothing from bioengine, runs in a [cli] venv
   import yaml
   import app_core
-  manifest = yaml.safe_load(open("manifest.yaml"))
-  assert app_core.__version__ == str(manifest["version"])
+  # BaseLoader, not safe_load: it keeps every scalar as its source text.
+  manifest = yaml.load(open("manifest.yaml"), Loader=yaml.BaseLoader)
+  assert app_core.__version__ == manifest["version"]
   ```
-  The `str(...)` is not defensive padding. YAML reads a three-component `version: 1.0.0` as the string `'1.0.0'`, but a two-component `version: 1.0` as the **float** `1.0`, so without the coercion this test fails on a manifest that uploads and deploys perfectly well.
+  `BaseLoader` is not fussiness, and `str(yaml.safe_load(...)["version"])` is the version of this test that looks right and is wrong. `safe_load` reads a three-component `version: 1.0.0` as the string `'1.0.0'`, but a two-component `version: 1.0` as the **float** `1.0`. `str()` rescues that one, and it cannot rescue a trailing zero: `version: 0.10` becomes the float `0.1`, `str()` gives `'0.1'`, and the test fails on a manifest that uploads and deploys perfectly well. Measured across spellings, `str(safe_load(...))` loses `0.10` to `'0.1'`, `2.10` to `'2.1'` and `1.20` to `'1.2'`, while `BaseLoader` returns all three verbatim.
+
+  The same applies wherever you read that field, not just in a test. If you write your own uploader, read the version with `BaseLoader` as well: a float-derived version string names a **different artifact version** than the manifest does, and a committed artifact version is immutable, so the wrong name is not something a re-upload takes back. The `upload_app.py` in [scripts/](scripts/upload_app.py) does it this way. Quoting the field in the manifest (`version: "0.10"`) fixes it at the source and is worth doing too, but it is a convention you have to remember on every app, and `BaseLoader` holds whether or not anyone remembered.
 - **Return only builtin types across the Hypha boundary.** The familiar form of this rule is "call `.tolist()` on numpy arrays", and that under-generalises in a way that costs a deploy round-trip. The client-side proxy reconstructs whatever you returned, so **any object whose class is defined in a third-party package fails on the client**, with an error naming a module the client was never supposed to need:
   ```
   ModuleNotFoundError: No module named 'torch'

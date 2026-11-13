@@ -45,6 +45,19 @@ def _read_manifest(directory: str) -> dict:
         return yaml.safe_load(f)
 
 
+def _manifest_version_text(directory: str) -> str:
+    """The version EXACTLY as manifest.yaml spells it.
+
+    Not `str(manifest["version"])`. safe_load reads an unquoted two-component
+    `version: 0.10` as the float 0.1, and str() on that float gives '0.1', so
+    the uploaded artifact version would silently not be the one the manifest
+    names -- and a committed artifact version is immutable. BaseLoader keeps
+    every scalar as its source text, so '0.10', '1.0' and '1.0.0' all survive.
+    """
+    with open(os.path.join(directory, "manifest.yaml")) as f:
+        return yaml.load(f, Loader=yaml.BaseLoader)["version"]
+
+
 def _set_files_version(files: list, version: str) -> list:
     """Rewrite manifest.yaml's version in the in-memory file list only."""
     out = []
@@ -79,7 +92,7 @@ async def main() -> None:
     args = ap.parse_args()
 
     manifest = _read_manifest(args.directory)
-    base = str(manifest["version"])          # target release, e.g. 0.1.2
+    base = _manifest_version_text(args.directory)   # target release, e.g. 0.1.2
     app_id = args.app_id or manifest["id"]
 
     server = await connect_to_server({"server_url": SERVER_URL, "token": args.token})
