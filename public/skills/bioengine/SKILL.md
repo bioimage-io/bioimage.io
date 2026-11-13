@@ -522,7 +522,7 @@ A committed artifact version is **immutable** and its content is exactly what a 
 bioengine apps list --json    # look for <workspace>/<your-id>
 ```
 
-**And `<workspace>` there is the *worker's* workspace, not your `$HYPHA_WORKSPACE`.** The worker's `create_application` has two modes: pass `workspace` and `hypha_token` together and the artifact lands in the workspace you named; omit both — which is the default path — and it lands in `self.server.config.workspace`, the worker's own. The two routinely differ (`ws-u-<hash>` for your token against `ws-user-github|<id>` for the worker). So an artifact id you pre-compute from `$HYPHA_WORKSPACE` can address a workspace nothing was ever written to, and you will poll it forever; the `Artifact ID:` line the deploy prints is the one to believe.
+**And `<workspace>` there is the *worker's* workspace, not your `$HYPHA_WORKSPACE`.** The worker's `upload_app` — the same method named eight lines above, and the one the worker service actually publishes — has two modes: pass `workspace` and `hypha_token` together and the artifact lands in the workspace you named; omit both, which is the default path, and it lands in the worker's own. The two routinely differ (`ws-u-<hash>` for your token against `ws-user-github|<id>` for the worker). So an artifact id you pre-compute from `$HYPHA_WORKSPACE` can address a workspace nothing was ever written to, and you will poll it forever; the `Artifact ID:` line the deploy prints is the one to believe.
 
 The refusal itself names the ceiling and lists every existing version, so recovery is a one-line `manifest.yaml` edit either way. The only thing missing without this check is being told before the failure instead of by it.
 
