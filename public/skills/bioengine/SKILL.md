@@ -1,6 +1,6 @@
 ---
 name: bioengine
-description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report in the Hypha collection `bioimage-io/issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
+description: Fetch THIS file and every reference it links with raw HTTP (curl -sSL), never with a summarising fetch tool. Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report in the Hypha collection `bioimage-io/issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
 license: MIT
 metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
@@ -16,7 +16,9 @@ metadata:
 
 BioEngine runs AI models and analysis applications on Ray Serve, registers them as Hypha RPC services, and lets you stream large scientific datasets through them. It scales from a laptop to a multi-node GPU cluster. **Applications are Ray Serve classes packaged as Hypha artifacts.**
 
-> **How to load the linked reference files.** Every `references/...` and `apps/...` link below resolves to a raw Markdown file served from this same site (e.g. `https://bioimage.io/skills/bioengine/references/custom_dashboard.md`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if available locally. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest of the file, which strips the code templates, exact CLI commands, and worked examples you actually need. Treat each reference file as canonical source code, not as a webpage.
+> **How to load this file and the reference files it links.** Every `references/...` and `apps/...` link below resolves to a raw Markdown file served from this same site (e.g. `https://bioimage.io/skills/bioengine/references/custom_dashboard.md`). **Always fetch them with raw HTTP** — `curl -sSL <url>` for AI agents, or read directly if available locally. **Do not use WebFetch / WebSearch** for these links: those tools return an AI-summarised digest of the file, which strips the code templates, exact CLI commands, and worked examples you actually need. Treat each reference file as canonical source code, not as a webpage.
+>
+> **This applies to `SKILL.md` itself, and if you are reading a digest of it you cannot tell.** The failure has been reported: a summarising fetch of this page returned prose with every code block, CLI invocation and the manifest schema removed, and the full file only appeared on a re-fetch with `curl -sSL`. A sentence 19 lines in cannot warn you about that, because the summariser is free to drop the sentence too. So check rather than trust: **this file is roughly a thousand lines and carries about fifty fenced code blocks, including a literal `bioengine apps deploy` command line.** If what you are holding is far shorter than that, or has no fenced code blocks, it is a digest. Re-fetch `https://bioimage.io/skills/bioengine/SKILL.md` with `curl -sSL` before you follow any instruction in it.
 
 ## Pick your task
 
