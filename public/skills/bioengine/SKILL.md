@@ -499,9 +499,13 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --json --arg name=
 >
 > **Confirm the update behaviourally, not from a status field.** After the update, call the method and look for the thing you changed. `status: RUNNING` is worthless as an update signal, because an app being updated was already `RUNNING` — a "poll until terminal state" loop exits on the first poll, one second in, reporting success on a stale replica. `version_verified: true` has been observed while the live code was two versions old.
 >
+> **Retry that probe through transient RPC errors rather than reading the first exception as a failed update.** Any redeploy that restarts the replica leaves a window in which the app is up in the registry and not yet answering, so a call fired immediately after the update can raise instead of returning stale data. The one measured figure for that window is below, and it was measured on a frontend-only redeploy — treat it as the shape of the window, not as a bound for every path. Loop with a deadline and let the exceptions pass.
+>
 > **`running_version` only tracks the Python replica.** The static frontend and the Ray Serve deployment version-skew independently, by design. Redeploy with a change to `frontend/` only and **`running_version` never advances — polling it waits forever** while the new HTML is already being served. Verify the two separately: `running_version` for Python changes, and `curl` on `static_site_url` diffed against your local file for frontend changes.
 >
 > Be precise about *why*, because the comfortable explanation is wrong and it hides an outage. The replica is **not** kept. A frontend-only redeploy restarts it: replica uptime measured at 70.0 s before and 3.9 s after, with a ~10–15 s window in which the app is unavailable, while the Python files were md5-identical. What does not happen is a *version bump* — the replica comes back at the same version, which is why the number you are polling never moves. So a frontend-only change is not free. If the app is serving users, that redeploy costs them the same interruption a Python change would.
+>
+> Read that the way round it is stated. The restart and its unavailable window are **not** peculiar to the frontend-only path; every redeploy that replaces the replica has one. What is peculiar to the frontend-only path is that the version does not move, which is why the window had to be measured there at all — on a Python redeploy the advancing version hides it. The ~10–15 s figure is the one measurement anyone has taken, on that one path, so quote it as an order of magnitude rather than as a bound you can wait out.
 >
 > **That skew has a user-facing consequence, so deploy defensively.** The static site serves the artifact head while the replica serves whatever version it is actually on. A redeploy that changes both can therefore put a new UI in front of users while the old backend is still answering, and the UI asks for a field the backend cannot return. Two habits make this survivable. Land the Python change and confirm it behaviourally *before* shipping frontend code that depends on it. And render new fields defensively — `o.newMetric != null ? fmt(o.newMetric) : "—"` degrades to a dash instead of `undefined` across the window where the two disagree.
 
@@ -524,7 +528,9 @@ bioengine apps list --json    # look for <workspace>/<your-id>
 
 **And `<workspace>` there is the *worker's* workspace, not your `$HYPHA_WORKSPACE`.** The worker's `upload_app` — the same method named eight lines above, and the one the worker service actually publishes — has two modes: pass `workspace` and `hypha_token` together and the artifact lands in the workspace you named; omit both, which is the default path, and it lands in the worker's own. The two routinely differ (`ws-u-<hash>` for your token against `ws-user-github|<id>` for the worker). So an artifact id you pre-compute from `$HYPHA_WORKSPACE` can address a workspace nothing was ever written to, and you will poll it forever; the `Artifact ID:` line the deploy prints is the one to believe.
 
-The refusal itself names the ceiling and lists every existing version, so recovery is a one-line `manifest.yaml` edit either way. The only thing missing without this check is being told before the failure instead of by it.
+The refusal itself names the ceiling and lists every existing version, **and that is exactly what makes it dangerous to act on without looking.** The obvious reading is "bump `version` past the ceiling", a one-line `manifest.yaml` edit that always clears the error. It is the right fix only when the history is yours. Against someone else's artifact it publishes your bundle as the new head of a lineage you do not own, and everything already pinned to that id now resolves to a newer version that is your code. So read the versions it lists first: if they are not yours, **pick a different id**, do not raise the number.
+
+Nothing offline can warn you about this, and it is worth knowing why rather than waiting for a flag that is not coming. `bioengine apps validate ./my-app/` takes a directory and nothing else — no worker, no server, no token — so it has no workspace to look in and is structurally unable to check an id against one. It is a manifest checker, not a namespace checker. `bioengine apps list --json` is the only thing that answers this question.
 
 To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
 
@@ -814,14 +820,25 @@ async def main():
     # The two can differ (ws-user-github|12345678 against ws-u-...), and it is the
     # worker's workspace that owns the artifact you are about to delete.
     workspace = os.environ["BIOENGINE_WORKER_SERVICE_ID"].split("/")[0]
+    # No "workspace" key here on purpose -- see the note below. The token decides
+    # where you connect; a fully-qualified service id reaches across workspaces.
     s = await connect_to_server({"server_url": os.environ["BIOENGINE_SERVER_URL"],
-                                 "token": os.environ["HYPHA_TOKEN"],
-                                 "workspace": workspace})
+                                 "token": os.environ["HYPHA_TOKEN"]})
     worker = await s.get_service(os.environ["BIOENGINE_WORKER_SERVICE_ID"])
     await worker.delete_app(artifact_id=f"{workspace}/my-test-app")
 asyncio.run(main())
 PY
 ```
+> **Never pass `workspace` to `connect_to_server`. It is the one kwarg that can only hurt you.** Your token already encodes a workspace, and passing any *other* value is rejected at connect time, before any permission is consulted:
+>
+> ```
+> ConnectionAbortedError: Failed to establish connection: Failed to authenticate user:
+> Current workspace encoded in the token (ws-user-github|49943582) does not match the
+> specified workspace (ws-u-2db9981b455e4baf)
+> ```
+>
+> Measured: omitting it always lands you in the token's own workspace, passing a matching value is a no-op, and passing a non-matching one fails as above whether or not that workspace exists. The worker's workspace and yours routinely differ, so the value you correctly computed for the **artifact id** is often the wrong one to **connect** with. You never need it: a fully-qualified service id (`<workspace>/<service>`, as above and as `public/artifact-manager`) reaches across workspaces on its own.
+
 This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead — it takes only versions tagged `…dev…`, and only the artifact's newest, since deleting any earlier one would corrupt everything committed after it.
 
 > **Verifying deletion.** `delete_app` returns `None` on success — don't treat the return value as confirmation either way. Verify with `bioengine apps list` (artifact should be gone) or `bioengine apps status <id>`. After deletion, `apps status <id>` can report the app as `NOT_RUNNING` rather than an outright "not found" error — treat `NOT_RUNNING` or absence from `apps list` as "gone".
@@ -860,8 +877,10 @@ bioengine call '<workspace>/<worker_client_id>-<replica_id>:<app-id>' <method> \
 ```python
 from hypha_rpc import connect_to_server
 
-server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
-                                  "workspace": "bioimage-io"})
+# No "workspace" key: your token encodes one, and passing a different value is a
+# connect-time failure. The ids below are fully qualified, which is what crosses
+# the workspace boundary. See § Cleaning up a test deployment for the measurement.
+server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
 # Resolve the concrete service ID via the worker:
 worker  = await server.get_service("bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker")
