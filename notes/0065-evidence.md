@@ -81,7 +81,9 @@ accepted.
 Build 3, measured on a scratch copy of clean `origin/main` with guard md5
 `429b3138b5c3c9f76c7f870795c7cb58`. Line 690 is rewritten so every phrasing main carries is gone
 from the passage and the only phrasing left is the one main does **not** carry. Counts inside the
-guarded passage (lines 650..745, 96 lines):
+guarded passage. That is lines **651..745, 95 lines**, not 650..745: line 650 is the `### App
+lifecycle` heading itself and the extractor does not emit it. Immaterial to every count below,
+corrected because a reader reproducing this would otherwise diff one line against mine.
 
 | phrasing | clean main | after rewrite |
 |---|---|---|
@@ -91,9 +93,12 @@ guarded passage (lines 650..745, 96 lines):
 | `proxy admits` | 0 | 0 |
 | `proxy admission limit` | 0 | 1 |
 
-(`proxy admits` counts 1 across the whole file on both trees, on line 245, which is outside the
-passage clause 1b reads.) The guard exits **0** on that tree, so it does accept a phrasing it has
-never seen. Paired negative control, same tree: strip the explanation off line 690 altogether and
+(`proxy admits` is outside the passage clause 1b reads, on line 245 of both trees. State that
+carefully, because it is the exact distinction this whole branch turns on: line 245 is **1 line
+carrying 2 occurrences**, not "1" unqualified. `grep -c` reads 1 and `grep -o | wc -l` reads 2,
+and a note that explains the line-vs-occurrence split while writing an unqualified count in its
+own margin would mislead whoever reproduces it. Raised by the reviewer.) The guard exits **0**
+on that tree, so it does accept a phrasing it has never seen. Paired negative control, same tree: strip the explanation off line 690 altogether and
 it exits **1**, failing clause 1 and clause 4, so the pass is not vacuous.
 
 ### Rebased onto PR #134's new head, and re-measured there
@@ -126,6 +131,16 @@ The two fixes compose rather than shadowing each other: `a1` is caught by the ba
 both-sides merge resolution can put the second copy anywhere, including outside the section, which
 is exactly what a passage-scoped count would wave through. Each clause takes the scope its own
 question needs, and the script now says so.
+
+One mechanism in that argument is worth stating outright, because the framing above would lead a
+reader to expect both arms to fire together and on the hardest tree they do not. Duplicate the
+**whole** App lifecycle passage and the file then carries **two `### App lifecycle` headings**. The
+extractor stops at the next heading, so it still emits **95 lines** and `c1b` still reads **1**:
+the in-passage arm sees nothing wrong. Only the file-wide `c3` arm fires, and the guard exits 1 on
+its strength alone. Measured on that tree: 2 headings, 95 lines emitted, `c1b` 1, exit 1. That is
+the asymmetry doing the work on the one tree that most needs it, not an incidental difference, and
+it is why a passage-scoped `c3` would have been a hole rather than a tidier design. Raised by the
+reviewer.
 
 ### The residual Backlog head found on the draft, reproduced 4/4 and closed
 
@@ -183,6 +198,45 @@ alternation is uncountable file-wide, the literal is measurably unique file-wide
 check is that each count carries the scope its own anchor supports and that the script says which.
 Left as written, the first reviewer to check clause 3 against the code would have refused a correct
 fix.
+
+### Both arms now name their own scope, not just their own line
+
+The reviewer's remaining point was about what someone reading *output* rather than source can
+learn. Each arm already named which line it counted, but only one named over **what**: the clause-1b
+arm said "of the App lifecycle passage" while the clause-3 arm said only "on exactly one line". The
+two arms are deliberately scoped differently, and that difference is the argument this row rests on,
+so output that states it once and omits it once teaches the reader the wrong half. A reader would
+carry clause 1b's passage scope straight onto the clause-3 line and read a file-wide result as a
+passage-scoped one.
+
+Both arms now say it, on the pass path and the fail path:
+
+```
+FAIL  clause 4: the application_resources redirect (clause 3's line) appears on 2 lines of
+      public/skills/bioengine/SKILL.md -- a merge resolution duplicated it
+ok    clause 4: the proxy-admission explanation appears on exactly one line of the App lifecycle
+      passage (counted in-passage; main carries it twice file-wide, so a file-wide count of it is
+      not usable)
+```
+
+That is the real `duppassage` output, and it is the tree where the distinction matters: one arm
+reports file-wide and fails, the other reports in-passage and passes, and now the output says which
+is which instead of leaving a reader to assume they agree.
+
+**Strings only, and measured as such.** `git diff` over the script shows no changed line that is not
+a comment or an `echo`, and the thirteen-tree matrix was re-run against the committed script and the
+edited one side by side. Every exit code is identical, including the five green trees:
+
+```
+tree         HEAD   new        tree         HEAD   new
+main           0     0         dup            1     1
+prose          0     0         noproxy        1     1
+r0064          0     0         a1             1     1
+appres         0     0         norename       2     2
+reword         0     0         absent         2     2
+fence          0     0         duppassage     1     1
+oldmain        1     1
+```
 
 ### Honest limits
 

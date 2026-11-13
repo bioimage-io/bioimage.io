@@ -206,14 +206,19 @@ fi
 # scoped to the concurrency paragraph and clause 4 is scoped the same way.
 c1b=$(printf '%s\n' "$PASSAGE" | grep -ciE 'proxy admission limit|ProxyDeployment admits|proxy admit(s|ting)|admits across the whole instance')
 
-# Each arm names WHICH line it counted. "The guarded passage" alone over-claims:
-# a reader who has just read clause 1b takes it to mean the proxy explanation,
-# and in the residual above that reading was false.
+# Each arm names WHICH line it counted, AND over what. "The guarded passage"
+# alone over-claims: a reader who has just read clause 1b takes it to mean the
+# proxy explanation, and in the residual above that reading was false. The two
+# arms are deliberately scoped differently -- c3 file-wide, c1b in-passage --
+# so each message says which, or someone reading output rather than source
+# learns the scope of one count and not the other, and would read the c3 line
+# as the same passage-scoped claim the c1b line makes. Raised by the reviewer
+# (polar-shark-grvryd) on the APPROVE of PR #142.
 if [ "$c3" -gt 1 ]; then
-  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears on $c3 lines -- a merge resolution duplicated it" >&2
+  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears on $c3 lines of $F -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c3" -eq 1 ]; then
-  echo "ok    clause 4: the application_resources redirect appears on exactly one line"
+  echo "ok    clause 4: the application_resources redirect appears on exactly one line of $F (counted file-wide)"
 else
   # c3 = 0, already failed as clause 3. Say so rather than report a count of
   # zero as "not duplicated", which reads as a pass for the wrong reason.
@@ -225,7 +230,7 @@ if [ "$c1b" -gt 1 ]; then
   echo "FAIL  clause 4: the proxy-admission explanation (clause 1b's line) appears on $c1b lines of the App lifecycle passage -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c1b" -eq 1 ]; then
-  echo "ok    clause 4: the proxy-admission explanation appears on exactly one line of the App lifecycle passage"
+  echo "ok    clause 4: the proxy-admission explanation appears on exactly one line of the App lifecycle passage (counted in-passage; main carries it twice file-wide, so a file-wide count of it is not usable)"
 else
   echo "FAIL  clause 4: cannot count the proxy-admission explanation -- clause 1b found none of it in the passage" >&2
   rc=1
