@@ -2,11 +2,26 @@ import { createSessionPoller } from './sessionPoller';
 
 // The defect these exist for: the old loop rescheduled itself only on the
 // success path, so one throwing call ended polling permanently and the card
-// froze on its last value. Measured on a live run, 60 reads of PREPARING for
-// a session the backend had recorded COMPLETED 43 seconds in.
+// froze on its last value. That is measured by reading the old code, and it is
+// what every case below exercises.
+//
+// The 2026-11-11 incident that prompted it (60 samples reading PREPARING for a
+// session the backend had recorded COMPLETED 43 seconds in) is a separate
+// claim, and pinning it on this defect is INFERRED, not measured: nothing
+// recorded whether those samples read the page or the service. See issue #0081
+// and the header of sessionPoller.ts. A green run here does not retire that
+// question.
 //
 // So the central test is "throws once, then succeeds, and the loop recovers
 // on its own". Everything else guards the edges of that.
+//
+// The split is measured, not asserted. Replacing the retry branch in
+// sessionPoller.ts with the pre-fix `stop()` turns exactly the four cases in
+// "the poll loop survives a failure" red and leaves the five in "the poll loop
+// stops when it should" green: 4 failed, 5 passed, 9 total. Re-run that
+// negative control before trusting a green suite here, because every case
+// below passes against a poller that never retries at all if the four retry
+// cases are removed.
 
 type Result = { running: boolean; tag?: string };
 

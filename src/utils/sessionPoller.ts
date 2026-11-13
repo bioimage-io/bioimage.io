@@ -7,11 +7,33 @@
  *     try   { ...; if (hasRunning) setTimeout(tick, 5000); }
  *     catch { setSessionsError(...); }          // and nothing else
  *
- * so one throwing call ended polling permanently. Measured 2026-11-11: a
- * cellpose run the backend recorded COMPLETED 43 seconds in showed PREPARING
- * on the page for the next 19 minutes, across 60 reads. The stored record was
- * never stale (`updated_at` equalled `end_time`, no later write), so the page
- * had simply stopped asking.
+ * so one throwing call ended polling permanently. That defect is MEASURED, by
+ * reading the code above and by the tests beside this file: nine of them, four
+ * of which go red against the old stop-on-error behaviour.
+ *
+ * What prompted the fix was an incident on 2026-11-11, and its attribution is
+ * INFERRED rather than measured, so do not read this file as having closed it.
+ * Measured there: a cellpose run the backend recorded COMPLETED 43 seconds in
+ * read PREPARING for the next 19 minutes across 60 samples, and the stored
+ * record was never stale (`updated_at` equalled `end_time`, no later write).
+ * Not measured: whether those 60 samples read the rendered card or the
+ * service. Only the first reading is this defect. The second would mean the
+ * service returned PREPARING while its own record said COMPLETED, which is a
+ * backend matter and would survive this fix untouched.
+ *
+ * The arithmetic is the part worth keeping, because it says the samples were
+ * not this loop's output either way. The window 17:02:13Z to 17:26:53Z is
+ * 1480 s, and 60 samples across it are about 25 s apart (24.7 s per sample,
+ * 25.1 s per interval). The old loop's only cadence was 5 s, which would have
+ * put roughly 296 polls in that window. So whatever took those 60 samples was
+ * something other than the page's poll loop, and nothing that survived the
+ * incident says what. See issue #0081.
+ *
+ * There is also a third mechanism neither reading covers: per
+ * `trainingServicePin.ts`, a training session's store lives on one replica's
+ * local disk, so a call landing on another replica legitimately reports a
+ * different view. That is why the pin exists. Nothing recorded whether the
+ * pin held for the whole of this incident, so it is not ruled out either.
  *
  * That failure is worse than it sounds because it is SILENT in the direction
  * that matters: the card keeps rendering its last value, so a finished run
