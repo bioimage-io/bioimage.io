@@ -1,6 +1,7 @@
 import React from 'react';
 import { render, screen, waitFor } from '@testing-library/react';
 import AppDeploymentsStatusDialog from './AppDeploymentsStatusDialog';
+import liveAppStatus from './__fixtures__/live-0_16_96-app-status.json';
 
 // myco #0063: get_app_status gained a PER-DEPLOYMENT max_ongoing_requests in
 // bioengine 0.16.96 (PR #298 / issue #0323). It is a different limit from the
@@ -96,6 +97,38 @@ describe('per-deployment max_ongoing_requests', () => {
     // wording, and null must not borrow 0's.
     expect(await screen.findByText('0 concurrent')).toBeInTheDocument();
     expect(screen.getByText('Not reported')).toBeInTheDocument();
+  });
+
+  // The cases above are hand-built. This one is the payload a real 0.16.96 worker
+  // returned, captured by notes/capture-0063-payload.py and committed under
+  // __fixtures__ with its service id and version. It is the difference between
+  // "the component handles the shape we think the worker sends" and "the component
+  // handles the shape the worker sends".
+  it('renders the live 0.16.96 payload, with every cap distinct from the instance-wide limit', async () => {
+    const { deployments, max_ongoing_requests: instanceWide } = liveAppStatus as any;
+
+    // The fixture only discriminates if the per-deployment numbers differ from the
+    // top-level one. Assert that here rather than trusting it, so a future re-capture
+    // against a worker whose numbers happen to coincide fails loudly instead of
+    // quietly becoming a test that passes on the bug.
+    expect(instanceWide).toBe(10);
+    const caps = Object.values(deployments).map((d: any) => d.max_ongoing_requests);
+    expect(caps).toEqual(expect.arrayContaining([20, 5, 5, 5, null]));
+    caps.filter((c) => c !== null).forEach((c) => expect(c).not.toBe(instanceWide));
+
+    const fetchApplicationStatus = openWith(deployments);
+    await waitFor(() => expect(fetchApplicationStatus).toHaveBeenCalled());
+
+    // EntryDeployment declared 20, the three runtimes declared 5 each.
+    expect(await screen.findByText('20 concurrent')).toBeInTheDocument();
+    expect(screen.getAllByText('5 concurrent')).toHaveLength(3);
+    // ProxyDeployment has no decorator, so the worker reports null for it.
+    expect(screen.getByText('Not reported')).toBeInTheDocument();
+    // All five deployments carry the key, so all five render the heading.
+    expect(screen.getAllByText(LIMIT_HEADING)).toHaveLength(5);
+    // The instance-wide 10 must not leak into any deployment row. A build that
+    // echoed the top-level number would show it five times.
+    expect(screen.queryByText('10 concurrent')).not.toBeInTheDocument();
   });
 
   it('does not coerce a bool into a cap', async () => {
