@@ -136,7 +136,9 @@ class MyDeployment:
 
 > **Heavy DL dependencies take a while.** For TensorFlow/PyTorch-class `pip` pins plus a first-use pretrained-weight download inside `async_init`, expect a multi-minute (roughly 5–15 min) `DEPLOYING` window. That's normal, not a hang — don't start unnecessary retries or assume failure; wait for `HEALTHY` or `DEPLOY_FAILED`.
 >
-> **That range is deep-learning-specific; size your deadline to the pins you actually wrote.** A classical-CV set (scipy / scikit-image / tifffile / imagecodecs / Pillow) was measured reaching `HEALTHY` in roughly 25 seconds. A 15-minute deadline carried over to that app gives you no way to tell a slow install from a genuinely stuck deploy, which is the one thing the deadline exists to do.
+> **That range is deep-learning-specific; size your deadline to the pins you actually wrote.** A classical-CV set (numpy / scipy / scikit-image / tifffile / imagecodecs / Pillow) reaches `HEALTHY` in **tens of seconds**: six independent first deploys of such an app were measured at under 20 s, 24 s, ~25 s, 30 s, 30 s and under 90 s. A 15-minute deadline carried over to that app gives you no way to tell a slow install from a genuinely stuck deploy, which is the one thing the deadline exists to do.
+>
+> Two corollaries of a window that short. **Poll before you sleep** — an agent that waits a minute "to be safe" before its first status call spends most of the deploy asleep, and several of those runs were green on the very first 20 s poll. And **a warm `runtime_env` cache is doing some of that work**, so the first deploy of an unusual pin set on a cold worker can sit at the slower end without anything being wrong.
 
 ---
 
