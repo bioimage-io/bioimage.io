@@ -399,11 +399,16 @@ If you don't know the worker's exact service ID at publish time:
 
 ```python
 from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io",
-                             "token": TOKEN, "workspace": WORKSPACE})
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+# No "workspace" key on connect_to_server: it is checked at connect time and aborts the
+# connection unless it equals the workspace TOKEN already encodes. WORKSPACE belongs on
+# list_services, which is what lets you look at a workspace other than your own.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": TOKEN})
+workers = [sv["id"] for sv in
+           await s.list_services({"type": "bioengine-worker", "workspace": WORKSPACE})]
 print(workers)  # → [".../bioengine-worker-<hash>:bioengine-worker"]
 ```
+
+> **Why no `workspace` on the connection.** `connect_to_server({..., "workspace": X})` fails at **connect** time, before any permission is consulted, unless `X` is the workspace your token encodes: `ConnectionAbortedError`, *"Current workspace encoded in the token (…) does not match the specified workspace (…)"*. Omitting it lands you in your own workspace every time. What crosses a workspace boundary is the `workspace` filter on `list_services`, or a fully-qualified id passed to `get_service`, both of which work from an ordinary connection.
 
 For Docker / SLURM-mode workers the client_id is regenerated on every container restart, so the dashboard would break after a worker restart. Two ways to make it stable:
 

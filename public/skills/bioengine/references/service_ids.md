@@ -28,10 +28,13 @@ BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are
 **Discovery recipe** (one ready-to-paste block):
 ```python
 from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
+# No "workspace" key here on purpose -- see the note below. Your token decides where you
+# connect; the workspace you want to LOOK AT goes on list_services instead.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
-# 1. List workers in the workspace:
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+# 1. List workers in the workspace you care about, which need not be your own:
+workers = [sv["id"] for sv in
+           await s.list_services({"type": "bioengine-worker", "workspace": "bioimage-io"})]
 #   → ["bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker", "...-denbi-...", ...]
 
 # 2. For a chosen worker, ask which apps it has running AND get their concrete service IDs:
@@ -52,6 +55,22 @@ app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<
 # (see apps/model-runner/model-runner.md § Async job API).
 request_id = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
+
+> **Never pass `workspace` to `connect_to_server`.** It is checked at **connect** time, before any permission is consulted, and the connection is aborted outright unless the value equals the workspace your token already encodes:
+>
+> ```
+> no workspace kwarg                        OK, landed in <your own workspace>
+> workspace = <your own workspace>          OK            ← the only value that works
+> workspace = bioimage-io                   FAIL  ConnectionAbortedError
+> workspace = ws-definitely-not-a-real-one  FAIL  ConnectionAbortedError
+> ```
+>
+> ```
+> Failed to authenticate user: Current workspace encoded in the token
+> (<yours>) does not match the specified workspace (<the one you passed>)
+> ```
+>
+> So a snippet that hardcodes someone else's workspace cannot run for anyone but its author. Omit the kwarg and you always land in your token's own workspace. **Reaching another workspace is a separate thing and still works**: pass `"workspace"` to `list_services`, or use a fully-qualified id such as `bioimage-io/model-runner` with `get_service` or the artifact manager. Both cross the boundary from an ordinary connection, subject to the usual permissions.
 
 > **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).
 

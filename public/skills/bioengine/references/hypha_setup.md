@@ -82,6 +82,8 @@ The caller becomes an owner by default. Once created, the workspace shows up in 
 
 Once you have an admin token for a workspace, mint shorter-lived scoped tokens via `server.generate_token(...)`. The BioEngine worker itself does this internally — replicating the same scheme in your own bootstrap means tokens look uniform across the cluster.
 
+> **`generate_token`'s `workspace` is not `connect_to_server`'s, and the two behave nothing alike.** On `connect_to_server` the key is a connect-time identity check that aborts unless it equals the workspace your token encodes, so it can never be right for a reader other than the snippet's author. On `generate_token` it is an ordinary permission check against the workspace you name, so you can mint for any workspace you have rights in **while connected to a different one** — which is exactly the shape below, where you created `my-lab` a moment ago and are its owner. Measured: minting for two other owned workspaces from a connection in a third succeeded, and minting for a workspace with no rights failed with `PermissionError: You do not have any permission for workspace: …`, not with a workspace-mismatch error. Keep the `workspace` key here. Do not carry it over to a `connect_to_server` call.
+
 **Worker bootstrap token** — admin permission, 30-day default. This is what you pass to the worker process as `HYPHA_TOKEN` env var:
 
 ```python

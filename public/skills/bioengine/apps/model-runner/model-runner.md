@@ -50,11 +50,14 @@ Find the concrete ID via the worker:
 
 ```python
 from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
-                             "workspace": "bioimage-io"})
+# No "workspace" key here on purpose: it is checked at connect time and aborts the
+# connection unless it equals the workspace your own token encodes. The workspace you
+# want to look AT goes on list_services. See references/service_ids.md.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
 # 1. Pick a worker (KTH and deNBI both run model-runner today):
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+workers = [sv["id"] for sv in
+           await s.list_services({"type": "bioengine-worker", "workspace": "bioimage-io"})]
 
 # 2. Get the concrete app service ID from the worker:
 worker = await s.get_service(workers[0])
@@ -250,9 +253,10 @@ from hypha_rpc import connect_to_server
 import asyncio, time, httpx, numpy as np, io
 
 # 1. Resolve the concrete model-runner service ID (see "Service ID — discover before calling" above)
-s = await connect_to_server({"server_url": "https://hypha.aicell.io",
-                             "token": token, "workspace": "bioimage-io"})
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+#    No "workspace" on connect_to_server: it aborts the connection unless it matches your token.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
+workers = [sv["id"] for sv in
+           await s.list_services({"type": "bioengine-worker", "workspace": "bioimage-io"})]
 worker = await s.get_service(workers[0])
 mr_sid = (await worker.get_app_status(None))["model-runner"]["service_ids"]["websocket_service_id"]
 mr = await s.get_service(mr_sid)
@@ -1095,9 +1099,12 @@ If `bioimage-io/model-runner` exists in the artifact manager and you just want t
 ```python
 from hypha_rpc import connect_to_server
 
+# No "workspace" key: `admin_token` already decides which workspace you land in, and
+# passing one that differs from it aborts the connection. `my_workspace` is still needed
+# below, to build the worker's service id.
 s = await connect_to_server({"server_url": "https://hypha.aicell.io",
-                             "token": admin_token,
-                             "workspace": my_workspace})
+                             "token": admin_token})
+my_workspace = s.config.workspace             # whatever admin_token encodes
 worker = await s.get_service(f"{my_workspace}/bioengine-worker")
 
 result = await worker.deploy_app(
