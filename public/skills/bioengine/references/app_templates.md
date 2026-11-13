@@ -7,6 +7,7 @@
   - [Getting the frontend URL](#getting-the-frontend-url)
   - [Sending an uploaded image to the backend](#sending-an-uploaded-image-to-the-backend)
   - [Capping what you send back](#capping-what-you-send-back)
+  - [Don't relabel a watershed result through its binary mask](#dont-relabel-a-watershed-result-through-its-binary-mask)
   - [Shipping a multi-file frontend](#shipping-a-multi-file-frontend)
   - [Testing your frontend](#testing-your-frontend)
   - [Choosing your theme (both are shipped)](#choosing-your-theme-both-are-shipped)
@@ -82,6 +83,26 @@ class MyDeployment:
         assert arr.shape == (3, 3)
         result = await self.ping()
         assert result["status"] == "ok"
+        # Safe only because `ping` declares no Field(...)-defaulted parameter.
+        # The moment one does, call the undecorated helper instead -- see below.
+
+    def _check(self) -> None:
+        """Undecorated. Both the hook and the public method delegate here."""
+        if self.greeting is None:
+            raise RuntimeError("greeting was never set")
+
+    @bioengine.health_check
+    async def healthy(self) -> None:
+        # Raise to signal unhealthy. THE RETURN VALUE IS DISCARDED: the worker
+        # awaits this hook and ignores whatever comes back, so returning
+        # {"status": "degraded"} marks the replica healthy forever.
+        self._check()
+
+    @bioengine.method
+    async def health(self) -> Dict[str, str]:
+        """A caller-visible health report. Not the hook, and not a substitute."""
+        self._check()
+        return {"status": "ok"}
 
     @bioengine.method
     async def ping(self) -> Dict[str, Union[str, float]]:
@@ -104,7 +125,9 @@ class MyDeployment:
         return {"result": float(np.sum(arr)), "count": len(values)}
 ```
 
-*(Validated: this exact template deploys green on a live worker — `ping` and `process` both call successfully.)*
+*(Validated: this template deploys green on a live worker — `ping` and `process` both call successfully. That run predates the `health_check` / `health` pair added above, so those two lines are not covered by it.)*
+
+> **The health check is the one hook whose return value is thrown away.** The worker `await`s it and discards the result (`bioengine/_app/mixin.py`), so the only way to report unhealthy is to **raise**; the decorator's own docstring says "Raise to signal unhealthy." An app that returns `{"status": "degraded"}` is marked healthy for as long as it runs. If you also want callers to be able to ask, expose a separate `@bioengine.method` and have **both delegate to one undecorated helper**. Do not have one call the other: a `@bioengine.method` invoked in-process receives a raw `FieldInfo` for every `Field(...)`-defaulted parameter you don't pass, which is the most common way that rule bites.
 
 > **Heavy DL dependencies take a while.** For TensorFlow/PyTorch-class `pip` pins plus a first-use pretrained-weight download inside `async_init`, expect a multi-minute (roughly 5–15 min) `DEPLOYING` window. That's normal, not a hang — don't start unnecessary retries or assume failure; wait for `HEALTHY` or `DEPLOY_FAILED`.
 
@@ -2883,6 +2906,26 @@ payload["overlay_scale"] = scale        # 1.0 when untouched
 ```
 
 Use nearest-neighbour (`order=0`, no anti-aliasing) for label and mask images — interpolating between label IDs invents objects that do not exist. Full-resolution masks belong in a downloadable artifact, not in the RPC response.
+
+### Don't relabel a watershed result through its binary mask
+
+A per-object table like the one above is only as good as the object count feeding it, and there is one line that silently halves it. `segmentation.watershed(..., mask=binary)` separates touching objects **by label value and inserts no background line between them**. So the tidy-up that looks like harmless renumbering:
+
+```python
+labels = segmentation.watershed(-distance, markers, mask=binary)
+labels = measure.label(labels > 0)      # ← re-fuses every split, silently
+```
+
+throws the split away: `labels > 0` is the original single blob again, and connected-component labelling returns one object where the watershed found two. Measured on two overlapping discs (`scikit-image` 0.21.0):
+
+```
+peaks_found          = 2
+watershed_objects    = 2
+after measure.label  = 1          ← the split is gone
+after relabel_sequential = 2      ← preserved
+```
+
+Nothing raises. The symptom is a plausible object count that happens to be wrong, which is the hardest kind to notice in a table a user is reading for the first time. If you need labels numbered `1..N` with no gaps, use `segmentation.relabel_sequential(labels)`, which renumbers without touching the partition. If you do not need it, skip the step: `regionprops` does not care whether the label values are contiguous.
 
 ### Shipping a multi-file frontend
 

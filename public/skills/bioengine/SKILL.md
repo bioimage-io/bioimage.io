@@ -311,12 +311,14 @@ class MyDeployment:
   Then the loop you could not have before: `python -c "import app_core; print(app_core.process([1,2,3], 1.0))"`, plus the failure paths, before spending a deploy round-trip on a logic bug.
   Worth getting right locally: unhandled, this surfaces as a `DEPLOY_FAILED` on a live worker with the real cause buried in `deployments[<name>].message`.
 
-  **Then import the decorated module too, and read *which* error you get.** "A `[cli]` venv cannot import an app module" is true as a statement about success and misleading as advice, because `@bioengine.app` validates its own kwargs *before* it reaches `from ray import serve`. So `python -c "import app"` is a working decorator-argument lint, and the two outcomes mean opposite things:
+  **Then import the decorated module too, and read *which* error you get.** "A `[cli]` venv cannot import an app module" is true as a statement about success and misleading as advice, because `@bioengine.app` validates its own kwargs *before* it reaches `from ray import serve`. So `python -c "import app"` is a working decorator-argument lint, and the outcomes mean opposite things:
   ```
   ModuleNotFoundError: No module named 'ray'        # decorator args are fine — this is as far as a [cli] venv goes
   TypeError: app() got an unexpected keyword argument 'num_gpus'   # real bug, found in 0.2 s instead of a deploy round-trip
   ```
-  This is not hypothetical: it is what caught an app still passing the pre-0.15.0 `num_gpus`. It costs one command and it is the only offline check of the BioEngine surface you have. Reaching `No module named 'ray'` is the pass condition, so write it that way in a script rather than treating any traceback as failure.
+  This is not hypothetical: it is what caught an app still passing the pre-0.15.0 `num_gpus`. It costs one command and it is the only offline check of the BioEngine surface you have.
+
+  **There are three outcomes, not two, and a script written for two gets the best one backwards.** In a worker-grade environment `ray` is installed, so the import simply **succeeds** and prints nothing. That is a stronger pass than the `ModuleNotFoundError`, and a check written literally as "pass if the output says `No module named 'ray'`" reports it as a failure. Write the condition as: **pass = a clean exit, or an exception naming `ray`. Fail = any other exception.**
 - **Return only builtin types across the Hypha boundary.** The familiar form of this rule is "call `.tolist()` on numpy arrays", and that under-generalises in a way that costs a deploy round-trip. The client-side proxy reconstructs whatever you returned, so **any object whose class is defined in a third-party package fails on the client**, with an error naming a module the client was never supposed to need:
   ```
   ModuleNotFoundError: No module named 'torch'
@@ -327,7 +329,9 @@ class MyDeployment:
 
   You can catch this before deploying, and `json.dumps` locally is **not** the test — it fails on numpy but happily serialises a `str` subclass. Assert on the exact types instead:
   ```python
-  # test_returns.py — runs in a [cli] venv against your undecorated core module
+  # test_returns.py — runs in a [cli] venv against your UNDECORATED core module.
+  # NEVER point this version at an RPC result: it raises on every healthy
+  # response. See the client-side variant below.
   def assert_builtin(o, path="result"):
       if type(o) in (str, int, float, bool, type(None)):
           return
@@ -338,6 +342,20 @@ class MyDeployment:
       raise TypeError(f"{path} is {type(o).__module__}.{type(o).__name__}, not RPC-safe")
   ```
   `type(o) is str` rather than `isinstance` is the whole point: it is what rejects `TorchVersion` and `np.str_`.
+
+  **Pointed at an RPC result instead, that same function raises on every healthy response, and the asymmetry is the reason.** `hypha-rpc` rebuilds a returned dict as an `ObjectProxy`, whose class chain is `ObjectProxy` → `Munch` → `dict`: `isinstance(o, dict)` is `True` but `type(o) is dict` is `False`. So **check containers with `isinstance`, leaves with `type(...) is`** — and use the exact-type check on leaves, because that is the case the rule exists for, where a `str` subclass must be rejected and `isinstance` would wave it through:
+  ```python
+  # test_client.py — runs against what the client actually received
+  def assert_builtin_client(o, path="result"):
+      if type(o) in (str, int, float, bool, type(None)):   # leaves stay EXACT
+          return
+      if isinstance(o, (list, tuple)):                     # containers by isinstance
+          return [assert_builtin_client(v, f"{path}[{i}]") for i, v in enumerate(o)]
+      if isinstance(o, dict):                              # ObjectProxy lands here
+          return [assert_builtin_client(v, f"{path}[{k!r}]") for k, v in o.items()]
+      raise TypeError(f"{path} is {type(o).__module__}.{type(o).__name__}, not RPC-safe")
+  ```
+  Swapping the two round is a silent failure in both directions: exact container checks false-positive on every call, and `isinstance` on a leaf false-negatives on precisely the `str`-subclass case you are testing for.
 - **Don't pin `pydantic` yourself unless you have to.** BioEngine auto-injects the driver's pydantic into your `runtime_env.pip` so the deployment unpickles cleanly on the Ray Serve replica. If you *do* pin pydantic explicitly, it must resolve to the same `pydantic-core` as the driver — otherwise the pre-flight check refuses to deploy. See [Pydantic compatibility](references/manifest_reference.md#pydantic-compatibility-important).
 - **If your app imports `torch` (>=2.5), set `USER`/`LOGNAME` defaults at the very top of the module.** `torch._dynamo` calls `getpass.getuser()` at import time, which raises `KeyError: getpwuid(): uid not found` when the actor runs as a host uid that has no `/etc/passwd` entry (the default for slim Docker images launched with `--user $(id -u):$(id -g)`). `setdefault` preserves the real identity wherever it's already set (HPC apptainer, K8s pods with a populated passwd) and only injects a placeholder when nothing else exists:
   ```python
@@ -477,6 +495,14 @@ A committed artifact version is **immutable** and its content is exactly what a 
 
 - **Never delete-and-recreate a committed version to change its code, and never deploy a staged (uncommitted) version** — deploy pinned, committed versions only.
 - Upload only through the worker (`upload_app` / `scripts/upload_app.py`): it uploads the **whole folder** and rejects any `manifest.yaml` version that isn't strictly greater than every existing one (PEP 440).
+
+**That version floor belongs to the workspace, not to you, so a brand-new app id can already have one.** The id namespace is the workspace: someone else may have used `my-nuclei-app` there, deleted the deployment and left the artifact's version history behind. Nothing is running, `bioengine apps status` says "No running applications", and the first upload still refuses. Check before the first deploy of a *new* id rather than after:
+
+```bash
+bioengine apps list --json    # look for <workspace>/<your-id>
+```
+
+The refusal itself names the ceiling and lists every existing version, so recovery is a one-line `manifest.yaml` edit either way. The only thing missing without this check is being told before the failure instead of by it.
 
 To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
 
@@ -762,11 +788,15 @@ python - <<'PY'
 import asyncio, os
 from hypha_rpc import connect_to_server
 async def main():
+    # Derive the workspace from the worker service id, NOT from HYPHA_WORKSPACE.
+    # The two can differ (ws-user-github|12345678 against ws-u-...), and it is the
+    # worker's workspace that owns the artifact you are about to delete.
+    workspace = os.environ["BIOENGINE_WORKER_SERVICE_ID"].split("/")[0]
     s = await connect_to_server({"server_url": os.environ["BIOENGINE_SERVER_URL"],
                                  "token": os.environ["HYPHA_TOKEN"],
-                                 "workspace": os.environ["HYPHA_WORKSPACE"]})
+                                 "workspace": workspace})
     worker = await s.get_service(os.environ["BIOENGINE_WORKER_SERVICE_ID"])
-    await worker.delete_app(artifact_id=f"{os.environ['HYPHA_WORKSPACE']}/my-test-app")
+    await worker.delete_app(artifact_id=f"{workspace}/my-test-app")
 asyncio.run(main())
 PY
 ```
