@@ -63,15 +63,38 @@ ok    clause 3: memory / gpu_enabled keep their application_resources redirect
 FAIL  clause 4: the guarded passage appears 2 times -- a merge resolution duplicated it
 ```
 
-### One control of mine was inert and I rebuilt it
+### The `reword` control took three builds, and only the third tests what it claims
 
-The `reword` control's first build reported *"rephrased 0 occurrences"*: I had replaced the literal
-`proxy admission limit`, which is **not** the phrasing `origin/main` uses. The tree was therefore
-byte-identical to `main` and its exit 0 proved nothing beyond what `main` already proved. Rebuilt to
-replace the wording main actually carries (`ProxyDeployment admits` → `proxy admission limit
-applies, since the proxy admits`), verified by counting both forms before and after (1→0 and 0→1),
-it still exits 0. Only then does it support the claim that the guard accepts an alternative
-phrasing rather than one literal.
+Build 1 reported *"rephrased 0 occurrences"*: I had replaced the literal `proxy admission limit`,
+which is **not** the phrasing `origin/main` uses. The tree was therefore byte-identical to `main`
+and its exit 0 proved nothing beyond what `main` already proved.
+
+Build 2 replaced the wording main does carry (`ProxyDeployment admits`) and exited 0. The reviewer
+was right that this is still not a test of the claim. Clause 1b is an alternation of five
+phrasings, and the single line inside the guarded passage that matches it (line 690) carries
+**three of them at once**: `ProxyDeployment admits across the whole instance` matches
+`ProxyDeployment admits` *and* `admits across the whole instance`, and `a proxy admitting the
+default 10` matches `proxy admit(s|ting)`. Replacing one branch leaves the others matching on the
+same line, so exit 0 showed only that the alternation still fired, not that a new phrasing is
+accepted.
+
+Build 3, measured on a scratch copy of clean `origin/main` with guard md5
+`429b3138b5c3c9f76c7f870795c7cb58`. Line 690 is rewritten so every phrasing main carries is gone
+from the passage and the only phrasing left is the one main does **not** carry. Counts inside the
+guarded passage (lines 650..745, 96 lines):
+
+| phrasing | clean main | after rewrite |
+|---|---|---|
+| `ProxyDeployment admits` | 1 | 0 |
+| `proxy admitting` | 1 | 0 |
+| `admits across the whole instance` | 1 | 0 |
+| `proxy admits` | 0 | 0 |
+| `proxy admission limit` | 0 | 1 |
+
+(`proxy admits` counts 1 across the whole file on both trees, on line 245, which is outside the
+passage clause 1b reads.) The guard exits **0** on that tree, so it does accept a phrasing it has
+never seen. Paired negative control, same tree: strip the explanation off line 690 altogether and
+it exits **1**, failing clause 1 and clause 4, so the pass is not vacuous.
 
 ### Rebased onto PR #134's new head, and re-measured there
 
@@ -170,8 +193,23 @@ fix.
   carries it twice. Declared in the script rather than left to be discovered.
 - A general whole-file duplicate-line detector was tried and **rejected on measurement**: clean
   `origin/main` already repeats three long lines legitimately (code snippets), so it false-fails
-  correct text. The longest-consecutive-duplicate-run variant separated clean from duplicated by
-  only 3 against 8, a margin too thin to put a threshold in.
+  correct text. A longest-consecutive-duplicate-run variant was measured next, defined as the
+  longest run of consecutive non-blank lines each of which occurs more than once in the file, with
+  blank lines resetting the run. An earlier draft of this note reported it separating clean from
+  duplicated by "3 against 8". **That number does not reproduce and is withdrawn.** Re-measured on
+  `origin/main`, `8b2c3ab`, `645ef16` and the working tree, all four agree:
+
+  | tree | longest run |
+  |---|---|
+  | clean | 4 |
+  | line 688 duplicated | 4 |
+  | line 690 duplicated | 4 |
+  | whole App lifecycle passage duplicated | 41 |
+
+  The rejection stands, and for a stronger reason than a thin margin: on the single-line
+  duplications the longest run is **identical to clean**, so no threshold on it can catch the case
+  this guard exists to catch. Only the whole-passage duplication separates, and clause 4 already
+  counts that directly.
 - This does not touch PR #134's head `83a1e7f`, which the reviewer is measuring right now. The fix
   sits on a branch stacked on it.
 
