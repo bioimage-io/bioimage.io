@@ -337,7 +337,10 @@ function buildContributions(): ContributionRecord[] {
       // the time they finish, and that staleness is a real property of async
       // training rather than a defect to smooth over.
       base_version: versionAt(startDay),
-      bytes_out: CHECKPOINT_BYTES,
+      // The checkpoint's size on disk. NOT a transport figure, despite being
+      // the same constant the transport blocks below multiply up: a checkpoint
+      // that is distributed once weighs the same as one distributed ten times.
+      n_bytes: CHECKPOINT_BYTES,
       n_train_images: seed.nTrainImages,
       dataset_name: seed.dataset.name,
       declared: ['n_train_images', 'dataset_name'],

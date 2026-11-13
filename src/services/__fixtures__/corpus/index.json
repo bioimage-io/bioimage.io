@@ -33,5 +33,5 @@
       "title": "Community Cellpose-SAM fine-tuning"
     }
   ],
-  "schema_version": "0.14.0-draft"
+  "schema_version": "0.15.0-draft"
 }

@@ -552,8 +552,46 @@
  * every consumer one switch today and cost a breaking re-cut, plus a re-pin on
  * every consumer of the fixture corpus, the first time a second process appears.
  * The union was the expensive half of 0.8.0-draft and it is already paid for.
+ *
+ * 0.15.0-draft: MINOR. `ContributionRecord.bytes_out` becomes `n_bytes`, and the
+ * field's meaning is corrected along with its name.
+ *
+ * Two separate things were wrong. The NAME collided: `bytes_out` was also the
+ * name of an unrelated quantity one level up, in `TransportCounts`, so the same
+ * word in one payload meant bytes transferred at the merge level and a stored
+ * size at the contribution level. A reader had to know which nesting level a
+ * figure came from to know which quantity it held. The MEANING was wrong too:
+ * this field was documented here as "bytes this contribution put on the
+ * network, measured off the transport log", and the backend has only ever
+ * populated it from the contribution's stored byte count. It is a size on disk,
+ * not a transport figure, and it was never read off the transport log.
+ *
+ * `n_bytes` is the name the backend's own code reasons about, which is the
+ * reason for renaming towards it rather than away. `soup_admission` is the OOM
+ * guard that sizes the one soup member that must be resident, it FAILS OPEN on
+ * a contribution whose byte count is missing, and it says so in its own
+ * docstring. So the diagnostic question an operator asks when that guard
+ * silently does nothing is exactly "did the pool record `n_bytes`?" — and while
+ * the published view answered under a different word, searching it for the
+ * guard's own field name returned zero rows whether the bytes were recorded or
+ * not. A fails-open guard plus a field greppable only by the wrong name
+ * compound into a check that cannot be audited from outside. Reported as a
+ * near-miss during the soup r2 campaign, where the bytes HAD been recorded.
+ *
+ * `TransportCounts.bytes_out` is deliberately NOT renamed. It keeps the name
+ * because at the merge level the quantity really is bytes out on the network,
+ * which is what the name says. Only the collision is removed, by moving the
+ * field that was misnamed.
+ *
+ * This is the page half of a two-sided change. The backend half is
+ * `SCHEMA_VERSION` in `apps/model-finetune/pool.py`, and the rung is 0.15
+ * rather than 0.14 because both repositories independently reserved 0.14 for
+ * different contract changes. `assertSchema` compares `major.minor` only, so
+ * two different contracts sharing 0.14 would have made the version handshake
+ * report agreement while the two sides disagreed about this very field, which
+ * is precisely the drift the envelope exists to catch.
  */
-export const CAMPAIGN_SCHEMA_VERSION = '0.14.0-draft';
+export const CAMPAIGN_SCHEMA_VERSION = '0.15.0-draft';
 
 /**
  * What a per-unit map is keyed by.
@@ -1049,12 +1087,23 @@ export interface ContributionRecord {
    */
   base_version: string | null;
   /**
-   * Bytes this contribution put on the network, MEASURED off the transport log.
-   * Null when the log does not cover it, and NEVER estimated from a parameter
-   * count or copied from `PayloadDescriptor.bytes_per_contribution`, which is a
+   * This contribution's checkpoint SIZE ON DISK, as the pool recorded it. Null
+   * when the pool did not record it, and NEVER estimated from a parameter count
+   * or copied from `PayloadDescriptor.bytes_per_contribution`, which is a
    * campaign-level typical figure and not this contribution's.
+   *
+   * A stored size, NOT a transport figure. Through 0.14.0-draft this field was
+   * called `bytes_out` and documented as bytes put on the network measured off
+   * the transport log, which was wrong in both respects: the backend has only
+   * ever filled it from the stored byte count, and `bytes_out` is separately the
+   * name of a real transport figure in `TransportCounts` one level up. Do not
+   * add this to, or compare it against, anything in `TransportCounts`. They are
+   * different quantities and summing them double-counts nothing meaningful.
+   *
+   * Named for the backend's own field so the OOM guard that consumes it is
+   * auditable from outside. See the 0.15.0-draft entry in the file header.
    */
-  bytes_out: number | null;
+  n_bytes: number | null;
   /**
    * The contributor's training-set size for this run. Opt-in, and governed by
    * the SAME flag as every other appearance of a training-set size, because it

@@ -54,7 +54,6 @@
     "contributions": [
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-0",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -64,12 +63,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-06-15T18:00:00.000Z"
       },
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "rivermouth-0",
         "contributor_id": "rivermouth",
         "dataset_name": "rivermouth-cyto",
@@ -79,12 +78,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-0",
+        "n_bytes": 1300000000,
         "n_train_images": 28400,
         "received_at": "2026-06-15T22:00:00.000Z"
       },
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "kestrel-0",
         "contributor_id": "kestrel",
         "dataset_name": "kestrel-organoids",
@@ -94,12 +93,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 19800,
         "received_at": "2026-06-18T16:00:00.000Z"
       },
       {
         "base_version": "v1",
-        "bytes_out": 1300000000,
         "contribution_id": "saltmarsh-0",
         "contributor_id": "saltmarsh",
         "dataset_name": "saltmarsh-plankton",
@@ -109,12 +108,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-1",
+        "n_bytes": 1300000000,
         "n_train_images": 12600,
         "received_at": "2026-06-27T20:00:00.000Z"
       },
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-1",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -124,12 +123,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-2",
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-07-02T18:00:00.000Z"
       },
       {
         "base_version": "v2",
-        "bytes_out": 1300000000,
         "contribution_id": "highvale-0",
         "contributor_id": "highvale",
         "dataset_name": "highvale-tissue",
@@ -139,12 +138,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-2",
+        "n_bytes": 1300000000,
         "n_train_images": 22500,
         "received_at": "2026-07-04T13:00:00.000Z"
       },
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "rivermouth-1",
         "contributor_id": "rivermouth",
         "dataset_name": "rivermouth-cyto",
@@ -154,12 +153,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-3",
+        "n_bytes": 1300000000,
         "n_train_images": 28400,
         "received_at": "2026-07-06T22:00:00.000Z"
       },
       {
         "base_version": null,
-        "bytes_out": 1300000000,
         "contribution_id": "kestrel-1",
         "contributor_id": "kestrel",
         "dataset_name": "kestrel-organoids",
@@ -169,12 +168,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-4",
+        "n_bytes": 1300000000,
         "n_train_images": 19800,
         "received_at": "2026-07-14T16:00:00.000Z"
       },
       {
         "base_version": "v1",
-        "bytes_out": 1300000000,
         "contribution_id": "saltmarsh-1",
         "contributor_id": "saltmarsh",
         "dataset_name": "saltmarsh-plankton",
@@ -184,12 +183,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-4",
+        "n_bytes": 1300000000,
         "n_train_images": 12600,
         "received_at": "2026-07-16T20:00:00.000Z"
       },
       {
         "base_version": "v4",
-        "bytes_out": 1300000000,
         "contribution_id": "thornbury-0",
         "contributor_id": "thornbury",
         "dataset_name": "thornbury-roots",
@@ -199,12 +198,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-4",
+        "n_bytes": 1300000000,
         "n_train_images": 31700,
         "received_at": "2026-07-18T17:00:00.000Z"
       },
       {
         "base_version": "v2",
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-2",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -214,12 +213,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-4",
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-07-19T18:00:00.000Z"
       },
       {
         "base_version": "v2",
-        "bytes_out": 1300000000,
         "contribution_id": "highvale-1",
         "contributor_id": "highvale",
         "dataset_name": "highvale-tissue",
@@ -229,12 +228,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 22500,
         "received_at": "2026-07-27T13:00:00.000Z"
       },
       {
         "base_version": "v3",
-        "bytes_out": 1300000000,
         "contribution_id": "rivermouth-2",
         "contributor_id": "rivermouth",
         "dataset_name": "rivermouth-cyto",
@@ -244,12 +243,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 28400,
         "received_at": "2026-07-27T22:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "copperlake-0",
         "contributor_id": "copperlake",
         "dataset_name": "copperlake-neurons",
@@ -259,12 +258,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 17300,
         "received_at": "2026-08-01T14:00:00.000Z"
       },
       {
         "base_version": "v4",
-        "bytes_out": 1300000000,
         "contribution_id": "thornbury-1",
         "contributor_id": "thornbury",
         "dataset_name": "thornbury-roots",
@@ -274,12 +273,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-5",
+        "n_bytes": 1300000000,
         "n_train_images": 31700,
         "received_at": "2026-08-03T17:00:00.000Z"
       },
       {
         "base_version": "v4",
-        "bytes_out": 1300000000,
         "contribution_id": "saltmarsh-2",
         "contributor_id": "saltmarsh",
         "dataset_name": "saltmarsh-plankton",
@@ -289,12 +288,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 12600,
         "received_at": "2026-08-04T20:00:00.000Z"
       },
       {
         "base_version": "v4",
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-3",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -304,12 +303,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-08-05T18:00:00.000Z"
       },
       {
         "base_version": "v4",
-        "bytes_out": 1300000000,
         "contribution_id": "kestrel-2",
         "contributor_id": "kestrel",
         "dataset_name": "kestrel-organoids",
@@ -319,12 +318,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-5",
+        "n_bytes": 1300000000,
         "n_train_images": 19800,
         "received_at": "2026-08-09T16:00:00.000Z"
       },
       {
         "base_version": "v6",
-        "bytes_out": 1300000000,
         "contribution_id": "driftwood-0",
         "contributor_id": "driftwood",
         "dataset_name": "driftwood-diatoms",
@@ -334,12 +333,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-6",
+        "n_bytes": 1300000000,
         "n_train_images": 9400,
         "received_at": "2026-08-15T21:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "rivermouth-3",
         "contributor_id": "rivermouth",
         "dataset_name": "rivermouth-cyto",
@@ -349,12 +348,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-7",
+        "n_bytes": 1300000000,
         "n_train_images": 28400,
         "received_at": "2026-08-17T22:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "highvale-2",
         "contributor_id": "highvale",
         "dataset_name": "highvale-tissue",
@@ -364,12 +363,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 22500,
         "received_at": "2026-08-19T13:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "thornbury-2",
         "contributor_id": "thornbury",
         "dataset_name": "thornbury-roots",
@@ -379,12 +378,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-7",
+        "n_bytes": 1300000000,
         "n_train_images": 31700,
         "received_at": "2026-08-19T17:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-4",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -394,12 +393,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-7",
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-08-22T18:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "saltmarsh-3",
         "contributor_id": "saltmarsh",
         "dataset_name": "saltmarsh-plankton",
@@ -409,12 +408,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-7",
+        "n_bytes": 1300000000,
         "n_train_images": 12600,
         "received_at": "2026-08-23T20:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "copperlake-1",
         "contributor_id": "copperlake",
         "dataset_name": "copperlake-neurons",
@@ -424,12 +423,12 @@
         ],
         "disposition": "included",
         "merged_into": "soup-8",
+        "n_bytes": 1300000000,
         "n_train_images": 17300,
         "received_at": "2026-08-25T14:00:00.000Z"
       },
       {
         "base_version": "v8",
-        "bytes_out": 1300000000,
         "contribution_id": "ashgrove-0",
         "contributor_id": "ashgrove",
         "dataset_name": "ashgrove-embryos",
@@ -439,12 +438,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 26100,
         "received_at": "2026-08-29T12:00:00.000Z"
       },
       {
         "base_version": "v5",
-        "bytes_out": 1300000000,
         "contribution_id": "kestrel-3",
         "contributor_id": "kestrel",
         "dataset_name": "kestrel-organoids",
@@ -454,12 +453,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 19800,
         "received_at": "2026-09-04T16:00:00.000Z"
       },
       {
         "base_version": "v7",
-        "bytes_out": 1300000000,
         "contribution_id": "thornbury-3",
         "contributor_id": "thornbury",
         "dataset_name": "thornbury-roots",
@@ -469,12 +468,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 31700,
         "received_at": "2026-09-04T17:00:00.000Z"
       },
       {
         "base_version": "v6",
-        "bytes_out": 1300000000,
         "contribution_id": "driftwood-1",
         "contributor_id": "driftwood",
         "dataset_name": "driftwood-diatoms",
@@ -484,12 +483,12 @@
         ],
         "disposition": "excluded",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 9400,
         "received_at": "2026-09-04T21:00:00.000Z"
       },
       {
         "base_version": "v7",
-        "bytes_out": 1300000000,
         "contribution_id": "rivermouth-4",
         "contributor_id": "rivermouth",
         "dataset_name": "rivermouth-cyto",
@@ -499,12 +498,12 @@
         ],
         "disposition": "pending",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 28400,
         "received_at": "2026-09-07T22:00:00.000Z"
       },
       {
         "base_version": "v7",
-        "bytes_out": 1300000000,
         "contribution_id": "northfield-5",
         "contributor_id": "northfield",
         "dataset_name": "northfield-nuclei",
@@ -514,12 +513,12 @@
         ],
         "disposition": "pending",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 41200,
         "received_at": "2026-09-08T18:00:00.000Z"
       },
       {
         "base_version": "v7",
-        "bytes_out": 1300000000,
         "contribution_id": "highvale-3",
         "contributor_id": "highvale",
         "dataset_name": "highvale-tissue",
@@ -529,12 +528,12 @@
         ],
         "disposition": "pending",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 22500,
         "received_at": "2026-09-11T13:00:00.000Z"
       },
       {
         "base_version": "v7",
-        "bytes_out": 1300000000,
         "contribution_id": "saltmarsh-4",
         "contributor_id": "saltmarsh",
         "dataset_name": "saltmarsh-plankton",
@@ -544,6 +543,7 @@
         ],
         "disposition": "pending",
         "merged_into": null,
+        "n_bytes": 1300000000,
         "n_train_images": 12600,
         "received_at": "2026-09-11T20:00:00.000Z"
       }
@@ -1392,7 +1392,7 @@
     "reconciled": false,
     "reconciled_at": null
   },
-  "schema_version": "0.14.0-draft",
+  "schema_version": "0.15.0-draft",
   "status": "open",
   "stewards": [
     {

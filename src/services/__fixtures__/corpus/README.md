@@ -39,10 +39,14 @@ carries it **in the payload**, under a top-level `_synthetic` key:
     "source": "src/services/__fixtures__/campaigns.ts in bioimage-io/bioimage.io",
     "since": "0.14.0-draft"
   },
-  "schema_version": "0.14.0-draft",
+  "schema_version": "0.15.0-draft",
   ...
 }
 ```
+
+`since` stays at `0.14.0-draft` on purpose while `schema_version` moves: it
+records the version the `_synthetic` key first appeared at, not the version the
+file is on.
 
 Before that the warning reached a reader of this README and a visitor to the
 page, and not the one route that actually carries the numbers: a direct fetch
@@ -103,6 +107,17 @@ not fire the alarm while adding, removing, or changing a value does.
 A mismatch is not a failure, it is the signal to read the diff: the format
 moved and the semantics may need to move with it. `schema_version` in the
 manifest, on the index envelope, and on each record tells you which way.
+
+At `0.15.0-draft` one field changed name and meaning at the same time, which is
+the pairing worth being careful about. A contribution's byte count used to be
+`bytes_out` and was documented as bytes put on the network; it is now `n_bytes`
+and is the checkpoint's size on disk, which is what the pool had always
+actually filled it with. `bytes_out` still exists on `transport` and on the
+driver totals, where it does mean bytes transferred. So a consumer that read
+the old contribution field and the transport field into one number was adding
+two different quantities, and renaming only one of them is the point: after
+0.15 the two names cannot be confused, and nothing that sums `bytes_out`
+silently picks up a stored size.
 
 ## What the async record is chosen to exercise
 

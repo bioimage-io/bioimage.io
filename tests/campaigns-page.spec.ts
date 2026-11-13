@@ -31,7 +31,7 @@ test.use({
 // Stub records. Every identifier below is invented for this spec.
 // ---------------------------------------------------------------------------
 
-const SCHEMA_VERSION = '0.14.0-draft';
+const SCHEMA_VERSION = '0.15.0-draft';
 const CAMPAIGN_ID = 'stub-soup';
 const STUB_DIGEST = 'a22dba37c1e04f9b';
 
@@ -134,7 +134,9 @@ function stubContributions(): Array<Record<string, unknown>> {
     contributor_id,
     received_at,
     base_version: 'v0',
-    bytes_out: ASYNC_CHECKPOINT_BYTES,
+    // Contribution level: size on disk. The transport blocks further down keep
+    // the name `bytes_out`, which since 0.15.0-draft is transport-only.
+    n_bytes: ASYNC_CHECKPOINT_BYTES,
     n_train_images: 412,
     dataset_name: 'stub-local-nuclei',
     declared: ['n_train_images', 'dataset_name'],
@@ -1317,7 +1319,7 @@ test('a service on a different schema is refused at the index, not rendered', as
   // which version IT is on. A mismatch message that names one side tells a
   // reader half of what they need to fix it.
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.14\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.15\.0-draft/)).toBeVisible();
 
   // And nothing from the stub leaked onto the page behind the error.
   const text = await regionText(page);
@@ -1335,7 +1337,7 @@ test('a service on a different schema is refused at the detail page too', async 
   await page.goto(`/#/campaigns/${CAMPAIGN_ID}`);
 
   await expect(page.getByText(/reports schema 0\.8\.0-draft/)).toBeVisible({ timeout: 20000 });
-  await expect(page.getByText(/this page expects 0\.14\.0-draft/)).toBeVisible();
+  await expect(page.getByText(/this page expects 0\.15\.0-draft/)).toBeVisible();
 
   const text = await regionText(page);
   expect(text).not.toContain('7.76 MB');
@@ -1375,7 +1377,7 @@ test('a patch-level difference is accepted, so the guard is not merely refusing 
   // version-relative expression would keep passing while silently testing a
   // different pair of versions, and these four are the only tests here that
   // exercise the guard at all.
-  await stubCampaignService(page, { servedSchema: '0.14.99-draft' });
+  await stubCampaignService(page, { servedSchema: '0.15.99-draft' });
   await page.goto('/#/campaigns');
 
   await expect(page.getByText('Stub community model soup')).toBeVisible();
