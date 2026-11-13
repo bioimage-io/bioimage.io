@@ -67,6 +67,31 @@ bioengine call bioimage-io/my-app run --args '{"mode": "fast"}' --arg debug=true
 
 ## `bioengine apps` — deploy and manage applications
 
+### `bioengine apps validate`
+
+```
+Usage: bioengine apps validate [OPTIONS] APP_DIR
+
+Validate a local BioEngine app directory's manifest.yaml.
+
+Runs the v0.6.0 manifest validator locally — checks for required fields,
+rejects legacy `deployments:` lists with a migration hint, and verifies
+that `entry:` matches `package.module:ClassName`.
+
+Arguments:
+  APP_DIR   Directory with manifest.yaml and deployment .py file(s)
+
+Options:
+  (none — no --worker, no --token; this command opens no connection)
+```
+
+```bash
+bioengine apps validate ./my-app/
+# OK: /path/to/my-app/manifest.yaml is a valid v0.6.0 BioEngine app manifest.
+```
+
+> **A green `validate` is not clearance to upload, because it never looked at the workspace.** It takes no `--worker` and no `--token` and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading — and `id` is one of the required fields it *does* check, which is what makes the `OK:` read as covering it. If that id already exists there, `upload` does not reject it for existing; it refuses the bundle unless your `version` is strictly higher (PEP 440) than every version that id already carries, so the error you get talks about versions. Bump `version` above the existing lineage if continuing it is yours to do, or change `id` if it is not. `bioengine apps list` shows which ids the workspace already has — run it before you pick a name, not after the refusal.
+
 ### `bioengine apps deploy`
 
 ```
