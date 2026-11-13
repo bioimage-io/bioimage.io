@@ -4,6 +4,7 @@ BioEngine apps can stream image data on-demand from any HTTPS-served Zarr (typic
 
 ## Contents
 - [Architecture: BioEngine streams, you discover](#architecture-bioengine-streams-you-discover)
+- [One fixed image, when you do not want a dataset](#one-fixed-image-when-you-do-not-want-a-dataset)
 - [Two ways to stream a Zarr: pick one](#two-ways-to-stream-a-zarr-pick-one)
 - [Reading OME-Zarr, wherever it came from](#reading-ome-zarr-wherever-it-came-from)
 - [Worked example: BioImage Archive](#worked-example-bioimage-archive)
@@ -25,6 +26,32 @@ Instead, the split is:
 | HTTPS-streaming OME-Zarr with byte-range and chunk caching | **Your choice** — see the next section |
 
 Every modern bioimage repository serves OME-Zarr (or plain Zarr) over HTTPS. So one streaming primitive covers all of them. The app just needs the chunk-level URI — which the repository's search response always exposes.
+
+---
+
+## One fixed image, when you do not want a dataset
+
+Everything below this section is about streaming a repository. Smoke-testing a segmentation app is the opposite problem: you want **one small image that never changes**, so that a different result means your code changed and nothing else. Use this one.
+
+```python
+# runtime_env.pip = ["tifffile", "httpx"]   # no scikit-image, no pooch
+import io, httpx, tifffile
+
+NUCLEI_TIF = (
+    "https://gitlab.com/scikit-image/data/-/raw/"
+    "2cdc5ce89b334d28f06a58c9f0ca21aa6992a5ba/"
+    "AS_09125_050116030001_D03f00d0.tif"
+)
+
+img = tifffile.imread(io.BytesIO(httpx.get(NUCLEI_TIF, follow_redirects=True).content))
+# (512, 512) uint8, a crowded field of small nuclei — good segmentation input
+```
+
+Measured against the live URL: HTTP 200, 233 336 bytes, TIFF little-endian magic `II*\0`, `(512, 512)` `uint8`, value range 7–255. A crude 90th-percentile threshold finds ~295 connected components larger than 20 px, so expect a segmentation to return a few hundred objects — that is an order of magnitude to sanity-check against, not ground truth. Negative control: the same path under a nonexistent commit returns 404, so the 200 is the pin resolving and not a catch-all.
+
+**The 40-hex commit in that URL is the whole point.** It pins content, not just a path. `…/-/raw/main/…` serves whatever the branch holds today, which is the failure mode this section exists to avoid: a test image that silently changes under a regression suite is worse than no test image. Keep the hash when you copy the URL.
+
+The file lives in scikit-image's sample-data repository, so the obvious alternative is to add `scikit-image` and call a `skimage.data` accessor. Fetch the URL instead. `skimage.data` loads through `pooch`, which is an *optional* dependency — with scikit-image installed and pooch absent, the call raises `ModuleNotFoundError` naming pooch rather than returning an array — and once pooch is present it wants a writable cache directory and reaches the network on first call from inside the Ray actor. That is two new failure modes and a heavy `runtime_env.pip` entry, for one array you can fetch in three lines. Which accessor name maps to this filename also varies by scikit-image version, so the filename pinned above is the stabler handle.
 
 ---
 
