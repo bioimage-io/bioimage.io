@@ -140,7 +140,7 @@ else
   rc=1
 fi
 
-# Clause 4 -- the guarded passage must appear ONCE.
+# Clause 4 -- each guarded line must appear ONCE. BOTH of them.
 #
 # Every assertion above is a presence test, and a presence test is satisfied
 # twice over by a file that says the same thing twice. That is not a theoretical
@@ -151,33 +151,67 @@ fi
 # assertions and exited 0, while the same tree with the proxy statement stripped
 # exited 1 -- so the guard was working as designed and the design was short.
 #
-# Counted on clause 3's own anchor rather than on a new pattern, so this adds no
-# brittleness that clause 3 does not already carry: if a reword breaks the match,
-# clause 3 fails today regardless. The anchor is stable at exactly 1 across every
-# ref this paragraph has lived on -- 904bf29, 1d2b49d, origin/main, 63d599c,
-# f810feb, a564f3a, 83a1e7f -- and reads 2 in the duplicated tree.
+# ⚠ TWO counts, not one, and the first version of this clause had only the
+# first. The guarded passage is two DIFFERENT lines of one blockquote: line 688
+# of main carries clause 3's redirect, line 690 carries clause 1b's proxy
+# explanation. Counting only clause 3's anchor caught a duplicate of 688 and
+# waved a duplicate of 690 straight through -- that is, the single line #0058
+# exists to protect -- while printing "appears exactly once" about it. Measured
+# on the served file (md5 e5663e3b…) against this script's own earlier head:
 #
-# NOT counted on clause 1b's claim: that one legitimately appears twice on main
-# (the line-245 bullet and the line-690 blockquote make the same point) and once
-# on 63d599c, so no fixed count is correct for it.
+#   served unmutated     rc=0      line 688 duplicated  rc=1
+#   line 690 deleted     rc=1      line 690 duplicated  rc=0   <- the residual
 #
-# What this does not catch: duplication of some OTHER passage of the file. This
-# guard is scoped to the concurrency paragraph and clause 4 is scoped the same way.
+# Found by Backlog head (nice-bird-njonwf) on the draft and reproduced here 4/4
+# before being fixed.
 #
-# Counted FILE-WIDE, unlike clause 1b above, and on purpose. A both-sides merge
-# resolution can land the second copy anywhere -- including outside the App
-# lifecycle section, which is precisely the case a passage-scoped count would
-# wave through. Each clause gets the scope its own question needs: 1b asks "does
-# THIS passage still say it", 4 asks "does the file say it more than once".
+# The two counts have DIFFERENT scopes, and each takes the scope its own anchor
+# allows -- which is the same argument clause 1b's scoping rests on:
+#
+#   c3  FILE-WIDE. Its anchor is unique across the whole file on every ref this
+#       paragraph has lived on (904bf29, 1d2b49d, origin/main, 63d599c, f810feb,
+#       a564f3a, 83a1e7f, 25014fb all read exactly 1), so a stray copy anywhere
+#       in SKILL.md is detectable, including one a merge drops outside the
+#       section. Measured, not assumed.
+#
+#   c1b IN-PASSAGE. File-wide this claim is legitimately 2 on main, because the
+#       line-245 Key rules bullet makes the same point for a different audience,
+#       so no file-wide count is correct for it. Inside the App lifecycle passage
+#       it is exactly 1 wherever the fix is present (1d2b49d, origin/main,
+#       63d599c, f810feb, a564f3a) and 0 where it is not. Measured.
+#
+# Neither count is over a new pattern: each reuses the anchor its own clause
+# already greps, so this adds no brittleness those clauses do not already carry.
+# If a reword breaks either match, that clause fails today regardless.
+#
+# What this does not catch: a copy of the clause-1b line dropped OUTSIDE the App
+# lifecycle section (c1b cannot see it and no file-wide count of that claim is
+# usable), and duplication of some other passage of the file entirely. This guard
+# is scoped to the concurrency paragraph and clause 4 is scoped the same way.
+c1b=$(printf '%s\n' "$PASSAGE" | grep -ciE 'proxy admission limit|ProxyDeployment admits|proxy admit(s|ting)|admits across the whole instance')
+
+# Each arm names WHICH line it counted. "The guarded passage" alone over-claims:
+# a reader who has just read clause 1b takes it to mean the proxy explanation,
+# and in the residual above that reading was false.
 if [ "$c3" -gt 1 ]; then
-  echo "FAIL  clause 4: the guarded passage appears $c3 times -- a merge resolution duplicated it" >&2
+  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears $c3 times -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c3" -eq 1 ]; then
-  echo "ok    clause 4: the guarded passage appears exactly once"
+  echo "ok    clause 4: the application_resources redirect appears exactly once"
 else
   # c3 = 0, already failed as clause 3. Say so rather than report a count of
   # zero as "not duplicated", which reads as a pass for the wrong reason.
-  echo "FAIL  clause 4: cannot count the guarded passage -- clause 3 found none of it" >&2
+  echo "FAIL  clause 4: cannot count the application_resources redirect -- clause 3 found none of it" >&2
+  rc=1
+fi
+
+if [ "$c1b" -gt 1 ]; then
+  echo "FAIL  clause 4: the proxy-admission explanation (clause 1b's line) appears $c1b times in the App lifecycle passage -- a merge resolution duplicated it" >&2
+  rc=1
+elif [ "$c1b" -eq 1 ]; then
+  echo "ok    clause 4: the proxy-admission explanation appears exactly once in the App lifecycle passage"
+else
+  echo "FAIL  clause 4: cannot count the proxy-admission explanation -- clause 1b found none of it in the passage" >&2
   rc=1
 fi
 

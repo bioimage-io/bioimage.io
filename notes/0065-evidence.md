@@ -104,10 +104,70 @@ both-sides merge resolution can put the second copy anywhere, including outside 
 is exactly what a passage-scoped count would wave through. Each clause takes the scope its own
 question needs, and the script now says so.
 
+### The residual Backlog head found on the draft, reproduced 4/4 and closed
+
+Counting only clause 3's anchor was half a fix, and the half it missed is the one that matters most.
+The guarded passage is **two different lines** of one blockquote: line 688 of main carries clause
+3's `application_resources` redirect, line 690 carries clause 1b's proxy explanation. My `dup`
+control duplicated the whole contiguous blockquote run (lines 665 to 692), which contains both, so
+it fired and hid the gap. Duplicating line 690 alone does not.
+
+Reproduced on the served file (`md5 e5663e3b…`, matching the head's) against this branch's own
+earlier head `03cd296`, 4/4 agreeing with the head's matrix:
+
+```
+served unmutated      rc=0        line 688 duplicated   rc=1
+line 690 deleted      rc=1        line 690 duplicated   rc=0   <- the residual
+```
+
+The second cost is the message. On the `dup690` tree the old clause printed *"the guarded passage
+appears exactly once"*, which a reader who has just read clause 1b takes to mean line 690, and about
+line 690 it was false. That is the same over-claiming shape the reviewer refused PR #134 for.
+
+**Fixed by counting both anchors, each at the scope its own anchor supports.** The asymmetry is not
+a compromise, it is the measurement:
+
+```
+ref           claim in passage   claim file-wide   clause-3 anchor file-wide
+904bf29              0                 0                      1
+1d2b49d              1                 2                      1
+origin/main          1                 2                      1
+63d599c              1                 1                      1
+f810feb              1                 2                      1
+a564f3a              1                 2                      1
+83a1e7f              0                 0                      1
+25014fb              0                 0                      1
+```
+
+Clause 3's anchor is unique file-wide on all eight refs, so counting it file-wide is sound and
+catches a copy a merge drops outside the section. The clause-1b claim is legitimately 2 file-wide on
+main, so no file-wide count of it is correct; inside the App lifecycle passage it is exactly 1
+wherever the fix is present and 0 where it is not. Each arm now also names which line it counted.
+
+After the fix:
+
+```
+served unmutated      rc=0        line 688 duplicated   rc=1
+line 690 deleted      rc=1        line 690 duplicated   rc=1   <- closed
+```
+
+and the twelve-tree matrix above re-runs **identically**, so no correct result changed.
+
+**The row's acceptance criterion was wrong and has been corrected**, rather than left to collide
+with the implementation. Clause 3 of it demanded the count be over the claim alternation and *not*
+over one literal phrasing. Measured, that is wrong in one direction and incomplete in the other: the
+alternation is uncountable file-wide, the literal is measurably unique file-wide, and the right
+check is that each count carries the scope its own anchor supports and that the script says which.
+Left as written, the first reviewer to check clause 3 against the code would have refused a correct
+fix.
+
 ### Honest limits
 
 - Clause 4 is scoped to the concurrency paragraph, like the rest of this guard. Duplication of some
   other passage of `SKILL.md` is not caught, and the script says so.
+- A copy of the clause-1b line dropped **outside** the App lifecycle section is not caught either:
+  `c1b` cannot see it, and no file-wide count of that claim is usable because main legitimately
+  carries it twice. Declared in the script rather than left to be discovered.
 - A general whole-file duplicate-line detector was tried and **rejected on measurement**: clean
   `origin/main` already repeats three long lines legitimately (code snippets), so it false-fails
   correct text. The longest-consecutive-duplicate-run variant separated clean from duplicated by
