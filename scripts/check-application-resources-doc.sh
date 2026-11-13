@@ -112,7 +112,13 @@ if [ "$total" -eq 0 ]; then
   echo "FAIL  clause 2: no application_resources literal anywhere in $F to check" >&2
   rc=1
 elif [ "$missing" -eq 0 ]; then
-  echo "ok    clause 2: all $total application_resources literal(s) carry the memory key"
+  # Names its scope, as clause 3's message does. The two clauses are scoped
+  # differently on purpose (this one file-wide, clause 3 in-passage), and that
+  # difference is the whole design; output that states it for one and not the
+  # other teaches a reader the wrong half, since they will carry whichever
+  # scope they read onto the other count. Same point the reviewer raised on
+  # check-concurrency-doc.sh's clause 4.
+  echo "ok    clause 2: all $total application_resources literal(s) in $F carry the memory key (counted file-wide)"
 else
   rc=1
 fi
@@ -130,7 +136,7 @@ if [ "$c1" -gt 1 ]; then
   echo "FAIL  clause 3: the App lifecycle passage renders application_resources on $c1 lines -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c1" -eq 1 ]; then
-  echo "ok    clause 3: the rendering appears on exactly one line of the App lifecycle passage"
+  echo "ok    clause 3: the rendering appears on exactly one line of the App lifecycle passage (counted in-passage)"
 fi
 # c1 = 0 is already reported by clause 1; saying it again here would read as a
 # second, independent failure of something that is one problem.
