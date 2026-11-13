@@ -35,17 +35,40 @@ rc=0
 # line in it, so the trap is latent rather than live -- which is exactly when
 # it is cheapest to close.
 #
-# An empty passage means the heading was renamed or removed. That is exit 2,
-# could not run, NOT a pass: every grep below would otherwise match nothing and
-# the absence would read as clause 1b failing for a reason that is not true.
+# ⚠ BOTH fence syntaxes, and this clause's first version handled only one.
+# CommonMark fences with ``` or with ~~~, and a tilde fence was invisible here:
+# the `#` inside it ended the section early, the passage stopped above line 690,
+# and clause 1b FAILED correct text. That is a false FAIL on prose nobody broke,
+# and it is a regression this scoping INTRODUCED -- the old file-wide clause was
+# green on that tree. Found by the reviewer (polar-shark-grvryd) on the APPROVE
+# of PR #134 and reproduced here before being fixed, with a backtick-fence tree
+# as the control so the mechanism and the marker are told apart:
+#
+#   ~~~ fence with a column-0 #    rc=1   <- the gap
+#   ``` fence with a column-0 #    rc=0   <- same tree, same comment, other marker
+#
+# The marker is REMEMBERED rather than toggled on either syntax, because a fence
+# is closed only by its own character: a ``` line inside a ~~~ block is content,
+# and a shared boolean would close the block on it. Costs one variable.
+#
+# An empty passage means the heading was renamed, removed, or swallowed by an
+# unbalanced fence opened above it. That is exit 2, could not run, NOT a pass:
+# every grep below would otherwise match nothing and the absence would read as
+# clause 1b failing for a reason that is not true. The message names all three,
+# because "renamed or removed" sent a reader looking for a heading that was
+# sitting there intact.
 PASSAGE=$(awk '
-  /^```/                                     { infence = !infence }
+  /^(```|~~~)/ {
+    marker = substr($0, 1, 3)
+    if (!infence)             { infence = 1; fence = marker }
+    else if (marker == fence) { infence = 0 }
+  }
   started && !infence && /^#+ /              { exit }
   started                                    { print; next }
   !started && !infence && /^### App lifecycle[ \t]*$/ { started = 1 }
 ' "$F")
 if [ -z "$PASSAGE" ]; then
-  echo "cannot run: no '### App lifecycle' section in $F -- renamed or removed" >&2
+  echo "cannot run: no '### App lifecycle' section in $F -- renamed, removed, or inside an unbalanced code fence" >&2
   exit 2
 fi
 
