@@ -828,9 +828,24 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                           Gated on KEY PRESENCE, not on a version compare and not
                           on truthiness: an older worker omits the key entirely and
                           must render nothing, while a present null means "the
-                          worker looked and there is no integer cap" — null for
-                          ProxyDeployment, which has no decorator, and for any cap
-                          that is unset or non-integral. Absent and null therefore
+                          worker did not report an integer cap".
+
+                          NULL ARRIVES TWO WAYS AND THEY NEED DIFFERENT WORDS.
+                          For ProxyDeployment the worker short-circuits on the NAME
+                          before it ever reads deployment_config
+                          (apps/manager.py:1112), so that null is a deliberate
+                          withholding, not an absence: the module DOES declare
+                          max_ongoing_requests=10 in its own @deployment
+                          (apps/proxy_deployment.py:125), and the short-circuit's
+                          docstring says why it is withheld — its Serve-level cap
+                          is not the bound that governs client calls, the top-level
+                          field is. So the generic "declares no per-replica limit,
+                          so Ray Serve applies its own default" is false on both
+                          halves there, and inverts what bounds the proxy on the one
+                          row where the instance-wide field IS the answer. The other
+                          way null arrives is a user deployment whose cap is unset or
+                          non-integral, where that sentence is correct and stays.
+                          Absent and null therefore
                           render differently, and neither may collapse to 0, which
                           would read as "accepts no requests". A bool is excluded by
                           the typeof check, mirroring the worker's own
@@ -847,7 +862,9 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                             <span className="text-xs text-gray-500">
                               {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
                                 ? 'Requests one replica of this deployment handles at a time, declared by the app author. This is not the instance-wide limit set when the app was deployed.'
-                                : 'This deployment declares no per-replica limit, so Ray Serve applies its own default. Not the same as a limit of zero.'}
+                                : name === 'ProxyDeployment'
+                                  ? 'The proxy admits callers for the whole application, so its concurrency is governed by the instance-wide limit set when the app was deployed, not by a per-replica cap.'
+                                  : 'This deployment declares no per-replica limit, so Ray Serve applies its own default. Not the same as a limit of zero.'}
                             </span>
                           </div>
                         </div>

@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
 """myco #0063 clause 1 — capture what a 0.16.96 worker REALLY reports, as a test fixture.
 
-`notes/check-0063-live-workers.py` sweeps workspace `bioimage-io` and classifies whatever
-answers. This one is narrower on purpose: it reads ONE named service, including a service
-outside `bioimage-io`, and writes the raw `get_app_status` payload to disk so the dialog can
-be rendered against bytes that came off a real worker rather than against a hand-typed mock.
+This reads ONE named service, including a service outside workspace `bioimage-io`, and writes
+the raw `get_app_status` payload to disk so the dialog can be rendered against bytes that came
+off a real worker rather than against a hand-typed mock. (An earlier docstring pointed at a
+companion sweep script, `notes/check-0063-live-workers.py`, which is NOT tracked at any commit
+on this branch. It was a local probe and is not needed to re-run this one.)
 
 Exit codes follow this lane's convention:
   0 = the service answered, is >= the floor, and its payload was written
