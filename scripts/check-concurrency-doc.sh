@@ -131,10 +131,53 @@ fi
 # continues with "read" is a function of how the surrounding prose was split,
 # not of whether the redirect is still there. Matching only the lowercase form
 # failed a correct fix over one character -- measured, see the row.
-if grep -qi 'read `application_resources` for what the app actually requested' "$F"; then
+# Counted, not merely detected -- see clause 4 below for why.
+c3=$(grep -ci 'read `application_resources` for what the app actually requested' "$F")
+if [ "$c3" -ge 1 ]; then
   echo "ok    clause 3: memory / gpu_enabled keep their application_resources redirect"
 else
   echo "FAIL  clause 3: the application_resources redirect is gone for memory / gpu_enabled too" >&2
+  rc=1
+fi
+
+# Clause 4 -- the guarded passage must appear ONCE.
+#
+# Every assertion above is a presence test, and a presence test is satisfied
+# twice over by a file that says the same thing twice. That is not a theoretical
+# gap: duplicating this blockquote is exactly what a naive both-sides resolution
+# of two branches editing it produces, and four branches rewrote this paragraph
+# inside two days. Measured before this clause existed: a tree built from main
+# with the guarded blockquote inserted a second time verbatim passed all three
+# assertions and exited 0, while the same tree with the proxy statement stripped
+# exited 1 -- so the guard was working as designed and the design was short.
+#
+# Counted on clause 3's own anchor rather than on a new pattern, so this adds no
+# brittleness that clause 3 does not already carry: if a reword breaks the match,
+# clause 3 fails today regardless. The anchor is stable at exactly 1 across every
+# ref this paragraph has lived on -- 904bf29, 1d2b49d, origin/main, 63d599c,
+# f810feb, a564f3a, 83a1e7f -- and reads 2 in the duplicated tree.
+#
+# NOT counted on clause 1b's claim: that one legitimately appears twice on main
+# (the line-245 bullet and the line-690 blockquote make the same point) and once
+# on 63d599c, so no fixed count is correct for it.
+#
+# What this does not catch: duplication of some OTHER passage of the file. This
+# guard is scoped to the concurrency paragraph and clause 4 is scoped the same way.
+#
+# Counted FILE-WIDE, unlike clause 1b above, and on purpose. A both-sides merge
+# resolution can land the second copy anywhere -- including outside the App
+# lifecycle section, which is precisely the case a passage-scoped count would
+# wave through. Each clause gets the scope its own question needs: 1b asks "does
+# THIS passage still say it", 4 asks "does the file say it more than once".
+if [ "$c3" -gt 1 ]; then
+  echo "FAIL  clause 4: the guarded passage appears $c3 times -- a merge resolution duplicated it" >&2
+  rc=1
+elif [ "$c3" -eq 1 ]; then
+  echo "ok    clause 4: the guarded passage appears exactly once"
+else
+  # c3 = 0, already failed as clause 3. Say so rather than report a count of
+  # zero as "not duplicated", which reads as a pass for the wrong reason.
+  echo "FAIL  clause 4: cannot count the guarded passage -- clause 3 found none of it" >&2
   rc=1
 fi
 
