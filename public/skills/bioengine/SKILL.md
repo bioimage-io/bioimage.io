@@ -601,6 +601,35 @@ await worker.deploy_app(
 
 Each entry sets exactly one of `num_replicas` or `autoscaling_config` (Ray Serve's own constraint). Classes not in the map run at one fixed replica. On update with a matching `application_id`, the full scaling map replaces the previous one — pass the previous value back unmodified for any deployment you don't want to change. Omitting `scaling` on an update preserves the prior map; passing `scaling={}` resets every deployment to defaults. The map round-trips through worker restarts via `app_data["scaling"]`.
 
+### Per-deployment admission control
+
+Three different limits can refuse or delay a call, they live at three different layers, and **two of them used to share the name `max_queued_requests`**. Getting the layer wrong is the usual reason a limit "does nothing".
+
+| what you set | where | what it bounds |
+|---|---|---|
+| `@bioengine.app(max_ongoing_requests=...)` in **app code** | Ray Serve, per replica of your deployment | how many calls one replica handles at once |
+| `@bioengine.app(max_queued_requests=...)` in **app code** | Ray Serve's router, ahead of your deployment | how many calls queue for a replica before Serve raises `BackPressureError` |
+| `max_ongoing_requests` / `max_queued_payloads` / `request_timeout_s` on **`deploy_app`** | the app's ProxyDeployment | how many callers the proxy admits, how many wait, and how long one may hold its slot |
+
+The `deploy_app` three are the application instance's own admission gate, enforced in its proxy before your code is reached:
+
+```python
+await worker.deploy_app(
+    artifact_id="bioimage-io/my-app",
+    application_id="my-app",
+    max_ongoing_requests=10,     # concurrent calls the proxy admits
+    max_queued_payloads=10,      # callers that may WAIT for a slot; 0 = refuse at once
+    request_timeout_s=600.0,     # seconds one admitted call may hold its slot; 0 = forever
+)
+```
+
+- **`max_queued_payloads` is not Ray Serve's `max_queued_requests`.** A waiter here is parked *inside the proxy actor holding its decoded payload in memory*, so this number multiplied by your largest request is proxy RAM. Serve's queue holds references ahead of a replica and never sees these waiters. Omit it and it defaults to `max_ongoing_requests`.
+- **`request_timeout_s` bounds the slot, not your client.** When it expires the proxy gives up on that call and releases the slot so the queue drains; it does not shorten the timeout of the Hypha client waiting on the other end. `0` waits indefinitely, which lets one wedged deployment hold every slot forever. Default `600.0`.
+- Both are reported back by `get_app_status` and both round-trip through a worker restart via `app_data`. **Neither is ever `null` on the status surface, so do not write a null branch for them.** When no depth was named, `max_queued_payloads` is reported as the `max_ongoing_requests` value the proxy actually enforces rather than as the `None` it is stored as, and an app from a worker predating these parameters reads back `request_timeout_s: 600.0`. The stored `None` exists so the queue keeps tracking `max_ongoing_requests` across an update that raises the cap, and it is visible only inside the worker, never to a status reader.
+- Neither has a CLI flag — `bioengine apps deploy` exposes no admission options at all, including the pre-existing `max_ongoing_requests`. Use the Python path above to set them.
+
+> **Version floor.** These two `deploy_app` parameters and the `max_queued_payloads` name are new. A worker that predates them **raises** rather than ignoring them — measured against a 0.16.1 worker, an unknown keyword on a schema-described worker method comes back as a `RemoteException`, not as a silently dropped argument. So the failure is loud, but it is a failed deploy: check `get_status()["bioengine_version"]` first if you target workers you do not control, since they are pinned individually.
+
 ### App-cache inspection (`list_app_directories`, `clear_app_directory`)
 
 For dashboards and disk-cleanup automation. The worker exposes two on-demand admin methods that walk the Ray actor pods' `apps_workdir` (where v0.11.4+ replica caches actually live — the worker pod itself is FS-thin):
