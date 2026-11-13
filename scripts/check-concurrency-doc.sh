@@ -184,20 +184,36 @@ fi
 # already greps, so this adds no brittleness those clauses do not already carry.
 # If a reword breaks either match, that clause fails today regardless.
 #
+# Both counts are of LINES (grep -c), and that is FORCED, not the lazy choice it
+# looks like. Main's line 690 satisfies two branches of clause 1b's alternation
+# in the one sentence, so counting MATCHES reads 2 on text nobody has touched:
+#
+#   grep -c  on main's line 690   1    <- correct, and the only usable count
+#   grep -o  on main's line 690   2    <- a match-counting clause 4 fails main
+#
+# The messages therefore say "on exactly one line", which is what was measured,
+# rather than "exactly once", which is a claim about occurrences that these
+# counts cannot support. The two readings part company on a tree where a second
+# copy is appended WITHIN the line: both counts still read 1, correctly, and
+# "exactly once" would have been false there while "on one line" stays true.
+# Raised by the reviewer (polar-shark-grvryd) on the APPROVE of PR #142.
+#
 # What this does not catch: a copy of the clause-1b line dropped OUTSIDE the App
 # lifecycle section (c1b cannot see it and no file-wide count of that claim is
-# usable), and duplication of some other passage of the file entirely. This guard
-# is scoped to the concurrency paragraph and clause 4 is scoped the same way.
+# usable), a second copy appended within an existing line (see above -- a line
+# count cannot see it, and a match count that could would fail correct text),
+# and duplication of some other passage of the file entirely. This guard is
+# scoped to the concurrency paragraph and clause 4 is scoped the same way.
 c1b=$(printf '%s\n' "$PASSAGE" | grep -ciE 'proxy admission limit|ProxyDeployment admits|proxy admit(s|ting)|admits across the whole instance')
 
 # Each arm names WHICH line it counted. "The guarded passage" alone over-claims:
 # a reader who has just read clause 1b takes it to mean the proxy explanation,
 # and in the residual above that reading was false.
 if [ "$c3" -gt 1 ]; then
-  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears $c3 times -- a merge resolution duplicated it" >&2
+  echo "FAIL  clause 4: the application_resources redirect (clause 3's line) appears on $c3 lines -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c3" -eq 1 ]; then
-  echo "ok    clause 4: the application_resources redirect appears exactly once"
+  echo "ok    clause 4: the application_resources redirect appears on exactly one line"
 else
   # c3 = 0, already failed as clause 3. Say so rather than report a count of
   # zero as "not duplicated", which reads as a pass for the wrong reason.
@@ -206,10 +222,10 @@ else
 fi
 
 if [ "$c1b" -gt 1 ]; then
-  echo "FAIL  clause 4: the proxy-admission explanation (clause 1b's line) appears $c1b times in the App lifecycle passage -- a merge resolution duplicated it" >&2
+  echo "FAIL  clause 4: the proxy-admission explanation (clause 1b's line) appears on $c1b lines of the App lifecycle passage -- a merge resolution duplicated it" >&2
   rc=1
 elif [ "$c1b" -eq 1 ]; then
-  echo "ok    clause 4: the proxy-admission explanation appears exactly once in the App lifecycle passage"
+  echo "ok    clause 4: the proxy-admission explanation appears on exactly one line of the App lifecycle passage"
 else
   echo "FAIL  clause 4: cannot count the proxy-admission explanation -- clause 1b found none of it in the passage" >&2
   rc=1
