@@ -34,6 +34,11 @@ import liveAppStatus from './__fixtures__/live-0_16_96-app-status.json';
 const LIMIT_HEADING = /Per-replica request limit/i;
 const GENERIC_NULL_TEXT = /Ray Serve applies its own default/i;
 const PROXY_NULL_TEXT = /governed by the instance-wide limit/i;
+// The value chip splits on the same axis as the sentence. "Not reported" is a
+// claim about the worker having said nothing, which is true of an unset user
+// deployment and false of the proxy, whose null is a deliberate withholding.
+const NOT_REPORTED = 'Not reported';
+const NOT_APPLICABLE = 'Not applicable';
 
 // Each deployment renders as one rounded-xl card with its name in an h4, so a
 // per-row assertion is possible. Without it, "the proxy row lacks the generic
@@ -84,14 +89,14 @@ describe('per-deployment max_ongoing_requests', () => {
     expect(screen.getAllByText(LIMIT_HEADING)).toHaveLength(3);
   });
 
-  it('renders a present null as not-reported rather than as a number', async () => {
+  it('renders a present null as a state, never as a number', async () => {
     openWith({
       // The worker short-circuits on this name and returns null for it.
       ProxyDeployment: deployment({ max_ongoing_requests: null }),
     });
 
     expect(await screen.findByText(LIMIT_HEADING)).toBeInTheDocument();
-    expect(screen.getByText('Not reported')).toBeInTheDocument();
+    expect(screen.getByText(NOT_APPLICABLE)).toBeInTheDocument();
     expect(screen.queryByText(/concurrent$/)).not.toBeInTheDocument();
   });
 
@@ -116,8 +121,13 @@ describe('per-deployment max_ongoing_requests', () => {
     expect(unset.getByText(GENERIC_NULL_TEXT)).toBeInTheDocument();
     expect(unset.queryByText(PROXY_NULL_TEXT)).not.toBeInTheDocument();
 
-    // Both rows still report the state itself the same way.
-    expect(screen.getAllByText('Not reported')).toHaveLength(2);
+    // The value chip splits too, and each row must carry exactly one of the
+    // two words. Asserting both directions per row is what stops a build that
+    // labels everything "Not applicable" from passing on the proxy assertion.
+    expect(proxy.getByText(NOT_APPLICABLE)).toBeInTheDocument();
+    expect(proxy.queryByText(NOT_REPORTED)).not.toBeInTheDocument();
+    expect(unset.getByText(NOT_REPORTED)).toBeInTheDocument();
+    expect(unset.queryByText(NOT_APPLICABLE)).not.toBeInTheDocument();
   });
 
   it('renders nothing at all when the worker omits the key', async () => {
@@ -134,7 +144,8 @@ describe('per-deployment max_ongoing_requests', () => {
     expect(await screen.findByText('LegacyDeployment')).toBeInTheDocument();
 
     expect(screen.queryByText(LIMIT_HEADING)).not.toBeInTheDocument();
-    expect(screen.queryByText('Not reported')).not.toBeInTheDocument();
+    expect(screen.queryByText(NOT_REPORTED)).not.toBeInTheDocument();
+    expect(screen.queryByText(NOT_APPLICABLE)).not.toBeInTheDocument();
   });
 
   it('does not collapse 0 and null onto the same output', async () => {
@@ -144,9 +155,10 @@ describe('per-deployment max_ongoing_requests', () => {
     });
 
     // 0 is a real integer the worker could report. It must not borrow null's
-    // wording, and null must not borrow 0's.
+    // wording, and null must not borrow 0's. NullCap is not the proxy, so its
+    // chip is the "worker said nothing" one.
     expect(await screen.findByText('0 concurrent')).toBeInTheDocument();
-    expect(screen.getByText('Not reported')).toBeInTheDocument();
+    expect(screen.getByText(NOT_REPORTED)).toBeInTheDocument();
   });
 
   // The cases above are hand-built. This one is the payload a real 0.16.96 worker
@@ -174,10 +186,13 @@ describe('per-deployment max_ongoing_requests', () => {
     // EntryDeployment declared 20, the three runtimes declared 5 each.
     expect(await screen.findByText('20 concurrent')).toBeInTheDocument();
     expect(screen.getAllByText('5 concurrent')).toHaveLength(3);
-    // The worker withholds the proxy's own cap, so this row reads as not reported
-    // and must point at the instance-wide limit rather than at a Serve default.
-    expect(screen.getByText('Not reported')).toBeInTheDocument();
+    // The worker withholds the proxy's own cap on purpose, so this row reads as
+    // not applicable and must point at the instance-wide limit rather than at a
+    // Serve default. No row in this payload is an unset user deployment, so the
+    // other chip must not appear anywhere.
     const liveProxy = within(rowFor('ProxyDeployment'));
+    expect(liveProxy.getByText(NOT_APPLICABLE)).toBeInTheDocument();
+    expect(screen.queryByText(NOT_REPORTED)).not.toBeInTheDocument();
     expect(liveProxy.getByText(PROXY_NULL_TEXT)).toBeInTheDocument();
     expect(liveProxy.queryByText(GENERIC_NULL_TEXT)).not.toBeInTheDocument();
     // All five deployments carry the key, so all five render the heading.
@@ -195,7 +210,7 @@ describe('per-deployment max_ongoing_requests', () => {
     });
 
     expect(await screen.findByText(LIMIT_HEADING)).toBeInTheDocument();
-    expect(screen.getByText('Not reported')).toBeInTheDocument();
+    expect(screen.getByText(NOT_REPORTED)).toBeInTheDocument();
     expect(screen.queryByText('1 concurrent')).not.toBeInTheDocument();
   });
 });

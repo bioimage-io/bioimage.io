@@ -845,6 +845,15 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                           row where the instance-wide field IS the answer. The other
                           way null arrives is a user deployment whose cap is unset or
                           non-integral, where that sentence is correct and stays.
+                          The VALUE CHIP splits for the same reason: "Not reported"
+                          says the worker told us nothing, which is true of the unset
+                          user deployment and false of the proxy, where the worker
+                          holds the number and withholds it on purpose. That row reads
+                          "Not applicable" instead — the per-replica question does not
+                          apply to it, and the sentence beside it names the limit that
+                          does. The producing lane asked for exactly this split
+                          (worker owner warm-rhea-rcypvs, 2026-11-13: "Render it as
+                          not applicable, not as no data").
                           Absent and null therefore
                           render differently, and neither may collapse to 0, which
                           would read as "accepts no requests". A bool is excluded by
@@ -857,7 +866,9 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                             <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-white text-gray-700 border-gray-200">
                               {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
                                 ? `${data.max_ongoing_requests} concurrent`
-                                : 'Not reported'}
+                                : name === 'ProxyDeployment'
+                                  ? 'Not applicable'
+                                  : 'Not reported'}
                             </span>
                             <span className="text-xs text-gray-500">
                               {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
