@@ -821,6 +821,38 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                         </div>
                       )}
 
+                      {/* Per-replica admission cap the app author declared with
+                          bioengine.app(max_ongoing_requests=...). Served per
+                          deployment by get_app_status since bioengine 0.16.96
+                          (apps/manager.py:1184 -> _per_replica_ongoing_limit).
+                          Gated on KEY PRESENCE, not on a version compare and not
+                          on truthiness: an older worker omits the key entirely and
+                          must render nothing, while a present null means "the
+                          worker looked and there is no integer cap" — null for
+                          ProxyDeployment, which has no decorator, and for any cap
+                          that is unset or non-integral. Absent and null therefore
+                          render differently, and neither may collapse to 0, which
+                          would read as "accepts no requests". A bool is excluded by
+                          the typeof check, mirroring the worker's own
+                          isinstance(limit, bool) exclusion. */}
+                      {data && typeof data === 'object' && 'max_ongoing_requests' in data && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-1">Per-replica request limit</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-white text-gray-700 border-gray-200">
+                              {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
+                                ? `${data.max_ongoing_requests} concurrent`
+                                : 'Not reported'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
+                                ? 'Requests one replica of this deployment handles at a time, declared by the app author. This is not the instance-wide limit set when the app was deployed.'
+                                : 'This deployment declares no per-replica limit, so Ray Serve applies its own default. Not the same as a limit of zero.'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Per-deployment node placement. One badge per
                           distinct (node_id, state) pair across all replicas
                           that have a node_id — so STARTING and DEPLOY_FAILED
