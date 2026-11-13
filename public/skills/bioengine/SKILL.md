@@ -319,6 +319,26 @@ class MyDeployment:
   This is not hypothetical: it is what caught an app still passing the pre-0.15.0 `num_gpus`. It costs one command and it is the only offline check of the BioEngine surface you have.
 
   **There are three outcomes, not two, and a script written for two gets the best one backwards.** In a worker-grade environment `ray` is installed, so the import simply **succeeds** and prints nothing. That is a stronger pass than the `ModuleNotFoundError`, and a check written literally as "pass if the output says `No module named 'ray'`" reports it as a failure. Write the condition as: **pass = a clean exit, or an exception naming `ray`. Fail = any other exception.**
+- **`source/` on the replica is a FILTERED copy of your folder, so an app cannot read its own `manifest.yaml` at runtime.** `upload_app` puts the whole folder into the *artifact* — that part is true — and the replica then materialises a subset of it. Excluded files are never even listed, let alone fetched. The filter is `_SOURCE_EXCLUDES` in `bioengine/_app/replica_init.py`:
+  ```
+  manifest.yaml  manifest.yml  README*  *.md  *.ipynb
+  *.png  *.jpg  *.jpeg  *.gif  *.svg  *.pdf  *.pyc  *.pyo
+  frontend/**  __pycache__/**
+  ```
+  plus anything with a dot-prefixed path component (`.env`, `.config/settings.yaml`). This is deliberate rather than a bug: only Python and config content is meant to reach `source/`. Your `.py` files and `requirements-*.txt` are not on the list and do arrive, so the per-module requirements pattern above keeps working. What does not arrive is your README, your notebook, a `.png` you meant to ship beside the code, anything under `frontend/`, and the manifest. The failure mode is the quiet one this skill keeps returning to: the read falls through to your fallback, the app reaches `RUNNING`, both deployments report `HEALTHY`, the smoke test passes, and only an end-to-end call shows a `version` field reading `"unknown"`.
+- **So report your app's version from a module-level constant, and keep it honest offline.** Put `__version__` in the undecorated core module above, return it from whatever `health`-style method exposes it, and assert it against the manifest in a test that runs where the manifest still exists — your checkout, never the replica:
+  ```python
+  # app_core.py
+  __version__ = "1.0.0"
+  ```
+  ```python
+  # test_version.py — offline, imports nothing from bioengine, runs in a [cli] venv
+  import yaml
+  import app_core
+  manifest = yaml.safe_load(open("manifest.yaml"))
+  assert app_core.__version__ == str(manifest["version"])
+  ```
+  The `str(...)` is not defensive padding. YAML reads a three-component `version: 1.0.0` as the string `'1.0.0'`, but a two-component `version: 1.0` as the **float** `1.0`, so without the coercion this test fails on a manifest that uploads and deploys perfectly well.
 - **Return only builtin types across the Hypha boundary.** The familiar form of this rule is "call `.tolist()` on numpy arrays", and that under-generalises in a way that costs a deploy round-trip. The client-side proxy reconstructs whatever you returned, so **any object whose class is defined in a third-party package fails on the client**, with an error naming a module the client was never supposed to need:
   ```
   ModuleNotFoundError: No module named 'torch'
@@ -494,13 +514,15 @@ After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 A committed artifact version is **immutable** and its content is exactly what a deploy runs, so a version string must map to one bundle forever. Two rules keep that true:
 
 - **Never delete-and-recreate a committed version to change its code, and never deploy a staged (uncommitted) version** — deploy pinned, committed versions only.
-- Upload only through the worker (`upload_app` / `scripts/upload_app.py`): it uploads the **whole folder** and rejects any `manifest.yaml` version that isn't strictly greater than every existing one (PEP 440).
+- Upload only through the worker (`upload_app` / `scripts/upload_app.py`): it uploads the **whole folder** into the artifact and rejects any `manifest.yaml` version that isn't strictly greater than every existing one (PEP 440). The *replica* gets less than the whole folder — see [Key rules](#key-rules).
 
 **That version floor belongs to the workspace, not to you, so a brand-new app id can already have one.** The id namespace is the workspace: someone else may have used `my-nuclei-app` there, deleted the deployment and left the artifact's version history behind. Nothing is running, `bioengine apps status` says "No running applications", and the first upload still refuses. Check before the first deploy of a *new* id rather than after:
 
 ```bash
 bioengine apps list --json    # look for <workspace>/<your-id>
 ```
+
+**And `<workspace>` there is the *worker's* workspace, not your `$HYPHA_WORKSPACE`.** The worker's `create_application` has two modes: pass `workspace` and `hypha_token` together and the artifact lands in the workspace you named; omit both — which is the default path — and it lands in `self.server.config.workspace`, the worker's own. The two routinely differ (`ws-u-<hash>` for your token against `ws-user-github|<id>` for the worker). So an artifact id you pre-compute from `$HYPHA_WORKSPACE` can address a workspace nothing was ever written to, and you will poll it forever; the `Artifact ID:` line the deploy prints is the one to believe.
 
 The refusal itself names the ceiling and lists every existing version, so recovery is a one-line `manifest.yaml` edit either way. The only thing missing without this check is being told before the failure instead of by it.
 

@@ -43,6 +43,7 @@ authorized_users:
 
 ```python
 """Single-deployment BioEngine app."""
+import sys
 import time
 from datetime import datetime
 from typing import Dict, Union
@@ -51,7 +52,11 @@ from pydantic import Field
 
 import bioengine
 
-logger = bioengine.logger  # never use print()
+# No `logger = bioengine.logger` here, deliberately. That logger has no handlers
+# and level NOTSET, so logger.info() never reaches `bioengine apps status --logs`:
+# 13 of 13 print-to-stderr lines came back and 0 of 13 logger lines did. Breadcrumbs
+# below go to stderr with flush=True. See SKILL.md § Key rules for the measurement
+# and for the handler-attaching variant if you want the logger's formatting.
 
 
 @bioengine.app(
@@ -74,7 +79,7 @@ class MyDeployment:
 
     @bioengine.async_init
     async def load(self) -> None:
-        logger.info("MyDeployment async_init complete")
+        print("MyDeployment async_init complete", file=sys.stderr, flush=True)
 
     @bioengine.smoke_test
     async def smoke(self) -> None:
@@ -130,6 +135,8 @@ class MyDeployment:
 > **The health check is the one hook whose return value is thrown away.** The worker `await`s it and discards the result (`bioengine/_app/mixin.py`), so the only way to report unhealthy is to **raise**; the decorator's own docstring says "Raise to signal unhealthy." An app that returns `{"status": "degraded"}` is marked healthy for as long as it runs. If you also want callers to be able to ask, expose a separate `@bioengine.method` and have **both delegate to one undecorated helper**. Do not have one call the other: a `@bioengine.method` invoked in-process receives a raw `FieldInfo` for every `Field(...)`-defaulted parameter you don't pass, which is the most common way that rule bites.
 
 > **Heavy DL dependencies take a while.** For TensorFlow/PyTorch-class `pip` pins plus a first-use pretrained-weight download inside `async_init`, expect a multi-minute (roughly 5–15 min) `DEPLOYING` window. That's normal, not a hang — don't start unnecessary retries or assume failure; wait for `HEALTHY` or `DEPLOY_FAILED`.
+>
+> **That range is deep-learning-specific; size your deadline to the pins you actually wrote.** A classical-CV set (scipy / scikit-image / tifffile / imagecodecs / Pillow) was measured reaching `HEALTHY` in roughly 25 seconds. A 15-minute deadline carried over to that app gives you no way to tell a slow install from a genuinely stuck deploy, which is the one thing the deadline exists to do.
 
 ---
 
@@ -197,8 +204,6 @@ from runtime_a import RuntimeA
 from runtime_b import RuntimeB
 from runtime_c import RuntimeC
 
-logger = bioengine.logger
-
 
 @bioengine.app(
     num_cpus=0,
@@ -265,9 +270,11 @@ class EntryDeployment:
 
 ```python
 """RuntimeA — text processing."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -279,7 +286,7 @@ logger = bioengine.logger
 class RuntimeA:
     @bioengine.async_init
     async def load(self) -> None:
-        logger.info("RuntimeA ready")
+        print("RuntimeA ready", file=sys.stderr, flush=True)
 
     @bioengine.smoke_test
     async def smoke(self) -> None:
@@ -301,9 +308,11 @@ class RuntimeA:
 
 ```python
 """RuntimeB — data analysis."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -316,7 +325,7 @@ class RuntimeB:
     @bioengine.async_init
     async def load(self) -> None:
         import numpy as np
-        logger.info(f"RuntimeB ready (numpy {np.__version__})")
+        print(f"RuntimeB ready (numpy {np.__version__})", file=sys.stderr, flush=True)
 
     async def ping(self) -> str:
         return "pong"
@@ -335,9 +344,11 @@ class RuntimeB:
 
 ```python
 """RuntimeC — image processing."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -350,7 +361,7 @@ class RuntimeC:
     @bioengine.async_init
     async def load(self) -> None:
         from PIL import Image  # noqa: F401
-        logger.info("RuntimeC ready")
+        print("RuntimeC ready", file=sys.stderr, flush=True)
 
     async def ping(self) -> str:
         return "pong"
