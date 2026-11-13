@@ -137,6 +137,26 @@ library into the package instead.
          - segment-anything==1.0
    ```
 
+   > **Never use a `git+https://` requirement — BioEngine workers cannot
+   > clone from github.com.** There are no git credentials on the worker
+   > and terminal prompts are disabled, so the env build dies with
+   > `git clone … exit code: 128` / `fatal: could not read Username for
+   > 'https://github.com'`. If a dependency is only available from a git
+   > repository, keep the exact same source bytes and change the
+   > transport: use a PEP 508 direct reference to an HTTPS **source
+   > archive**, pinned by hash.
+   >
+   > ```yaml
+   >     # Bad — fails on the worker:
+   >     # - mypkg @ git+https://github.com/org/mypkg@<sha>
+   >     # Good — same commit, downloadable, and integrity-pinned:
+   >     - mypkg @ https://github.com/org/mypkg/archive/<sha>.tar.gz#sha256=<digest>
+   > ```
+   >
+   > The `#sha256=` fragment is worth adding for its own sake: GitHub's
+   > generated tarballs are not guaranteed byte-stable forever, and the
+   > pin turns a silent change into a build failure.
+
    Callers opt in with `test(..., custom_environment=True)`. The runner
    computes the env via `bioimageio.spec.get_conda_env`, builds it with
    `mamba`, runs `bioimageio test` inside it, and **caches** it on the
@@ -150,6 +170,13 @@ library into the package instead.
    > model that depends on a custom env is testable but **not servable**
    > on the public model-runner. If the model must run via `infer()`,
    > use path 1 (TorchScript/ONNX) instead.
+   >
+   > In the test report this surfaces as `inference_check: failed` with a
+   > `ModuleNotFoundError` for your package, sitting alongside
+   > `status: passed` and 5/5 checks. That combination is the **expected**
+   > result for a custom-environment model — the five checks ran in your
+   > conda env, while `inference_check` tried a plain `infer()` in the
+   > shared Ray runtime. It is not a bug to fix.
 
 3. **Or extend the shared runtime.** For packages that would benefit
    multiple models, open an issue at

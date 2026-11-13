@@ -135,7 +135,9 @@ async def upload_model(package_dir: str, token: str) -> str:
         staging_url = f"https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true"
         print("\nUpload complete (staged draft, not yet submitted for review).")
         print(f"Artifact ID: {artifact_id}")
-        print(f"Preview:     {staging_url}")
+        # Same caveat as submit_for_review.py: this reopens the upload form on the
+        # draft, it is not a preview of a published model page.
+        print(f"Resume editing: {staging_url}")
         print(f"\nNext: python submit_for_review.py {artifact_id}")
         return artifact_id
 

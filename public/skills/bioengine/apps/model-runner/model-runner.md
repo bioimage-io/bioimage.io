@@ -2,7 +2,22 @@
 
 Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io) models. Runs on remote BioEngine workers — no local GPU required.
 
-> **Cellpose-3 is served elsewhere.** Since model-runner 2.0.0 this runner serves Cellpose-4 (Cellpose-SAM / Cellpose-DINO) and micro-SAM natively, and its runtime ships Cellpose 4 — so it can no longer load the **Cellpose-3-and-earlier** architectures. For those, use the [Cellpose-3 Runner](../cellpose3-runner.md) app (`bioimage-io/cellpose3-runner`) and resolve its accepted ids at call time via `list_supported_models()`.
+> **One runner serves every model, Cellpose-3 included.** From **model-runner 2.11.2** this runner loads Cellpose-3-and-earlier architectures from a separate internal environment, alongside Cellpose-4 (Cellpose-SAM / Cellpose-DINO) and micro-SAM. `bioimage-io/model-runner` is the only service id you need; there is no separate runner to resolve ids against.
+>
+> On **older workers** (before 2.11.2) this runner's runtime shipped Cellpose 4 only and rejected Cellpose-3 models, which were served by a separate `cellpose3-runner` app. Workers are pinned and roll independently, so check the worker's deployed version before assuming which behaviour you get.
+>
+> **A grayscale image is refused by Cellpose-SAM — replicate the channel before sending.** Cellpose-4 / Cellpose-SAM declares its channel axis as `min=3, max=3`, so a single-channel array is rejected before inference starts, at any image size. A large share of real microscopy is single-channel, so this is the most common input failure, and it is a *different* axis from the size gotcha below — the size can be perfectly fine. Fix it on your side, because the runner will not reshape your array for you:
+>
+> ```python
+> # arr is (y, x) or (1, 1, y, x) grayscale; Cellpose-SAM wants 3 channels
+> import numpy as np
+> arr = np.atleast_3d(arr)                      # -> (y, x, 1) if it was 2-D
+> rgb = np.repeat(arr, 3, axis=-1)              # -> (y, x, 3)
+> ```
+>
+> That replication is a deliberate choice you are making about your data, which is why the runner does not do it silently: it returns segmentations people treat as measurements, and a caller who sent one channel because their data IS one channel would otherwise get a plausible result computed on an array they never supplied. From the version carrying myco #0308 the error names the axis, the required count and this remedy instead of reprinting bioimageio's raw `AxisInfo` objects.
+>
+> Cellpose-3 models declare large minimum input sizes. Sending a smaller array fails with an axis-size error before inference starts, which looks like a loading failure but is not: `famous-fish` needs at least 565x807, `happy-elephant` 1024x1024, `merry-gorilla` 1440x1920, `thoughtful-chipmunk` 1680x1475.
 
 ## Use this skill when
 
@@ -98,26 +113,77 @@ Job registries are **in-memory per Entry replica** and expire after completion (
 
 Two blocking helpers used throughout this skill. `mr` is the resolved model-runner handle (see [Service ID](#service-id--discover-before-calling)):
 
-```python
-import asyncio, time
+⚠️ **Poll every 10 seconds or slower, and do not shorten it.** Measured on the live KTH app, 20
+concurrent clients for 240 s: at a 3-second interval **36-40% of calls were rejected** with
+`has reached its maximum of N concurrent requests`; at 10 seconds, **none were**, and the same number
+of jobs completed (395 against 374). End-to-end p50 barely moved, 10.9 s → 12.0 s.
 
-async def run_infer(mr, model_id, inputs, *, poll=1.0, timeout=300, **kwargs):
+The reason is not that polling is expensive — it is cheap. A `get_infer_status` call occupies an
+admission slot for only **~19 ms**, so even 90 clients polling once a second use under a fifth of the
+limit. What a tight poll actually does is **pace you**: noticing completion sooner makes you submit
+sooner, and a *submit* holds its slot for **0.74-2.8 s** — two orders of magnitude longer. At the
+3-second interval those 20 clients issued 618 requests instead of 374 and the concurrent submissions
+saturated admission; the extra 244 requests produced no extra results, only errors. Polling harder
+does not get your result sooner. It starts your next job sooner, and crowds out somebody else's for
+no additional completed work.
+
+So treat 10 s as a floor, not a target, and if you want a faster first answer back off
+(2 s, then 5 s, then 10 s) rather than holding a tight constant. Note also that this is not a
+capacity knob: at 50 clients, 26% were rejected even at a 10-second interval while completed
+throughput stayed flat (368 against 374 at 20 clients), so beyond a certain load the service is
+limited downstream of admission and politeness is the only thing that still helps.
+
+⚠️ **Ask for `return_download_url=True`, and bound every status call.** Any input whose size is
+not the model's declared size is tiled server-side, and the assembled multi-tile array **fails to
+marshal back to the caller** — the `get_infer_status` call then never returns, so a client without a
+per-call timeout waits for ever rather than seeing an error. Asking for a download URL avoids the
+marshalling entirely. Measured on the live KTH app with Cellpose-SAM, same model and upload path:
+
+| input | inline result | `return_download_url=True` |
+|---|---|---|
+| 256x256 (native) | completed ~3 s | completed 4.6 s |
+| 320x320 | never returns | **completed 4.3 s** |
+| 512x512 | never returns | **completed 5.0 s** |
+| 640x480 | never returns | **completed 4.6 s** |
+| 192x192 | server-side failure | server-side failure (smaller than one tile; a separate defect) |
+
+In a 100-client run with mixed sizes, 27 of 100 completed on the inline path; with the download URL
+the same shapes complete, which is why the helper below asks for it by default and fetches the array
+for you.
+
+```python
+import asyncio, io, random, time, urllib.request
+import numpy as np
+
+async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
+                    return_download_url=True, **kwargs):
     """Submit an inference job and block until the result dict is ready.
-    Extra kwargs (weights_format, device, return_download_url, ...) pass through."""
-    request_id = await mr.infer(model_id=model_id, inputs=inputs, **kwargs)
+
+    ``return_download_url=True`` is the default deliberately — see the warning below.
+    Extra kwargs (weights_format, device, ...) pass through."""
+    request_id = await mr.infer(model_id=model_id, inputs=inputs,
+                                return_download_url=return_download_url, **kwargs)
     deadline = time.monotonic() + timeout
     while True:
-        st = await mr.get_infer_status(request_id=request_id)
+        # wait_for is NOT optional: for some inputs the status call does not return at all,
+        # and without a per-call bound the client waits for ever rather than erroring.
+        st = await asyncio.wait_for(mr.get_infer_status(request_id=request_id), timeout=30)
         if st["completed_at"] is not None:                 # queue_position == 0
             result = st["result"]
             if isinstance(result, dict) and "error" in result:
                 raise RuntimeError(f"inference failed: {result['error']}")
+            if return_download_url:
+                # each value is a presigned .npy URL rather than an inline array
+                return {k: np.load(io.BytesIO(urllib.request.urlopen(v).read()),
+                                   allow_pickle=False) if isinstance(v, str) else v
+                        for k, v in result.items()}
             return result
         if time.monotonic() > deadline:
             raise TimeoutError(f"infer {request_id} timed out after {timeout}s")
-        await asyncio.sleep(poll)
+        # jittered so that N clients starting together do not all poll on the same tick
+        await asyncio.sleep(poll * random.uniform(0.8, 1.2))
 
-async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
+async def run_test(mr, model_id, *, poll=10.0, timeout=600, **kwargs):
     """Submit a test job and block until the report is ready.
     Extra kwargs: stage, cache, custom_environment."""
     test_run_id = await mr.test(model_id=model_id, **kwargs)
@@ -131,7 +197,7 @@ async def run_test(mr, model_id, *, poll=2.0, timeout=600, **kwargs):
             return report
         if time.monotonic() > deadline:
             raise TimeoutError(f"test {test_run_id} timed out after {timeout}s")
-        await asyncio.sleep(poll)
+        await asyncio.sleep(poll * random.uniform(0.8, 1.2))
 ```
 
 Everywhere below, `await run_infer(mr, model_id, inputs)` returns the output dict directly — it is the submit-and-poll wrapper, not a raw `mr.infer` (which returns only the id).
@@ -223,7 +289,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 
 ```text
 - [ ] Step 1: Clarify task type (segmentation / denoising / restoration / detection)
-- [ ] Step 2: Gather candidates from both sources — search_models (keywords from assets/search_keywords.yaml) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from search_models (keywords from assets/search_keywords.yaml); see § Candidate pool
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README
 - [ ] Step 4: Filter candidates — discard domain mismatches based on documentation
 - [ ] Step 5: Run all suitable models on the same input — loop `await run_infer(mr, model_id, <url>)` (submit+poll wrapper; see § Async job API)
@@ -239,7 +305,7 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 The screening pool is the **union** of two model sources; gather both before scoring:
 
 1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
-2. **Cellpose-3 models** from the Cellpose-3 Runner — call `cellpose3-runner.list_supported_models()` (see [apps/cellpose3-runner.md](../cellpose3-runner.md)). model-runner cannot run these; route each Cellpose-3 id to `cellpose3-runner.infer` instead of `mr.infer`. Both apps share the same async submit/poll result shape, so one scoring loop covers both — but that leg runs on CPU, so budget extra wall-clock for it.
+2. **Cellpose-3 models** need no separate source from 2.11.2: `search_models` returns them and `mr.infer` runs them like anything else. Note they declare large minimum input sizes (see the banner at the top), so a too-small array fails before inference rather than during it.
 
 ```python
 # Run multiple models and save all outputs.
@@ -465,7 +531,7 @@ Use this when the user has unlabelled images and wants to rank candidate models 
 
 ```text
 - [ ] Step 1: Clarify task type (currently only semantic-segmentation models supported; instance models need v2)
-- [ ] Step 2: Gather candidates from both sources — search_models(ignore_checks=False) (or test-reports score ≥ 3) ∪ cellpose3-runner.list_supported_models(); see § Candidate pool — two sources
+- [ ] Step 2: Gather candidates from search_models(ignore_checks=False) (or test-reports score ≥ 3); see § Candidate pool
 - [ ] Step 3: For each candidate — call get_model_documentation to read the README, exclude domain mismatches
 - [ ] Step 4: Run all suitable models on each image, both clean and perturbed — 2·K·N infer() calls
 - [ ] Step 5: Compute per-(model, image) CMR-NHD; aggregate as median across images per model
@@ -857,9 +923,122 @@ When in doubt, call `search_models(keywords=[...])` first — these IDs are stab
 | `inputs` type | Behaviour |
 |---|---|
 | `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
-| `str` file path from `get_upload_url` | Upload the array to the presigned URL first, then pass the returned `file_path`. Preferred for large arrays. |
-| `numpy.ndarray` | Sent over RPC. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
+| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. |
+| `numpy.ndarray` | Sent over RPC, which means the decoded array is held in the proxy actor's memory for the whole call. Fine for one caller, and the wrong choice under concurrency — see the note after the example. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
 | `dict[str, np.ndarray \| str]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
+
+### Uploading a local image — the full contract
+
+Three steps, and none of the names are guessable from the signature, so copy them:
+
+```python
+import io, numpy as np, urllib.request
+from PIL import Image
+
+# 1. ask for a slot. The kwarg is `file_type` (NOT `suffix`), and it must be one of
+#    ".npy" ".png" ".tiff" ".tif" ".jpeg" ".jpg"
+slot = await mr.get_upload_url(file_type=".png")
+# -> {"upload_url": "https://…", "file_path": "…"}   NOTE: "upload_url", not "url"
+
+# 2. PUT the bytes yourself — the worker does not fetch them for you
+buf = io.BytesIO()
+Image.fromarray(arr.astype("uint8")).save(buf, format="PNG")
+urllib.request.urlopen(urllib.request.Request(
+    slot["upload_url"], data=buf.getvalue(), method="PUT",
+    headers={"Content-Type": "application/octet-stream"}))
+
+# 3. infer on the RETURNED PATH, not the URL
+result = await run_infer(mr, model_id, slot["file_path"])   # submit + poll
+```
+
+The slot has a **1-hour TTL**, so request it immediately before the upload rather than reusing one.
+
+#### The same thing from the shell, with no Python
+
+Verified end to end against the live KTH app. `jq` is not present in the worker image, so the
+extraction below uses `sed` and needs nothing installed:
+
+```bash
+MR='bioimage-io/bioengine-worker-<host>-<hash>-<replica>:model-runner'   # see § Service ID
+
+SLOT=$(bioengine call "$MR" get_upload_url --args '{"file_type": ".png"}' --json)
+URL=$(printf '%s' "$SLOT" | sed -n 's/.*"upload_url": "\([^"]*\)".*/\1/p')
+FP=$(printf  '%s' "$SLOT" | sed -n 's/.*"file_path": "\([^"]*\)".*/\1/p')
+
+curl -X PUT --data-binary @cell.png "$URL"          # the worker does not fetch it for you
+
+RID=$(bioengine call "$MR" infer \
+        --args "{\"model_id\": \"idealistic-eagle\", \"inputs\": \"$FP\",
+                 \"return_download_url\": true}" --json | tr -d '" ')
+
+ST=$(bioengine call "$MR" get_infer_status --args "{\"request_id\": \"$RID\"}" --json)
+
+# the result is a presigned .npy URL; --compressed is REQUIRED (see below)
+RES=$(printf '%s' "$ST" | sed -n 's/.*"labels": "\([^"]*\)".*/\1/p')
+curl -s --compressed -o result.npy "$RES"
+```
+
+**Two things here will cost you an hour if you skip them.** Quote `"$RES"` — a presigned URL is
+full of `&`, and an unquoted one is split by the shell into a truncated URL that S3 answers with a
+403 `AccessDenied` document. And pass `--compressed`: the object is served `Content-Encoding: gzip`,
+so a plain `curl` writes the **1887-byte gzip body** instead of the array, and `np.load` then fails
+with `Cannot load file containing pickled data` — an error that names the wrong cause entirely.
+Measured on the live app:
+
+```
+curl --compressed -o result.npy "$RES"   -> 1,048,704 bytes, magic \x93NUMPY, np.load OK (1,1,512,512)
+curl              -o result.npy "$RES"   ->     1,887 bytes, gzip blob, np.load raises
+```
+
+Note also that `curl -w '%{size_download}'` reports the **wire** size, 1887, in both cases — so a
+size check on that number cannot tell a good fetch from a bad one. **Assert on the magic bytes of
+the file you wrote, not on any size:**
+
+```bash
+head -c6 result.npy | grep -q NUMPY || { echo "not an npy — did you forget --compressed?"; exit 1; }
+```
+
+Sizes are the wrong thing to pin. 1887 is the gzipped body and 1,048,704 the array *today*; if the
+endpoint ever stops serving `Content-Encoding: gzip` the wire size becomes the larger number and any
+check written against either literal breaks. The magic survives both.
+
+`infer` returns the id alone, so poll `get_infer_status` until `state` is `completed`, `failed` or
+`cancelled` — a warm replica takes about five seconds. Quoting note: the `--args` value is JSON
+inside a shell string, so the inner quotes have to be escaped as above; a single-quoted `--args`
+cannot interpolate `$FP`.
+
+
+**Why this path rather than passing the array.** `infer()` resolves URL and uploaded-path inputs and spills them to disk under `$HOME/.model-runner-inference/<request_id>/input/`, so a large image does not occupy RAM during the queue-and-download wait. An `np.ndarray` sent over RPC is instead held decoded in the ProxyDeployment actor for the lifetime of the call, and that actor admits a bounded number of concurrent requests precisely because a queued caller keeps its payload resident. Under concurrency the array path is what turns a busy app into a memory problem; the upload path is not. If you are writing a client that many people will run at once, use the upload path.
+
+**Shape is not negotiable, and a wrong shape does not fail cleanly.** A model declaring a fixed input size accepts that size only — there is no resize anywhere in the runner. Measured against Cellpose-SAM (`idealistic-eagle`), whose RDF declares `[batch, channel(3), y=256, x=256]`: a 256x256 RGB input completes in ~5 s against a warm replica and ~30 s when the model still has to download; 192x192 is rejected server-side; 512x512 and 640x480 neither complete nor return an error within several minutes. Read `rdf["inputs"][0]["axes"]` and conform to it before sending, and treat "no response" as a probable shape mismatch rather than a slow model.
+
+**Channel count is checked too, and grayscale is the common way to trip it.** Cellpose-SAM
+(`idealistic-eagle`) declares three channels, so a single-channel image is refused before inference
+starts — measured in production, a 1-channel array fails in ~3 s while the same pixels as 3 channels
+complete in ~32 s. A real workshop participant hit this with an 807x696 grayscale micrograph, and
+most microscopy is single-channel, so expect it.
+
+```python
+rdf = await mr.get_model_rdf(model_id=model_id)
+ch = next((a for a in rdf["inputs"][0]["axes"] if a.get("type") == "channel"), None)
+need = len(ch.get("channel_names") or []) if ch else None     # 3 for Cellpose-SAM
+```
+
+**The remedy is yours to choose, and it is not free.** Stacking one channel into three lets the model
+run, but the extra channels are *invented*: the mask you get back was computed partly on data you did
+not supply. For a model whose channels carry no declared meaning — Cellpose-SAM's are named
+`channel0/1/2` — two obvious fabrications (repeat the channel; put it in channel 0 and zero the rest)
+agree to 0.9997 per pixel on the same image, so neither is obviously better than the other. That
+agreement says they are *similarly* wrong, not that either is faithful. Decide deliberately, and
+record which you used alongside the result:
+
+```python
+arr3 = np.repeat(arr1, 3, axis=channel_axis)     # explicit, and worth noting in your provenance
+```
+
+If your single channel means something specific — one stain, one wavelength — a model that wants
+three is arguably the wrong model for it, and that is worth knowing before the mask informs a
+measurement.
 
 Once resolved, the `result` (from `get_infer_status` / `run_infer`) is a `dict` keyed by the RDF's `outputs[i].id` (e.g. `"masks"`, `"prediction"`, `"output0"` — model-dependent). Always read the key from the RDF; do **not** hard-code `"output0"`:
 
@@ -903,7 +1082,7 @@ flows = await run_infer(
 )
 ```
 
-The same two arguments exist on [cellpose3-runner](../cellpose3-runner.md) with identical semantics, so one client code path drives both apps. In practice the Cellpose-3 zoo models declare no processing ops at all, so there is nothing to override there.
+In practice the Cellpose-3 zoo models declare no processing ops at all, so there is nothing to override for them.
 
 ## Deploying and updating the model-runner app
 
@@ -921,12 +1100,18 @@ s = await connect_to_server({"server_url": "https://hypha.aicell.io",
                              "workspace": my_workspace})
 worker = await s.get_service(f"{my_workspace}/bioengine-worker")
 
-app_id = await worker.deploy_app(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/model-runner",
     application_id="model-runner",            # stable app id ⇒ stable service id
     hypha_token=admin_token,                  # required: model-runner registers Hypha services internally
-    # version="1.2.3",                        # optional: pin a specific artifact version (default: latest)
+    # version="1.2.3",                        # optional pin. Omitting it does NOT mean "latest" when
+    #                                         # this application_id is already running: see SKILL.md,
+    #                                         # "Which version you get".
 )
+# 0.16.29+ returns a mapping, earlier workers a bare string. See SKILL.md,
+# "What deploy_app returns".
+app_id = result if isinstance(result, str) else result["application_id"]
+
 ```
 
 Or via the CLI:

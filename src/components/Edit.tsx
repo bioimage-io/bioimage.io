@@ -20,6 +20,8 @@ import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, detectRd
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { resolveTestReportUrl, extractFilePath } from '../utils/urlHelpers';
 import { updateManifestSha256, updateRdfFileReference } from '../utils/sha-handling';
+import { logFailure } from '../utils/failureLog';
+import { mintZenodoVersion } from '../utils/zenodoMint';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -448,6 +450,30 @@ const Edit: React.FC = () => {
   // already committed the same staging area. Reading first turns that race
   // from an `AssertionError: Artifact must be in staging mode to commit` into
   // a no-op, since the changes have already landed in the committed version.
+  /**
+   * Mint a Zenodo version for the artifact just committed.
+   *
+   * Real Zenodo is refused unless opted in, because a DOI is permanent: see
+   * utils/zenodoMint. The outcome is logged rather than surfaced, except for a
+   * genuine failure, which goes to the failure log so it can reach a report.
+   */
+  const mintAfterCommit = async (step: string) => {
+    const outcome = await mintZenodoVersion({
+      artifactManager,
+      artifactId: artifactId!,
+      config: (artifactInfo as any)?.config,
+    });
+    if (outcome.status === 'failed') {
+      logFailure(outcome.error, {
+        operation: 'edit',
+        step: `zenodo-mint (${step}, target ${outcome.target})`,
+        artifactId,
+      });
+    } else {
+      console.log(`[zenodo-mint:${step}]`, JSON.stringify(outcome));
+    }
+  };
+
   const commitIfStaged = async (comment: string): Promise<void> => {
     if (!artifactManager || !artifactId) return;
 
@@ -481,7 +507,7 @@ const Edit: React.FC = () => {
         });
       }
     } catch (permErr) {
-      console.error('Could not sync author/maintainer permissions before commit:', permErr);
+      logFailure(permErr, { operation: 'edit', step: 'sync-contributor-permissions', artifactId });
     }
 
     // Don't gate on a client-side `staging` field: the default (committed) read
@@ -490,10 +516,37 @@ const Edit: React.FC = () => {
     // "Artifact must be in staging mode to commit" assertion (already committed /
     // nothing staged) as a no-op. This preserves the auto-stage race-tolerance
     // (handleSave / onDrop / the setTimeout recursion may have already committed).
+    // Name the Hypha version after the model's own RDF version, so the two stop
+    // drifting apart. Forward only: existing artifacts keep the version names
+    // they already have, and migrating them is a separate decision (#0015).
+    //
+    // Only on a NEW version. An in-place edit_version must keep the name of the
+    // version it is overwriting, and renaming it would silently move a published
+    // identifier.
+    //
+    // The RDF version is used VERBATIM, not normalised and never invented. The
+    // collection carries `0.1.0`, `1`, `1.2` and `1.0.0`, and the point of this
+    // change is that the Hypha version mirrors whatever the model declares.
+    const rdfVersion = String((artifactInfo?.manifest as any)?.version ?? '').trim();
+    const existingVersionNames = (artifactInfo?.versions ?? []).map((v: any) => String(v?.version));
+    const namingNewVersion = stagingIntent === 'new_version' && Boolean(rdfVersion);
+
+    // The bump guard. Committing a new version while the RDF still declares the
+    // version already published would either collide or silently produce two
+    // Hypha versions claiming to be the same model version.
+    if (namingNewVersion && existingVersionNames.includes(rdfVersion)) {
+      throw new Error(
+        `This model already has a published version ${rdfVersion}. ` +
+          `Bump the \`version\` field in the RDF before publishing a new one, ` +
+          `so the published version and the model's own version stay in step.`,
+      );
+    }
+
     try {
       await artifactManager.commit({
         artifact_id: artifactId,
         comment,
+        ...(namingNewVersion ? { version: rdfVersion } : {}),
         _rkwargs: true
       });
     } catch (err) {
@@ -501,7 +554,12 @@ const Edit: React.FC = () => {
       if (/staging mode to commit|must be in staging/i.test(msg)) return;
       throw err;
     }
+    // svamp #0062: every model-change commit mints a Zenodo version. Runs AFTER
+    // the commit succeeded and deliberately cannot fail it: the artifact state is
+    // already correct, so a Zenodo outage must not read as a failed save.
+    await mintAfterCommit('commit');
   };
+
 
   const handleStageForEditing = async () => {
     if (!artifactManager || !artifactId) return;
@@ -510,7 +568,7 @@ const Edit: React.FC = () => {
       await artifactManager.edit({ artifact_id: artifactId, stage: true, _rkwargs: true });
       navigate(`/edit/${encodeURIComponent(artifactId)}/stage`);
     } catch (error) {
-      console.error('Error staging artifact:', error);
+      logFailure(error, { operation: 'edit', step: 'edit(stage=true)', artifactId });
       setUploadStatus({ message: 'Failed to stage artifact for editing', severity: 'error' });
       showError('Failed to stage artifact for editing', error, artifactId);
     }
@@ -523,7 +581,7 @@ const Edit: React.FC = () => {
       await commitIfStaged('Updated model');
       navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
-      console.error('Error committing staged changes:', error);
+      logFailure(error, { operation: 'edit', step: 'commit', artifactId });
       setUploadStatus({ message: 'Failed to commit changes', severity: 'error' });
       showError('Failed to commit changes', error, artifactId);
     }
@@ -543,7 +601,7 @@ const Edit: React.FC = () => {
       await artifactManager.discard({ artifact_id: artifactId, _rkwargs: true });
       navigate(`/edit/${encodeURIComponent(artifactId)}`);
     } catch (error) {
-      console.error('Error discarding staged changes:', error);
+      logFailure(error, { operation: 'edit', step: 'discard', artifactId });
       setUploadStatus({ message: 'Failed to discard changes', severity: 'error' });
     }
   };
@@ -1368,6 +1426,10 @@ const Edit: React.FC = () => {
           comment: `Published by ${user?.email}`,
           _rkwargs: true
         });
+        // svamp #0062: mint a Zenodo version for this commit too. Only on the
+        // branch that actually committed; the else branch below just re-reads
+        // state and changed nothing, so there is nothing to mint for.
+        await mintAfterCommit('publish-flow');
       } else {
         // Already committed, just read the current state
         artifact = await artifactManager?.read({

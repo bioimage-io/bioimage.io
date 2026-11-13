@@ -21,6 +21,7 @@ import FormatQuoteIcon from '@mui/icons-material/FormatQuote';
 import GavelIcon from '@mui/icons-material/Gavel';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
+import InfoOutlinedIcon from '@mui/icons-material/InfoOutlined';
 import RadioButtonUncheckedIcon from '@mui/icons-material/RadioButtonUnchecked';
 import AssignmentTurnedInIcon from '@mui/icons-material/AssignmentTurnedIn';
 import DevicesIcon from '@mui/icons-material/Devices';
@@ -49,7 +50,6 @@ import TestReportDialog from './TestReportDialog';
 import TestDetailsDialog from './TestDetailsDialog';
 import ArtifactFiles from './ArtifactFiles';
 import { useBookmarks } from '../hooks/useBookmarks';
-import { useCellpose3Runner } from '../hooks/useCellpose3Runner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 
 // The BioEngine inference-check status is derived from the model's test-report
@@ -87,6 +87,10 @@ const ArtifactDetails = () => {
   const modelContainerRef = useRef<HTMLDivElement>(null);
   const fullscreenContainerRef = useRef<HTMLDivElement>(null);
   const [isStaged, setIsStaged] = useState(false);
+  // Core version of the model's PUBLISHED report, fetched only while viewing a
+  // staged one. A reviewer sees which bioimageio.core produced a staged verdict
+  // (it is already rendered) but has no way to tell that version is behind.
+  const [publishedCoreVersion, setPublishedCoreVersion] = useState<string | null>(null);
   const [canEdit, setCanEdit] = useState(false);
   const navigate = useNavigate();
   const { isBookmarked, toggleBookmark } = useBookmarks(artifactManager);
@@ -101,21 +105,31 @@ const ArtifactDetails = () => {
     status: 'passed' | 'failed' | 'timeout';
     message: string;
     tested_at: number;
+    /**
+     * The model declares its own conda environment, so Run Model cannot serve
+     * it: infer() spawns its child with the replica's own venv and never builds
+     * a conda env (that happens only on the test path).
+     *
+     * The button stays clickable but never reaches handleRunModel, because
+     * canTestRun is false: clicking opens the explanation dialog instead. So the
+     * guard is already correct. What this flag changes is only the PRESENTATION,
+     * because a limit of the service is not a verdict on the model and must not
+     * be painted as a failure.
+     */
+    needsOwnEnvironment: boolean;
   } | null>(null);
   const [isBioengineErrorDialogOpen, setIsBioengineErrorDialogOpen] = useState(false);
   const [isTestButtonHovered, setIsTestButtonHovered] = useState(false);
-  // Cellpose-3 models can't be run by model-runner at all, so their Run Model
-  // routes to cellpose3-runner instead once supported. Their bioengineStatus
-  // comes from `test`, which still accepts them (it runs in each model's own
-  // conda env), so it normally passes on its own; the isCellpose3Model escape
-  // hatch keeps the button live even when that report is stale or failed.
-  const cellpose3 = useCellpose3Runner();
+  // model-runner 2.11.2 serves Cellpose-3 from its own internal environment, so
+  // these models are listed, checked and run like any other. The former escape
+  // hatch (a cellpose3-runner capability probe that granted a Run Model button
+  // without passing the inference check) is gone: a model that fails the check
+  // should not offer a run, Cellpose-3 included.
   const modelId = selectedResource?.id ? selectedResource.id.split('/').pop() : undefined;
   // Null for every model that did not come out of a federation campaign,
   // which is almost all of them.
   const federationCampaignId = getCampaignIdFromManifest(selectedResource?.manifest);
-  const isCellpose3Model = cellpose3.isSupported(modelId);
-  const canTestRun = bioengineStatus?.status === 'passed' || isCellpose3Model;
+  const canTestRun = bioengineStatus?.status === 'passed';
 
   // Resolve a documentation URL for a given software name.
   // bioengine and bioimageio.core are not in the partner API so they
@@ -355,13 +369,35 @@ const ArtifactDetails = () => {
         if (typeof score !== 'number') { setBioengineStatus(null); return; }
         const inferencePassed = (score >= 3 && score <= 4) || (score >= 7 && score <= 8);
         let message = '';
+        // model-runner 2.10.4+ marks the default-env inference check `skipped`
+        // (rather than failing it on a missing import) when the model declares
+        // its own conda environment.
+        let needsOwnEnvironment = false;
+        // When the verdict was produced. This used to be hardcoded to 0, which
+        // silently disabled both "Tested at" tooltips on the Test Run button,
+        // since they are written as `tested_at ? ... : ''`.
+        //
+        // It matters more than it looks. A verdict is reproducible for a given
+        // model, runner version and SOLVED conda environment, but a model with
+        // an unpinned environment.yaml gets a fresh solve whenever the runner's
+        // weekly sweep evicts the cached env, and can then change verdict with
+        // nothing in the model or the runner having changed. So the age of a
+        // verdict is part of reading it, and we were throwing it away.
+        let testedAt = 0;
         try {
           if (repResp && repResp.ok) {
             const rep = await repResp.json();
             message = rep?.inference_check?.error ?? '';
+            needsOwnEnvironment = rep?.inference_check?.status === 'skipped';
+            testedAt = Number(rep?.tested_at) || 0;
           }
         } catch { /* report unreachable — leave the message empty */ }
-        setBioengineStatus({ status: inferencePassed ? 'passed' : 'failed', message, tested_at: 0 });
+        setBioengineStatus({
+          status: inferencePassed ? 'passed' : 'failed',
+          message,
+          tested_at: testedAt,
+          needsOwnEnvironment,
+        });
       } catch (error) {
         console.error('Failed to derive bioengine status from score:', error);
         setBioengineStatus(null);
@@ -369,6 +405,32 @@ const ArtifactDetails = () => {
     };
 
     fetchBioengineStatus();
+  }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
+
+  // The comparand for the staleness badge. Deliberately the model's own published
+  // report rather than a hardcoded "current" version (which rots silently on the
+  // next core bump, the exact failure this badge exists to catch) or a collection
+  // -wide modal version (a heuristic, and wrong mid re-test run). This is an exact
+  // measurement of two real reports, at the cost of only flagging staleness the
+  // model's own history can prove.
+  useEffect(() => {
+    if (!isStaged || selectedResource?.manifest?.type !== 'model' || !selectedResource?.id) {
+      setPublishedCoreVersion(null);
+      return;
+    }
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch(`${resolveTestReportUrl(selectedResource.id, false)}&t=${Date.now()}`);
+        if (!res.ok) return;
+        const published = await res.json();
+        const ver = published?.env?.find((pkg: any[]) => pkg[0] === 'bioimageio.core')?.[1];
+        if (!cancelled && typeof ver === 'string') setPublishedCoreVersion(ver);
+      } catch {
+        /* advisory only: no published report, or unreachable. No badge, no error. */
+      }
+    })();
+    return () => { cancelled = true; };
   }, [selectedResource?.id, selectedResource?.manifest?.type, isStaged]);
 
   // Validation function to check if parsed JSON is a valid test report
@@ -437,15 +499,34 @@ const ArtifactDetails = () => {
   // test-reports collection (testReportData), NOT the deprecated manifest
   // `test_summary`. The collection stores one DetailedTestReport per model, so
   // this yields a single summary row.
+  /** Numeric-segment compare, so 0.10.4 sorts after 0.9.6 rather than before it. */
+  const isOlderVersion = (a: string, b: string): boolean => {
+    const seg = (v: string) => v.split(/[.+-]/).map(n => (/^\d+$/.test(n) ? Number(n) : NaN));
+    const x = seg(a), y = seg(b);
+    for (let i = 0; i < Math.max(x.length, y.length); i++) {
+      const p = x[i] ?? 0, q = y[i] ?? 0;
+      if (Number.isNaN(p) || Number.isNaN(q)) return false;  // unparseable: never claim stale
+      if (p !== q) return p < q;
+    }
+    return false;
+  };
+
   const getTestReports = (): TestReport[] | null => {
     if (!testReportData) return null;
     const coreVer = testReportData.env?.find(
       (pkg: any[]) => pkg[0] === 'bioimageio.core'
     )?.[1];
+    // Only ever set while viewing a staged report that has a published one to
+    // compare against. Absent comparand means no claim, not "fresh".
+    const staleCore = Boolean(
+      coreVer && publishedCoreVersion && isOlderVersion(coreVer, publishedCoreVersion)
+    );
     return [{
       name: testReportData.name || 'BioEngine test',
       status: testReportData.status === 'passed' ? 'passed' : testReportData.status,
       runtime: coreVer ? `bioimageio.core ${coreVer}` : (testReportData.status || ''),
+      staleCore,
+      staleAgainst: staleCore ? publishedCoreVersion ?? undefined : undefined,
     }];
   };
 
@@ -800,11 +881,14 @@ const ArtifactDetails = () => {
                   // log in, or explain that the model has no BioEngine inference
                   // report yet (the grey state). Mirrors the Review & Publish
                   // button's HintTooltip.
+                  const needsOwnEnv = !!bioengineStatus?.needsOwnEnvironment;
                   const testRunHint = !isLoggedIn
                     ? 'Please log in to test run models'
-                    : (!bioengineStatus && !isCellpose3Model)
+                    : (!bioengineStatus)
                       ? 'This model has not been validated on the BioEngine yet.'
-                      : undefined;
+                      : needsOwnEnv
+                        ? 'This model needs its own software environment, which the Run Model service does not provide.'
+                        : undefined;
                   return (
                   <HintTooltip hint={testRunHint}>
                     <div
@@ -813,13 +897,9 @@ const ArtifactDetails = () => {
                       data-highlight-login={!isLoggedIn && isTestButtonHovered ? 'true' : 'false'}
                     >
                       <Button
-                        // Stay disabled until the cellpose3-runner probe settles.
-                        // A Cellpose-3 model can carry a FAILED bioengineStatus
-                        // (model-runner cannot run it), which alone enables the
-                        // button. Clicking in that window reads isCellpose3Model
-                        // as false and raises the BioEngine failure dialog
-                        // instead of routing to cellpose3-runner.
-                        disabled={(!bioengineStatus && !isCellpose3Model) || !isLoggedIn || cellpose3.loading}
+                        // No report yet means nothing is known about the model,
+                        // so there is nothing to run and nothing to explain.
+                        disabled={!bioengineStatus || !isLoggedIn}
                         onClick={() => {
                           if (canTestRun) {
                             handleRunModel();
@@ -838,12 +918,7 @@ const ArtifactDetails = () => {
                               <CheckCircleIcon sx={{ fontSize: 20 }} />
                             </Box>
                           </Tooltip>
-                        ) : (bioengineStatus && !cellpose3.loading) ? (
-                          // Held back while the cellpose3-runner probe is in
-                          // flight: a Cellpose-3 model can carry a FAILED
-                          // bioengineStatus, so showing the failure icon here
-                          // would flash a wrong status before flipping to the
-                          // passing one a moment later.
+                        ) : (bioengineStatus && !needsOwnEnv) ? (
                           <Tooltip
                             title={bioengineStatus.tested_at ? `Tested at: ${new Date(bioengineStatus.tested_at * 1000).toUTCString()}` : ''}
                             arrow
@@ -855,21 +930,21 @@ const ArtifactDetails = () => {
                         ) : undefined}
                         sx={{
                           borderRadius: '12px',
-                          backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.05)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
+                          backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.05)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.05)' : 'rgba(59, 130, 246, 0.05)'),
                           backdropFilter: 'blur(8px)',
-                          border: `2px solid ${canTestRun ? '#22c55e' : (bioengineStatus ? '#ef4444' : '#3b82f6')}`,
-                          color: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#3b82f6'),
+                          border: `2px solid ${canTestRun ? '#22c55e' : ((bioengineStatus && !needsOwnEnv) ? '#ef4444' : '#3b82f6')}`,
+                          color: canTestRun ? '#16a34a' : ((bioengineStatus && !needsOwnEnv) ? '#dc2626' : '#3b82f6'),
                           fontWeight: 500,
                           px: 4,
                           py: 1.5,
                           fontSize: '0.95rem',
                           transition: 'all 0.3s ease',
                           '&:hover': {
-                            backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.1)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
-                            borderColor: canTestRun ? '#16a34a' : (bioengineStatus ? '#dc2626' : '#2563eb'),
+                            backgroundColor: canTestRun ? 'rgba(34, 197, 94, 0.1)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.1)' : 'rgba(59, 130, 246, 0.1)'),
+                            borderColor: canTestRun ? '#16a34a' : ((bioengineStatus && !needsOwnEnv) ? '#dc2626' : '#2563eb'),
                             color: canTestRun ? '#15803d' : (bioengineStatus ? '#b91c1c' : '#2563eb'),
                             transform: 'translateY(-2px) scale(1.02)',
-                            boxShadow: `0 8px 25px ${canTestRun ? 'rgba(34, 197, 94, 0.2)' : (bioengineStatus ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
+                            boxShadow: `0 8px 25px ${canTestRun ? 'rgba(34, 197, 94, 0.2)' : ((bioengineStatus && !needsOwnEnv) ? 'rgba(239, 68, 68, 0.2)' : 'rgba(59, 130, 246, 0.2)')}`,
                           },
                           '&.Mui-disabled': {
                             borderColor: 'rgba(0, 0, 0, 0.12)',
@@ -938,6 +1013,11 @@ const ArtifactDetails = () => {
                                   <Typography variant="caption" sx={{ color: '#6b7280', fontSize: '0.75rem', display: 'block', mt: 0.5 }}>
                                     {testReport.runtime}
                                   </Typography>
+                                  {/* The stale-core warning used to live here. This whole Popover
+                                      is unreachable (svamp #0059): its `open` gate reads an anchor
+                                      that nothing has assigned since 302ea59, so the warning never
+                                      rendered. It now sits in the report dialog, which reviewers
+                                      actually open. Do not add UI here without restoring a trigger. */}
                                 </Box>
                                 <Chip
                                   label={testReport.status}
@@ -2222,6 +2302,17 @@ const ArtifactDetails = () => {
         isLoading={isLoadingTestReport}
         rawErrorContent={rawErrorContent}
         isInvalidJson={isInvalidJson}
+        /* svamp #0017/#0059. publishedCoreVersion is only ever populated while
+           viewing a staged report, so the staged-only gating is already in the
+           state itself. Null comparand means no claim, not "current". */
+        staleAgainstCoreVersion={(() => {
+          const coreVer = (detailedTestReport as any)?.env?.find(
+            (pkg: any[]) => pkg[0] === 'bioimageio.core'
+          )?.[1];
+          return coreVer && publishedCoreVersion && isOlderVersion(coreVer, publishedCoreVersion)
+            ? publishedCoreVersion
+            : null;
+        })()}
       />
 
       {/* BioEngine Error Dialog */}
@@ -2233,8 +2324,14 @@ const ArtifactDetails = () => {
       >
         <DialogTitle sx={{ m: 0, p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
           <Typography variant="h6" sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <CancelIcon sx={{ color: '#ef4444' }} />
-            BioEngine Test Run Failed
+            {bioengineStatus?.needsOwnEnvironment ? (
+              <InfoOutlinedIcon sx={{ color: '#3b82f6' }} />
+            ) : (
+              <CancelIcon sx={{ color: '#ef4444' }} />
+            )}
+            {bioengineStatus?.needsOwnEnvironment
+              ? 'This model needs its own software environment'
+              : 'BioEngine Test Run Failed'}
           </Typography>
           <IconButton
             onClick={() => setIsBioengineErrorDialogOpen(false)}
@@ -2244,6 +2341,14 @@ const ArtifactDetails = () => {
           </IconButton>
         </DialogTitle>
         <DialogContent dividers>
+          {bioengineStatus?.needsOwnEnvironment && (
+            <Typography variant="body2" sx={{ mb: 2, color: '#374151' }}>
+              This model declares its own conda environment. The Run Model service runs every
+              model in one shared environment, so it cannot serve this one. That is a limit of
+              the service, not a problem with the model: the model was validated in its own
+              environment and its test report shows the result.
+            </Typography>
+          )}
           <Box sx={{ p: 2, backgroundColor: '#f9fafb', borderRadius: 2 }}>
             <pre style={{ 
               whiteSpace: 'pre-wrap', 

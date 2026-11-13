@@ -7,10 +7,15 @@ import { useNavigate } from 'react-router-dom';
 import { Spinner } from './Spinner';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { getIsReviewer } from '../utils/roles';
+import { REQUEST_LOGIN_EVENT } from '../utils/loginRequest';
+import { truncateUserId, copyText } from '../utils/userId';
 
 interface User {
   email: string;
   roles?: string[];
+  /** Provider-qualified id, e.g. `github|123` or `google-oauth2|456`. Shown in
+   *  the dropdown because the same email can belong to different accounts. */
+  id?: string;
 }
 
 interface LoginButtonProps {
@@ -47,6 +52,20 @@ export const hasSavedToken = () => getSavedToken() !== null;
 export default function LoginButton({ className = '' }: LoginButtonProps) {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
+  const [copiedUserId, setCopiedUserId] = useState(false);
+
+  /**
+   * Copy the full user id and confirm it only once the clipboard accepted it.
+   * navigator.clipboard is absent on insecure origins, so a blind "Copied" would
+   * sometimes be a lie.
+   */
+  const copyUserId = async (id: string) => {
+    if (await copyText(id)) {
+      setCopiedUserId(true);
+      window.setTimeout(() => setCopiedUserId(false), 1500);
+    }
+  };
+
   const [isHighlighted, setIsHighlighted] = useState(false);
   const { client, user, connect, setUser, server, artifactManager, isConnecting, isConnected, connectionStatus, logout, pendingReviewCount, refreshPendingReviewCount } = useHyphaStore();
   const navigate = useNavigate();
@@ -229,6 +248,15 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
   }, [connect, location.pathname, location.search, location.hash, navigate, login, isConnected, server, user?.email]);
 
 
+  // Let any page ask for the login flow without reaching into this component.
+  // Used by screens that would otherwise have to tell the user to go and find
+  // this button, e.g. a shared BioEngine dashboard link opened while logged out.
+  useEffect(() => {
+    const onRequest = () => { void handleLogin(); };
+    window.addEventListener(REQUEST_LOGIN_EVENT, onRequest);
+    return () => window.removeEventListener(REQUEST_LOGIN_EVENT, onRequest);
+  }, [handleLogin]);
+
   // Auto-login on component mount if token exists and not connected/connecting
   useEffect(() => {
     const autoLogin = async () => {
@@ -375,6 +403,25 @@ export default function LoginButton({ className = '' }: LoginButtonProps) {
             <div id="user-dropdown" className="absolute right-0 mt-2 w-48 bg-white rounded-md shadow-lg py-1 z-999 border border-gray-200">
               <div className="px-4 py-2 border-b border-gray-200">
                 <div className="text-sm text-gray-700 truncate">{user.email}</div>
+                {/* The user id, not just the email. The same address can map to
+                    different accounts depending on the sign-in provider, and the
+                    id is the only thing that distinguishes them. A contributor
+                    lost access to his own models this way: they were owned by his
+                    GitHub identity while he was signed in through Google, with
+                    the same email shown either way and nothing on screen to say
+                    so. Truncated because the ids are long, copyable in full
+                    because support questions need the exact string. */}
+                {user.id && (
+                  <button
+                    type="button"
+                    onClick={() => copyUserId(user.id)}
+                    title={copiedUserId ? 'Copied' : `${user.id} (click to copy)`}
+                    aria-label={`User ID ${user.id}. Click to copy.`}
+                    className="mt-0.5 block w-full text-left font-mono text-[11px] text-gray-400 hover:text-gray-600 truncate transition-colors"
+                  >
+                    {copiedUserId ? 'Copied' : truncateUserId(user.id)}
+                  </button>
+                )}
                 <div className="mt-1 flex items-center gap-1.5">
                   <span
                     className={`inline-block h-2 w-2 rounded-full flex-shrink-0 ${connMeta.dot} ${connMeta.pulse ? 'motion-safe:animate-pulse' : ''}`}

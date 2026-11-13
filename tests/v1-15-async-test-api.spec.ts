@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 
-// Integration test for the v1.15.2 async model-runner API against the deNBI
+// Integration test for the v1.15.2 async model-runner API against the KTH
 // worker (the site that runs the new async API).
 //
 // Requires:
@@ -8,7 +8,9 @@ import { test, expect } from '@playwright/test';
 //   Dev server running: pnpm start
 //
 // What this tests:
-//   - The deNBI runner site is selected in the Advanced Options popover (v1.15.2 async API).
+//   - The KTH runner site is selected in the Advanced Options popover. The async
+//     API was first shipped on deNBI, but is not specific to it; deNBI stopped
+//     hosting a model-runner on 2026-09-25, so this exercises KTH instead.
 //   - The shared "Run Model Test" options dialog opens when "Test Model" is clicked.
 //   - After "Run Test", the TestDetailsDialog title is "Model Testing in Progress".
 //   - The overall test start time sits on TOP. Per-step queue state is shown
@@ -27,8 +29,16 @@ const MODEL_URL_ID = encodeURIComponent(MODEL_ID); // bioimage-io%2Faffable-shar
 
 const injectToken = (token: string) => ({ tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 
-test.describe('v1.15.2 async model test API (deNBI)', () => {
-  test('Edit page: switch to deNBI, timeline shows start times and final result', async ({ page }) => {
+test.describe('v1.15.2 async model test API (KTH)', () => {
+  // Serial, and generous with time. Both cases start a real skip-cache model
+  // test, and since deNBI stopped hosting a model-runner there is only ONE
+  // runner left for them to land on. Run in parallel they queue behind each
+  // other for the same GPU slot, so the second sees no progress until the first
+  // finishes — which reads as a timeout rather than as contention. The original
+  // budgets were written when the two sites absorbed a test each.
+  test.describe.configure({ mode: 'serial' });
+
+  test('Edit page: select KTH, timeline shows start times and final result', async ({ page }) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -36,7 +46,7 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     }
 
     // 5 minutes total: Hypha WS connect + artifact load + queue wait + test run
-    test.setTimeout(300000);
+    test.setTimeout(600000);
 
     // Inject a valid Hypha token so the auto-login fires on page load.
     await page.addInitScript(({ tok, expiry }) => {
@@ -50,14 +60,14 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // resolves to 'model' via a successful Hypha artifact-manager RPC call.
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
 
-    // Step 2: Switch the runner site to deNBI (the v1.15.2 async API) in the
+    // Step 2: Select the KTH runner site (which serves the v1.15.2 async API) in the
     // Advanced Options popover — runner-site selection lives there, not in the
     // Run Model Test dialog.
     await page.getByRole('button', { name: 'Advanced Options' }).click();
-    const denbi = page.getByRole('radio', { name: 'deNBI' });
-    await expect(denbi).toBeEnabled({ timeout: 30000 });
-    await denbi.click();
-    await expect(denbi).toHaveAttribute('aria-checked', 'true');
+    const siteRadio = page.getByRole('radio', { name: 'KTH' });
+    await expect(siteRadio).toBeEnabled({ timeout: 30000 });
+    await siteRadio.click();
+    await expect(siteRadio).toHaveAttribute('aria-checked', 'true');
 
     // Step 3: Open the shared options dialog and start the test with defaults.
     await page.getByRole('button', { name: 'Test Model' }).click();
@@ -72,12 +82,20 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     // renders as an inline "#N" pill only while a step is actually queued, so
     // there is no always-visible queue-position row to assert here; the #N pill
     // itself is covered by the dedicated queue-pill spec.)
-    await expect(page.getByText('Test started')).toBeVisible({ timeout: 120000 });
+    await expect(page.getByText('Test started')).toBeVisible({ timeout: 300000 });
 
     // Step 6: All three step rows are rendered (table is always shown).
     await expect(page.getByText('Preparing model')).toBeVisible({ timeout: 240000 });
     await expect(page.getByText('Environment setup')).toBeVisible();
     await expect(page.getByText('Running')).toBeVisible();
+
+    // No custom environment was requested, so Environment setup is skipped and
+    // its right-hand cell says so. This used to be a second test that started
+    // its own model run; with deNBI gone there is one runner left and the two
+    // runs simply queued behind each other, so whichever went second timed out
+    // waiting for a slot. It is an assertion about this same timeline, so it
+    // belongs in this run rather than in one of its own.
+    await expect(page.getByText('Skipped').first()).toBeVisible({ timeout: 120000 });
 
     // Step 7: The right-hand cell shows each step's duration in seconds —
     // "17s" while a step is running, "2.4s" once it has frozen.
@@ -99,47 +117,4 @@ test.describe('v1.15.2 async model test API (deNBI)', () => {
     ).toBeVisible({ timeout: 5000 });
   });
 
-  test('Edit page: skipped step is labelled Skipped', async ({ page }) => {
-    const token = process.env.HYPHA_TOKEN;
-    if (!token) {
-      test.skip();
-      return;
-    }
-
-    test.setTimeout(300000);
-
-    await page.addInitScript(({ tok, expiry }) => {
-      localStorage.setItem('token', tok);
-      localStorage.setItem('tokenExpiry', expiry);
-    }, injectToken(token));
-
-    await page.goto(`/#/edit/${MODEL_URL_ID}`);
-
-    await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
-
-    // Switch to deNBI in the Advanced Options popover first.
-    await page.getByRole('button', { name: 'Advanced Options' }).click();
-    const denbi = page.getByRole('radio', { name: 'deNBI' });
-    await expect(denbi).toBeEnabled({ timeout: 30000 });
-    await denbi.click();
-    await expect(denbi).toHaveAttribute('aria-checked', 'true');
-
-    await page.getByRole('button', { name: 'Test Model' }).click();
-    const optionsDialog = page.getByRole('dialog').filter({ hasText: 'Run Model Test' });
-    await expect(optionsDialog.getByRole('heading', { name: 'Run Model Test' })).toBeVisible({ timeout: 5000 });
-
-    // Enable "Skip cache" (second checkbox) so the run actually downloads and
-    // runs rather than returning instantly from cache — that gives the
-    // in-progress timeline a stable window to observe. With no custom
-    // environment, the Environment setup step is skipped and its right-hand
-    // cell must read "Skipped" once the Running step has started.
-    await optionsDialog.locator('input[type="checkbox"]').nth(1).check();
-    await optionsDialog.getByRole('button', { name: 'Run Test' }).click();
-
-    await expect(page.getByText('Model Testing in Progress')).toBeVisible({ timeout: 15000 });
-    // Once the Running step has a start time, Environment setup is skipped and
-    // says so. Poll for it while the run is in its (real) running phase.
-    await expect(page.getByText('Running')).toBeVisible({ timeout: 240000 });
-    await expect(page.getByText('Skipped').first()).toBeVisible({ timeout: 120000 });
-  });
 });

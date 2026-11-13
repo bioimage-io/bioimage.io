@@ -42,11 +42,6 @@ export const BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID = BIOIMAGEIO_KTH_MODEL_RUNNER_SE
 // The per-site ids above stay in use for the Run Model site toggle.
 export const BIOIMAGEIO_MODEL_RUNNER_UNQUALIFIED_SERVICE_ID = 'bioimage-io/model-runner';
 
-// The Cellpose-3 runner serves the handful of zoo models whose architecture
-// needs a Cellpose 3.x runtime; model-runner's own runtime ships Cellpose 4
-// and rejects them. Unqualified for the same reason as above.
-export const BIOIMAGEIO_CELLPOSE3_RUNNER_SERVICE_ID = 'bioimage-io/cellpose3-runner';
-
 export type RunnerSite = 'kth' | 'denbi';
 
 // KTH is the default runner (RUNNER_SITES[0]); deNBI (v1.15.2 async API)

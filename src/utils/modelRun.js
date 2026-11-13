@@ -14,6 +14,7 @@ import {
 } from "./imgProcess";
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from "./bioengineService";
 import { HYPHA_SERVER_URL } from "../config/hypha";
+import { BIOIMAGEIO_YAML, RDF_YAML } from "./rdfFile";
 
 // Base URL for accessing artifact files
 const ARTIFACT_BASE_URL = `${HYPHA_SERVER_URL}/bioimage-io/artifacts`;
@@ -311,22 +312,40 @@ class BioEngineExecutor {
     console.log("Runner initialized with service:", serviceId);
   }
 
+  /**
+   * Load a model's description, preferring the v0.5 filename.
+   *
+   * `bioimageio.yaml` is the current name and `rdf.yaml` is the 0.4-era one. A
+   * model upgraded to format_version 0.5 carries only the former, so a hardcoded
+   * `rdf.yaml` fetch 404s on it. Measured on stupendous-sheep (2026-10-01):
+   * removing rdf.yaml after a v0.5 upgrade made this method throw, which
+   * disables Run Model entirely for that model.
+   *
+   * Tried in order rather than guessing from the manifest's format_version,
+   * because the filename and the declared version are independent: a 0.4
+   * description can sit in bioimageio.yaml and vice versa.
+   */
   async loadModelRdf(nickname) {
-    try {
-      const url = getArtifactFileUrl(nickname, 'rdf.yaml');
-      const rdfYaml = await fetch(url).then((res) => {
+    // Same precedence as findRdfFile/detectRdfFileName, from one definition.
+    const candidates = [BIOIMAGEIO_YAML, RDF_YAML];
+    const failures = [];
+    for (const name of candidates) {
+      try {
+        const res = await fetch(getArtifactFileUrl(nickname, name));
         if (!res.ok) {
-          throw new Error(`Failed to fetch RDF: ${res.status} ${res.statusText}`);
+          failures.push(`${name}: ${res.status} ${res.statusText}`);
+          continue;
         }
-        return res.text();
-      });
-      const rdf = yaml.load(rdfYaml);
-      rdf.id = nickname;
-      return rdf;
-    } catch (error) {
-      console.error("Error loading model RDF:", error);
-      throw new Error(`Failed to load model RDF for ${nickname}: ${error.message}`);
+        const rdf = yaml.load(await res.text());
+        rdf.id = nickname;
+        return rdf;
+      } catch (error) {
+        failures.push(`${name}: ${error.message}`);
+      }
     }
+    // Report every candidate, so a reader can tell "wrong name" from "no model".
+    console.error('Error loading model RDF:', failures.join('; '));
+    throw new Error(`Failed to load model RDF for ${nickname} (${failures.join('; ')})`);
   }
 
   async execute(modelId, inputs = null, progressCallback = null) {

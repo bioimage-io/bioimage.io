@@ -2,20 +2,50 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sys
 import time
 import traceback
 from pathlib import Path
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 import httpx
 from hypha_rpc import connect_to_server, login
 from hypha_rpc.utils import ObjectProxy
 
 
-# Fully-qualified id of the model-runner service to test against. Overridable
-# via --service-id so a run can target a specific worker/cluster.
+# Unqualified id of the model-runner service. Both compute sites register it,
+# so resolving it directly picks a site by load. Kept only as the base name
+# used when an explicit --service-id is not a site pin.
 DEFAULT_SERVICE_ID = "bioimage-io/model-runner"
+
+# The nightly is pinned to ONE compute site so its numbers are comparable night
+# to night. Resolving the unqualified id with {"mode": "select:min:get_load"}
+# picks whichever site is least busy at that moment and records nothing about
+# the choice, so the same model can produce different pixel counts, and even a
+# different verdict, on two consecutive nights with nothing in the report to
+# say why. KTH and deNBI do not agree bit for bit: KTH is a time-sliced A40
+# vGPU, deNBI a dedicated Tesla T4.
+DEFAULT_SITE = "kth"
+
+# Worker client ids look like
+#   bioengine-worker-<site>-<replicaset-hash>-<pod-suffix>[-<service-uid>]
+# e.g. bioengine-worker-kth-68dd9b4f99-sptdl-4dcbe5dc:model-runner
+#
+# The site is resolved from this pattern at run time rather than by hardcoding
+# a fully-qualified id, because the ReplicaSet hash and pod suffix are minted
+# fresh by Kubernetes on every restart. A hardcoded id would keep working right
+# up until the next reschedule and then silently stop resolving.
+WORKER_CLIENT_PATTERN = re.compile(r"^bioengine-worker-(?P<site>[a-z0-9]+)-")
+
+
+class SiteUnavailable(RuntimeError):
+    """The pinned site cannot be used, so this run is skipped rather than
+    quietly retargeted at the other site.
+
+    Falling back would defeat the pin: the report would carry no trace of the
+    substitution, which is exactly the ambiguity the pin exists to remove.
+    """
 
 # Testing is submitted through the async model-runner API: ``test()`` returns a
 # run id immediately and the report is retrieved by polling
@@ -59,11 +89,112 @@ async def run_test(
     raise asyncio.TimeoutError()
 
 
+def _client_id_of(service_id: str) -> str:
+    """Strip the workspace prefix and the trailing ``:<service-name>``."""
+    return service_id.split("/", 1)[-1].rsplit(":", 1)[0]
+
+
+def _site_of(service_id: str) -> Optional[str]:
+    match = WORKER_CLIENT_PATTERN.match(_client_id_of(service_id))
+    return match.group("site") if match else None
+
+
+async def resolve_site_services(server, site: str) -> Tuple[str, str]:
+    """Resolve the worker and model-runner service ids for the pinned ``site``.
+
+    Returns ``(worker_service_id, runner_service_id)``.
+
+    Raises ``SiteUnavailable`` when the site has no live model-runner or worker,
+    or when more than one of either is registered. Duplicates mean two worker
+    pods for the same site are live at once (a rolling update, or a replica that
+    has not yet been reaped), and picking between them arbitrarily would
+    reintroduce the run-to-run ambiguity the pin removes.
+    """
+    services = await server.list_services("bioimage-io")
+
+    def matching(suffix: str) -> List[str]:
+        return sorted(
+            {
+                s["id"]
+                for s in services
+                if s["id"].endswith(suffix) and _site_of(s["id"]) == site
+            }
+        )
+
+    # ``:model-runner`` and not ``:model-runner-rtc``, which is the WebRTC peer.
+    runners = matching(":model-runner")
+    workers = matching(":bioengine-worker")
+
+    if not runners or not workers:
+        seen = sorted({s for s in (_site_of(x["id"]) for x in services) if s})
+        raise SiteUnavailable(
+            f"site '{site}' has no live "
+            f"{'model-runner' if not runners else 'bioengine-worker'} service "
+            f"(sites currently registered: {', '.join(seen) or 'none'})"
+        )
+    for label, found in (("model-runner", runners), ("bioengine-worker", workers)):
+        if len(found) > 1:
+            raise SiteUnavailable(
+                f"site '{site}' has {len(found)} live {label} services, so the "
+                f"run cannot be attributed to one of them: {', '.join(found)}"
+            )
+
+    return workers[0], runners[0]
+
+
+async def check_site_gpu(server, worker_service_id: str) -> str:
+    """Confirm the pinned site is ready and has GPU capacity.
+
+    Returns a short human-readable description of the accelerators for the log.
+    Raises ``SiteUnavailable`` when the worker reports it is not ready or the
+    Ray cluster exposes no GPU at all.
+
+    The check is on total GPU capacity, never on free GPU. Every GPU being
+    allocated is the normal steady state (deployed apps hold their slices), so
+    treating "busy" as "broken" would skip almost every night.
+    """
+    worker = await server.get_service(worker_service_id)
+    try:
+        status = await worker.get_status()
+    except Exception as exc:
+        raise SiteUnavailable(
+            f"worker '{worker_service_id}' did not answer get_status(): "
+            f"{type(exc).__name__}: {exc}"
+        ) from exc
+
+    if not status.get("is_ready"):
+        raise SiteUnavailable(f"worker '{worker_service_id}' reports is_ready=false")
+
+    cluster = (status.get("ray_cluster") or {}).get("cluster") or {}
+    total_gpu = cluster.get("total_gpu") or 0
+    if total_gpu < 1:
+        raise SiteUnavailable(
+            f"worker '{worker_service_id}' reports no GPU capacity "
+            f"(total_gpu={total_gpu})"
+        )
+
+    nodes = (status.get("ray_cluster") or {}).get("nodes") or {}
+    accelerators = sorted(
+        {
+            node.get("accelerator_type")
+            for node in nodes.values()
+            if node.get("total_gpu") and node.get("accelerator_type") not in (None, "NA")
+        }
+    )
+    return (
+        f"{total_gpu:g} GPU"
+        f"{'s' if total_gpu != 1 else ''}"
+        f"{' (' + ', '.join(accelerators) + ')' if accelerators else ''}"
+    )
+
+
 async def test_bmz_models(
     model_ids: Optional[List[str]] = None,
     reports_dir: Optional[Path] = None,
     skip_cache: bool = False,
-    service_id: str = DEFAULT_SERVICE_ID,
+    service_id: Optional[str] = None,
+    site: str = DEFAULT_SITE,
+    clear_reports_dir: bool = False,
 ) -> None:
     """Test BioImage.IO models and generate test reports.
 
@@ -76,12 +207,20 @@ async def test_bmz_models(
         model_ids: List of model IDs to test. If None, fetches all models.
         reports_dir: Directory where per-model JSON test reports are written.
         skip_cache: Whether to skip cache during model testing.
-        service_id: Fully-qualified id of the model-runner service to use.
+        service_id: Explicit model-runner service id, bypassing the site pin.
+        site: Compute site to pin the run to when service_id is not given.
+        clear_reports_dir: Delete existing reports, after the site pin resolves.
 
     Raises:
         RuntimeError: If fetching model IDs fails.
+        SiteUnavailable: If the pinned site is absent, ambiguous, or has no GPU.
     """
     start_time = time.time()
+
+    output_dir = (
+        reports_dir
+        or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
+    )
 
     server_url = "https://hypha.aicell.io"
     token = os.environ.get("HYPHA_TOKEN") or await login({"server_url": server_url})
@@ -89,10 +228,25 @@ async def test_bmz_models(
         {"server_url": server_url, "token": token, "method_timeout": 300}
     )
 
-    print(f"Using model-runner service '{service_id}'")
-    model_runner = await server.get_service(
-        service_id, {"mode": "select:min:get_load"}
-    )
+    if service_id:
+        # Explicit override: the caller named a runner, so honour it verbatim
+        # and leave the load-based resolution in place for unqualified ids.
+        print(f"Using model-runner service '{service_id}' (site pin bypassed)")
+        model_runner = await server.get_service(
+            service_id, {"mode": "select:min:get_load"}
+        )
+    else:
+        worker_service_id, runner_service_id = await resolve_site_services(server, site)
+        gpu_summary = await check_site_gpu(server, worker_service_id)
+        print(f"Pinned to site '{site}': {gpu_summary}")
+        print(f"Using model-runner service '{runner_service_id}'")
+        model_runner = await server.get_service(runner_service_id)
+
+    # Reports are cleared only once the site pin has resolved, so a skipped run
+    # leaves the previous night's reports in place instead of emptying the
+    # directory and reporting zero models tested.
+    if clear_reports_dir:
+        clear_existing_test_reports(output_dir)
 
     # Fetch all model IDs if not provided
     if model_ids is None:
@@ -115,10 +269,6 @@ async def test_bmz_models(
     total_timeout = 0
     total_error = 0
 
-    output_dir = (
-        reports_dir
-        or Path(__file__).resolve().parent.parent / "bioimageio_test_reports"
-    )
     output_dir.mkdir(parents=True, exist_ok=True)
 
     # Test each model
@@ -390,6 +540,23 @@ async def cleanup_orphan_test_reports(dry_run: bool = False) -> None:
         print(f"Orphan cleanup: deleted {deleted}/{len(orphans)} report(s)")
 
 
+def _announce_skip(message: str) -> None:
+    """Surface a skipped run in the GitHub Actions UI without failing the job.
+
+    A skip is a normal condition, so the workflow stays green, but it must not
+    be silent either: a site that has been down for a week should be visible
+    from the run list rather than only from the log.
+    """
+    print(f"::notice title=Nightly model testing skipped::{message}")
+    summary_path = os.environ.get("GITHUB_STEP_SUMMARY")
+    if summary_path:
+        try:
+            with open(summary_path, "a", encoding="utf-8") as f:
+                f.write(f"## ⏭️ Nightly model testing skipped\n\n{message}\n\n")
+        except Exception as e:
+            print(f"Failed to write step summary: {e}", file=sys.stderr)
+
+
 def main():
     parser = argparse.ArgumentParser(
         description="Test BioImage.IO models and generate test summaries"
@@ -431,8 +598,20 @@ def main():
     )
     parser.add_argument(
         "--service-id",
-        default=DEFAULT_SERVICE_ID,
-        help=f"Model-runner service id to test against (default: {DEFAULT_SERVICE_ID})",
+        default=None,
+        help=(
+            "Model-runner service id to test against. Bypasses the site pin, so "
+            "the resulting reports are not comparable with pinned runs."
+        ),
+    )
+    parser.add_argument(
+        "--site",
+        default=DEFAULT_SITE,
+        help=(
+            f"Compute site to pin the run to (default: {DEFAULT_SITE}). If the "
+            "site has no live runner or reports no GPU, the run is skipped "
+            "rather than sent to another site."
+        ),
     )
 
     args = parser.parse_args()
@@ -448,17 +627,24 @@ def main():
         # Set default reports_dir if not provided
         analyze_existing_test_reports(reports_dir)
     else:
-        if args.clear_reports_dir:
-            clear_existing_test_reports(reports_dir)
-
-        asyncio.run(
-            test_bmz_models(
-                model_ids=args.model_ids,
-                reports_dir=reports_dir,
-                skip_cache=args.skip_cache,
-                service_id=args.service_id,
+        try:
+            asyncio.run(
+                test_bmz_models(
+                    model_ids=args.model_ids,
+                    reports_dir=reports_dir,
+                    skip_cache=args.skip_cache,
+                    service_id=args.service_id,
+                    site=args.site,
+                    clear_reports_dir=args.clear_reports_dir,
+                )
             )
-        )
+        except SiteUnavailable as exc:
+            # Not a failure: the pinned site is down, so this run is skipped and
+            # the workflow stays green. Announced loudly enough that a site
+            # being down for several nights is visible rather than silent.
+            message = f"Nightly skipped: {exc}"
+            print(f"⏭️  {message}")
+            _announce_skip(message)
 
 
 if __name__ == "__main__":

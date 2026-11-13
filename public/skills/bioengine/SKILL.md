@@ -1,13 +1,15 @@
 ---
 name: bioengine
-description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report at the shared public Hypha collection `bioimage-io/skill-issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
+description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report in the Hypha collection `bioimage-io/issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
 license: MIT
 metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
   app-skills:
     - apps/model-runner/model-runner.md
+    - apps/model-finetune.md
     - apps/cellpose3-runner.md
     - apps/cellpose-finetuning.md
+    - apps/omezarr-view.md
 ---
 
 # BioEngine
@@ -41,7 +43,18 @@ Tasks 2 and 3 use the **same `deploy_app` mechanism** — the difference is whet
 > ```
 > ERROR: Package 'bioengine' requires a different Python: 3.10.14 not in '>=3.11'
 > ```
-> Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — create a fresh 3.11+ env before installing: `conda create -n bioengine python=3.11` or `python3.11 -m venv .venv`.
+> Run `python3 --version` first. A 3.10 default (common on conda `base` envs) is not enough — you need a fresh 3.11+ env before installing.
+>
+> **Ask the user which environment manager to use — do not pick one for them.** Dropping a `.venv/` into the repo of someone who runs everything in conda, or creating a named conda env for someone who does not use conda, leaves them a mess to clean up, and the choice costs exactly one question. If an environment is already active and is ≥3.11, say which one you found and use it rather than making another.
+>
+> | they answer | create and activate |
+> |---|---|
+> | conda | `conda create -n bioengine python=3.11 -y && conda activate bioengine` |
+> | mamba / micromamba | `mamba create -n bioengine python=3.11 -y && mamba activate bioengine` |
+> | venv | `python3.11 -m venv .venv && source .venv/bin/activate` |
+> | uv | `uv venv --python 3.11 && source .venv/bin/activate` — then install with `uv pip install`, see the trap below |
+>
+> No preference? Offer `venv`: it needs nothing beyond the Python they already have.
 >
 > If you reach for `uv`, note that **`uv venv` installs no `pip` into the environment**. A plain `pip install` afterwards therefore runs the *system* pip and reproduces exactly the 3.10 error above, while looking as though the fresh 3.11 env did nothing. Use `uv pip install` (or `.venv/bin/python -m pip` after `uv pip install pip`).
 
@@ -59,17 +72,56 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 
 > **Version drift.** This installs from `main`, not a pinned release — the package version (`bioengine --version`) can be ahead of whatever release number appears in this skill's prose (written against 0.15.x; earlier installs shipped 0.11.x–0.14.0). Trust the live CLI's own `--help` / error text over a version number mentioned here if they disagree.
 
-> **Nothing validates a manifest or a decorator short of a deploy.** There is no offline checker: no `apps validate`, no dry-run flag, no schema you can lint against. Manifest fields, `@bioengine.app` kwargs and method signatures are all confirmed only by pushing the artifact and watching the worker's response, so a typo'd kwarg costs a full deploy round-trip to find. Budget for that. The local loop described below covers your *logic* thoroughly and covers the BioEngine surface not at all — copy the decorator line and the manifest from a working template rather than composing them from memory, and change one thing at a time.
+> **The manifest has an offline checker; the decorator does not.** Run `bioengine apps validate ./my-app/` before every upload. It applies the v0.6.0 manifest validator locally — required fields, legacy `deployments:` lists (rejected with a migration hint), and `entry:` matching `package.module:ClassName` — printing `OK: …` and exiting 0 when the manifest is good, or exiting 1 and naming the offending field when it is not. A typo'd manifest field costs a second to find, not a deploy round-trip.
+>
+> It stops at the manifest. `@bioengine.app` kwargs and method signatures are confirmed only by pushing the artifact and watching the worker's response, so a typo'd *kwarg* still costs a full deploy round-trip — budget for that. The local loop described below covers your *logic* thoroughly and covers that decorator surface not at all: copy the decorator line from a working template rather than composing it from memory, and change one thing at a time.
 
 **Environment**:
 ```bash
-export HYPHA_TOKEN=<your-token>                             # see references/hypha_setup.md if you don't have one
+export HYPHA_TOKEN=<your-token>                             # no token? see below, or send the user to /#/bioengine/token
 export BIOENGINE_SERVER_URL=<hypha-server>                  # CLI/skill env var — NOT the same name as below
-export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use
+export BIOENGINE_WORKER_SERVICE_ID=<workspace>/bioengine-worker   # which worker to use — see defaults below
 ```
+
+> **No worker given? Use the public ones.** A user who hands you nothing but this skill link almost always wants the already-running public deployment, not to stand up their own. Do **not** ask them to set up a worker, and do **not** ask which service id to use. Default to:
+>
+> | Task | App |
+> |---|---|
+> | Running a model, screening or testing models | `bioimage-io/model-runner` |
+> | Fine-tuning a foundation model | `bioimage-io/model-finetune` — see [apps/model-finetune.md](apps/model-finetune.md) |
+>
+> Both live in the public `bioimage-io` workspace and need no worker of the user's own. Resolve the concrete callable id at run time (see [references/service_ids.md](references/service_ids.md)) rather than hardcoding one: the client id embeds a ReplicaSet hash that changes on every pod roll. Only fall back to asking about a worker when the user says they have their own, or when the task genuinely needs one (deploying a new app, changing worker configuration).
+>
+> The user can browse what else is deployed, and copy service ids, at `https://bioimage.io/#/bioengine/apps`.
+
 > **Env-var naming split.** The CLI and every command in this skill read `BIOENGINE_SERVER_URL` (`bioengine --help` documents it; default `https://hypha.aicell.io` if unset). If your shell environment instead provides `HYPHA_SERVER_URL` (a different variable — common when a harness or notebook sets up Hypha credentials generically), the CLI does **not** read it and will silently fall back to its own default. If your `HYPHA_SERVER_URL` differs from the CLI default, explicitly `export BIOENGINE_SERVER_URL="$HYPHA_SERVER_URL"` — don't assume the two are interchangeable.
 
-**Getting a token, workspace, and scoped credentials.** If you don't already have a `HYPHA_TOKEN`, or you need to create a dedicated workspace or mint worker/app tokens, **load [references/hypha_setup.md](references/hypha_setup.md)** — the browser login flow, `create_workspace`, the `generate_token` scheme, and the permission ladder. Most task runs only need this once.
+### Getting a token
+
+Every call in this skill authenticates as the **user**. Before asking them for anything, **look for a token you already have, in this order** — asking for one they already handed you is the most irritating way to open a session:
+
+1. **The prompt and the conversation so far** — scan for a `HYPHA_TOKEN=…` line, or a bare token the user pasted without naming it.
+2. **The environment** — `printenv HYPHA_TOKEN`. When confirming a hit, print at most the first few characters; never echo a whole token back into the transcript.
+3. **A `.env` file** — `grep -s '^HYPHA_TOKEN=' .env ../.env ~/.env`.
+
+Only once all three come up empty, send them a pre-scoped link and ask for the line they get back:
+
+```
+https://bioimage.io/#/bioengine/token?permission=read_write&expires-in=3600
+```
+
+`expires-in` is in seconds and the clock starts when they press Generate — raise it for a long session (`43200` = 12 h), and otherwise prefer the shortest that outlasts the task. Add `&workspace=<ws>` for a shared workspace, and ask for `permission=admin` only when registering a new worker. The page pre-fills itself from those parameters; the user presses Generate, then Copy, and pastes back one `HYPHA_TOKEN=…` line. This works whatever you can execute, so reach for it before asking the user to run code on your behalf.
+
+> **They have to be logged in first — the token page will not prompt them.** Following the link while signed out, the Generate button is disabled and the page says only *"Log in to generate a token."* Tell them to press **Login** at the top right of the nav bar (or in the mobile menu), then return to the link and press Generate. Signing in with GitHub or Google is enough; no prior bioimage.io account is needed.
+
+> **Then write the token to `.env` in the project directory, so they only do this once.** A token pasted into chat dies with the session, and re-minting it on every run is the biggest friction point in a first-time setup.
+> ```bash
+> echo 'HYPHA_TOKEN=<pasted-token>' >> .env
+> grep -qxF '.env' .gitignore 2>/dev/null || echo '.env' >> .gitignore   # a token is a password — never commit it
+> ```
+> Load it with `set -a; source .env; set +a` in a shell, or `load_dotenv()` from `python-dotenv` in Python. Tell the user the file now exists and roughly when the token expires: a call that starts failing with an auth error hours later means a dead token, not a broken app.
+
+For the programmatic browser-login flow, creating a dedicated workspace, minting scoped worker/app tokens, and the full permission ladder, **load [references/hypha_setup.md](references/hypha_setup.md)**. Most task runs only need this once.
 
 ### Service IDs — how to discover them (read carefully)
 
@@ -97,7 +149,7 @@ There are three deployment modes:
 
 If the user runs a **core facility, lab, or institutional deployment** that wants its own branded UI alongside (or instead of) https://bioimage.io/#/bioengine, **load [references/custom_dashboard.md](references/custom_dashboard.md)**. It publishes a static HTML+CSS dashboard as a Hypha artifact in the user's workspace, with worker discovery and the per-worker dashboard (status, deployed apps, cluster resources).
 
-> **What a custom dashboard is for, and what it isn't.** It is **read/render** — list workers, show cluster stats, list deployed apps, link to app frontends. It is **not** the BioEngine setup wizard (https://bioimage.io/#/bioengine has an interactive Docker/SLURM/K8s installer; do **not** rebuild that into a custom dashboard — facility admins use the canonical setup tool or the worker_onboarding flow above).
+> **What a custom dashboard is for, and what it isn't.** It is **read/render** — list workers, show cluster stats, list deployed apps, link to app frontends. It is **not** the BioEngine setup wizard (https://bioimage.io/#/bioengine/worker-setup has an interactive Docker/SLURM/K8s installer; do **not** rebuild that into a custom dashboard — facility admins use the canonical setup tool or the worker_onboarding flow above).
 
 > **After the worker is ready: leave a feedback report.** Worker setup is the single richest source of gaps in this skill — cluster-specific gotchas, undocumented flags, broken paths. If bringing your worker up required reading source, working around a bug, or more than ~3 trial-and-error cycles, file a report — see [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
 
@@ -190,6 +242,7 @@ class MyDeployment:
 ### Key rules
 
 - Use `@bioengine.app(num_cpus=..., gpu_memory_mb=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- **`max_ongoing_requests` here caps ONE REPLICA of this deployment, and `deploy_app` takes a different limit under the same name** — how many callers the app's proxy admits across the whole instance. They are independent, so setting this one does not change what the proxy admits. See [the two layers](#app-lifecycle) before concluding yours was ignored.
 - **For anything you need to read back, `print(..., flush=True)` beats the logger.** This inverts the usual advice, so here is the measurement rather than the principle. In one instrumented app, 13 of 13 `print(..., file=sys.stderr, flush=True)` lines came back through `bioengine apps status <id> --logs 300 --json`, and 0 of 13 `bioengine.logger` lines and 0 stdlib `logging` lines did. The logger is not broken, it is under-configured: `bioengine.logger` has no handlers and level `NOTSET`, propagating to an unconfigured root, so Python's last-resort handler emits and that is fixed at **WARNING**. `logger.setLevel(logging.INFO)` alone changes nothing, because with no handler on the chain the last-resort handler is still the thing emitting.
   ```python
   import sys
@@ -309,7 +362,7 @@ async def measure(self) -> dict:
     return {"peak_mb": round(torch.cuda.max_memory_allocated() / 2**20)}
 ```
 
-Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle GPU), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
+Deploy once with `gpu_memory_mb=-1` (whole device, schedulable on an idle GPU — but **not** on a VRAM-packing cluster that already has a replica resident; see [references/hpc_apps.md](references/hpc_apps.md#gpu-sizing-on-an-elastic-cluster)), call `measure`, then set `gpu_memory_mb` to the peak plus headroom and redeploy. Round up generously — the cost of 30% headroom is one fewer co-tenant, and the cost of being short is an OOM mid-request.
 
 **It is a scheduling reservation, not a cap.** Nothing enforces it at runtime. A replica declaring `gpu_memory_mb=8192` was observed allocating **12 GiB** and continuing to run. So the number does not protect you from your own OOM, and it does not protect co-tenants from you either. Two consequences: your headroom estimate has to be right, because the runtime will not clip you at the boundary, and a card that looks half-free by reservation can be full in fact.
 
@@ -321,6 +374,8 @@ Deploy once with `gpu_memory_mb=-1` (whole device, always schedulable on an idle
 | VRAM | stays `DEPLOYING` indefinitely — measured at **10.8 minutes** before it was killed by hand |
 
 Ray has nothing to schedule the replica onto, so it queues forever rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm) and treat "still `DEPLOYING` at the deadline" as the diagnosis *over-requested VRAM*, not as slowness. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
+
+**On a SLURM worker this diagnosis is invalid** — pending is the designed cold-start path there, and the wait includes the site's own queue. Read [references/hpc_apps.md](references/hpc_apps.md#2-a-deploy-is-a-queue-submission-so-still-deploying-is-not-a-diagnosis) before putting a deadline on anything.
 
 **The insufficient-resources error does not name the resource that was short.** It prints the whole request dict and leaves you to compare it against the cluster yourself. Change one resource at a time when you are converging on a working set, or you will not know which one moved.
 
@@ -352,6 +407,12 @@ And do not use GPU utilisation to answer this. NVML averages over roughly a **1 
 
 For VRAM sizing procedure, release-between-calls patterns and per-strategy examples, **load [references/model_serving.md](references/model_serving.md#gpu-allocation-strategies)**.
 
+### Apps on an HPC (SLURM) worker
+
+If the worker you are targeting runs `--mode slurm`, four things change for your app, and two pieces of advice above become wrong. **Load [references/hpc_apps.md](references/hpc_apps.md) before you write the app**, not after it fails.
+
+The short version: every Ray worker node is an `sbatch` job with a wall clock (default `4:00:00`), so **any unit of work that can outlive it must checkpoint and resume**; a deploy may wait in the site's SLURM queue, so "still `DEPLOYING`" is not a diagnosis; a live replica holds its node (and its allocation charge) until that wall clock, so do not park idle replicas on a shared cluster; and cross-replica coordination must go through the shared workspace directory, whose shared-ness an app currently cannot detect at runtime.
+
 ### Composition apps and frontends
 
 For apps with multiple deployments (e.g. one entry deployment routing to several runtimes) or a frontend HTML UI, **load [references/app_templates.md](references/app_templates.md)** — full working templates for simple, composition, and frontend cases.
@@ -381,7 +442,12 @@ bioengine apps status my-app --logs 50
 #    then call it. Calling <workspace>/my-app directly returns only {offer}, not the methods.
 bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
+#   → the same payload carries "static_site_url", the app's frontend URL
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
+
+# A method that takes arguments needs --arg/--args. A bare key=value is NOT
+# accepted and fails with "Error: Got unexpected extra arguments":
+bioengine call <ws>/<worker_client_id>-<replica>:my-app greet --json --arg name=Wei
 ```
 
 > **Updating a running app: use `apps run --version`, not `apps deploy`.** `bioengine apps deploy` against an app-id that is already running uploads the new artifact version and restarts the replica, but the restarted replica has been observed coming back **on the old code**, with `version`, `running_version` and `version_verified` all reporting the stale version while `status` stays `RUNNING`. Reproduced deterministically on two consecutive Python changes. The path that reliably rolls a running instance forward is two steps:
@@ -401,7 +467,7 @@ bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 >
 > **That skew has a user-facing consequence, so deploy defensively.** The static site serves the artifact head while the replica serves whatever version it is actually on. A redeploy that changes both can therefore put a new UI in front of users while the old backend is still answering, and the UI asks for a field the backend cannot return. Two habits make this survivable. Land the Python change and confirm it behaviourally *before* shipping frontend code that depends on it. And render new fields defensively — `o.newMetric != null ? fmt(o.newMetric) : "—"` degrades to a dash instead of `undefined` across the window where the two disagree.
 
-> **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...` — it is silently ignored by the app builder.
+> **HYPHA_TOKEN inside deployments.** Apps that connect back to Hypha internally need `HYPHA_TOKEN` set in the Ray actor environment. Always pass `--hypha-token $HYPHA_TOKEN` (CLI) or `hypha_token=token` (Python API). Do **NOT** use `--env HYPHA_TOKEN=...`. It is not ignored: the `hypha_token` parameter takes precedence and **overwrites** it, so a token passed that way is not what the replica ends up using. See [Per-deployment tokens](#per-deployment-tokens) for the one path where the env value does reach a replica, and why it is not durable there either.
 
 After verifying behaviour: bump `version` in `manifest.yaml` and commit.
 
@@ -414,7 +480,7 @@ A committed artifact version is **immutable** and its content is exactly what a 
 
 To iterate without inflating the release history, use pre-releases: upload `X.Y.Z-dev1`, `-dev2`, … (each a real, deployable, strictly-increasing pre-release), then delete the `-dev*` pre-releases and publish the verified bundle **once** as `X.Y.Z`. Hypha supports `delete(artifact_id, version=…)`; pre-releases have no consumers so deleting them is safe — **never delete a *released* version** (it breaks `list_apps().artifact_versions` consumers).
 
-**Order matters: delete the pre-releases BEFORE uploading the release.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift. The helper does exactly this:
+**Order matters: delete the pre-releases BEFORE uploading the release, and delete them newest-first.** Deleting a version re-points every later version at the preceding slot's payload, so deleting afterwards leaves `X.Y.Z` silently serving a dev bundle — it still resolves and still deploys, it just returns the wrong files. Deleting first is safe because the pre-releases are the newest versions at that point, so nothing follows them to shift; within them, working backwards keeps that true for every single delete. `worker.delete_app_version` enforces this from BioEngine 0.16.53 — it refuses any version that has a later committed version, naming the ones at risk. The helper does exactly this:
 
 ```bash
 # iterate — uploads <version>-devN (auto), deploys <app>-dev; test, fix, repeat
@@ -459,15 +525,57 @@ Equivalent path when you already have a Hypha client open (no separate CLI proce
 
 ```python
 worker = await server.get_service(f"{workspace}/bioengine-worker")
-app_id = await worker.deploy_app(
+result = await worker.deploy_app(
     artifact_id="bioimage-io/cellpose-finetuning",
     application_id="cellpose-finetuning",   # stable id ⇒ stable, addressable service
     hypha_token=token,                      # apps that register back to Hypha need this
-    # version="0.0.28",                     # optional pin; default = latest version of the artifact
+    # version="0.0.28",                     # optional pin; read "Which version you get" below
 )
+
+# BioEngine 0.16.29+ returns a mapping; 0.16.28 and earlier return a bare string.
+# Workers are pinned individually and you generally cannot tell which one you are
+# talking to, so take the id from the value in hand rather than from a version check.
+app_id = result if isinstance(result, str) else result["application_id"]
 ```
 
-`deploy_app` returns the resolved `application_id`. The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
+The artifact path is the **default deployment route for any agent that doesn't have a local clone of the app's source** — the CLI's `bioengine apps deploy ./my-app/` form is for app *authors* uploading a new version.
+
+#### What `deploy_app` returns
+
+**BioEngine 0.16.29 and later** return a mapping:
+
+```python
+{"application_id": str, "artifact_id": str, "version": str, "version_source": str}
+```
+
+`version_source` is one of `requested`, `latest`, or `inherited`. `artifact_id` comes back because a bare artifact name is expanded server-side, so the id you get is not always the id you passed.
+
+**BioEngine 0.16.28 and earlier** return the resolved `application_id` as a bare string. Use the `isinstance` shim above until every worker you target is on 0.16.29+, then drop it.
+
+#### Which version you get
+
+**If you want the newest published version, omit `version` and then require `version_source == "latest"`.**
+
+```python
+if not isinstance(result, str) and result["version_source"] == "inherited":
+    raise RuntimeError(
+        f"expected to deploy the newest version, got {result['version']} "
+        "because that application_id was already running"
+    )
+```
+
+That check can fail, so it protects you. `inherited` means the `application_id` was already running and **you got the version it was already on, not the artifact's newest**. This is the trap: omitting `version` does *not* mean "latest" for an application_id that already exists. `bioengine apps deploy` aborts on `inherited` for exactly this reason.
+
+**Do not check `version_source` when you passed an explicit `version`.** It is always `requested` on that path, so a guard like `if result["version_source"] != "requested"` can never fire, and comparing `result["version"]` against what you asked for is vacuous for the same reason: the value is echoed back. A version that cannot be served **raises** instead, so the protection on that path is `try` / `except`, not a field check.
+
+| you passed | you get | `version_source` |
+|---|---|---|
+| a version that exists | that version, rolling forward **or back** | `requested` |
+| a version that does not exist | `ValueError` | (raises) |
+| nothing, application_id already running | the running version | `inherited` |
+| nothing, fresh application_id | the artifact head | `latest` |
+
+> **Known limit.** If the artifact has an **open uncommitted stage**, Hypha's `read()` returns the published state without consulting the version index, so your requested version is silently ignored while `version_source` still reports `requested`. This is the one case where `requested` is actively misleading rather than merely uninformative, it is pre-existing in the artifact layer, and it is not detectable from the return value.
 
 ### Per-deployment scaling
 
@@ -513,6 +621,22 @@ The first call probes whether `apps_workdir` is shared across Ray nodes (writes 
 >
 > **Subtle trap: the "previous-token" fallback.** When `application_id` matches an already-running instance, `deploy_app` silently reuses the previously stored token if `--hypha-token` is omitted. So a redeploy on a worker that *already has the app running* will "succeed" without it — while the same redeploy on a worker *without a prior instance* fails. **Always pass it.** Don't rely on the fallback; agents that test on one worker and then deploy to another get bitten by exactly this.
 
+#### Per-deployment tokens
+
+Each `deploy_app` call can carry its OWN token, and each is independently revocable. The token you pass is written into the deployment's secrets and merged into every replica's runtime env at bind time, so user code reading `os.getenv("HYPHA_TOKEN")` in `__init__` receives it.
+
+```python
+await worker.deploy_app(artifact_id=..., application_id="app-a", hypha_token=token_a)
+await worker.deploy_app(artifact_id=..., application_id="app-b", hypha_token=token_b)
+```
+
+CLI: `--hypha-token`.
+
+**Do not reach for `--env HYPHA_TOKEN=...`.** The `hypha_token` parameter takes precedence and OVERWRITES an env-supplied value, so a token passed that way is not what the replica ends up using. On the one path where the env value does reach the replica (an explicitly empty `--hypha-token ''`, which the CLI does not do by default) it is not durable either: `HYPHA_TOKEN` is stripped from the recovery blob, so an app the worker has ADOPTED holds no token of its own and an update that omits `hypha_token` injects nothing. Check `recovered_app` in `get_app_status` rather than trying to remember whether a restart happened: the pod may have been rolled by someone else, and "after a restart" is only one cause of adoption. Read the flag in ONE direction only. `recovered_app: true` guarantees no token is stored. `false` means "not adopted", it does NOT mean a token is waiting for you: an app deployed over RPC without `hypha_token`, and an adopted app already redeployed once without it, both report `false` with no token. So pass `hypha_token` on every update that needs one, rather than inferring from this flag that you can omit it. The CLI's own warning calls this "silently ignored", which is the wrong mental model: the value is not filtered out, it is overwritten, and the practical question a reader has is where the token they are seeing came from.
+
+**The limit, stated rather than implied.** Per-deployment tokens give you REVOCABILITY, not least privilege. Any token that can write a shared artifact in workspace W carries W's scope, so two deployments writing the same artifact hold equivalent power even with different tokens. Narrowing scope is not available today and the block is in Hypha, not BioEngine: `extra_scopes` is additive, grants nothing on its own, and marks the token specialized so it cannot open an app's startup RPC connection. So there is no artifact-scoped credential an app can actually use. Revoking one deployment's token without touching the others is achievable now; giving one deployment less authority than another is not.
+
+
 > **CRITICAL — artifact ≠ app, `--app-id` is required to update.** One artifact can be deployed many times with different `--app-id`s. Running `bioengine apps run <artifact>` **without `--app-id` always creates a new instance with a random ID** — it never updates an existing running one. To update a running app, you MUST pass `--app-id <running-app-id>` (which you find via `bioengine apps status`).
 >
 > ```bash
@@ -528,7 +652,8 @@ The first call probes whether `apps_workdir` is shared across Ray nodes (writes 
 ```bash
 bioengine apps list                            # what artifacts are available to deploy
 bioengine apps status [APP_ID]                 # what's actually running on the worker
-bioengine apps status <app-id> --logs 50 --json  # actor logs (see the caveat below)
+bioengine apps status <app-id> --logs 50 --json  # actor logs, LIVE replicas only (see the caveat below)
+bioengine apps logs <app-id> -n 50             # the same logs plus the last DEAD replica — use after a crash
 bioengine apps stop <app-id> -y                # stop a running instance (-y skips the confirmation prompt)
 ```
 
@@ -544,7 +669,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >   "my-app-id": {
 >     "status": "RUNNING",
 >     "version": "1.0.3",              // target: the artifact version the worker was last told to run
->     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing
+>     "running_version": "1.0.2",      // live: what the Python replica is ACTUALLY executing — can be null, see below
 >     "version_verified": true,        // do not trust as an update signal — see below
 >     "deployments": {
 >       "MyDeployment":    {"status": "HEALTHY", "message": "...",
@@ -559,7 +684,11 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
 >
-> **Three reported values do not echo your decorator, and none of them means it was ignored.** `max_ongoing_requests` has been observed reporting `10` against a declared `4`, `memory` reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
+> **`running_version` is not always a version string — it can be `null` (Python `None`) on a perfectly healthy app.** The worker derives it from the *entry* deployment's replica identity, which the proxy records separately from Serve's own health. Three situations therefore yield `null`: no replica is in `RUNNING` state yet; replicas are up but the proxy has not recorded an identity for the entry replica yet; or the proxy could not be read at all. `status: RUNNING`, every deployment `HEALTHY`, `version: 1.0.0` and `running_version: null` therefore co-occur legitimately, and that is the normal reading a few seconds into a first deploy. A readiness gate written as `running_version == manifest_version` hangs forever on an app that is already serving traffic — which is the same trap as the frontend-only case above, reached a different way. Gate on a real call, as the live-test cycle does.
+>
+> **Two reported values do not echo your decorator, and neither means it was ignored.** `memory` has been observed reporting `2684354560` (2560 MiB) against a declared `memory_mb=2048`, and `gpu_enabled: true` for a CPU-only app whose own `application_resources` correctly read `{"num_cpus": 1, "num_gpus": 0, "VRAM_MB": 0}`. Read `application_resources` for what the app actually requested, and don't chase the discrepancy.
+>
+> **The top-level `max_ongoing_requests` is NOT your decorator's — it is a different limit under the same name, and this one is worth chasing.** `@bioengine.app(max_ongoing_requests=...)` is a Ray Serve cap on **one replica of your deployment**. The `max_ongoing_requests` passed to `deploy_app` is how many callers the application's **ProxyDeployment admits across the whole instance**. The two are independent: setting either leaves the other at its default, so an author who wants "at most 4 at a time" and writes it in the decorator still has a proxy admitting the default 10. `get_app_status` reports the proxy's at the top level, which is why a declared `4` reads back as `10` — the 10 is somebody else's number, not your 4 being discarded. Measured 2026-11-12 on three live apps: `omezarr-view` 0.2.4 declares 32 and reported 10, `annotation-broker` 0.12.2 declares 20 and reported 10, and `model-runner` 2.11.6 declares 10 and reported 150 — a value no app source anywhere declares. Newer workers report your decorator's value separately, under `deployments.<ClassName>.max_ongoing_requests` — check for that key rather than for a version. Present means it is your deployment's own per-replica cap, `null` for the `ProxyDeployment` (which has no decorator) and for any deployment that sets no cap; absent means your worker predates the field and the top-level number is the only one you can see.
 >
 > **`application_resources` is the better field, not a reliable one, and on GPU it is neither.** The same field read `num_gpus: 0` for an app that was demonstrably running on the device. Nothing in this payload settles whether your work reached a GPU — assert on tensor placement inside the app instead, see [GPU apps](#gpu-apps).
 
@@ -569,17 +698,38 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > ```
 > So it is `result["<workspace>/<alias>"]["manifest"]["version"]`, against `result["<app-id>"]["status"]` for `apps status --json`. A filter written for one shape returns an empty result against the other, with no error to tell you which one you were holding.
 
-> **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
+> **`logs` is nested two levels deep, and `bioengine apps logs` prints it — from client 0.16.45 on.** Older clients read `logs` off the replica projection, where that key never exists, so the command printed empty per-deployment sections while thousands of characters sat one level up; fixed in **0.16.45**, so upgrade rather than work around it. **After a crash `apps logs` is the one to reach for, not `apps status`**: only `apps logs` asks for a dead replica (`n_previous_replica=1`), and the crashed replica is the one whose logs you want. Measured on a live worker — per deployment, `apps logs` returned 2 replicas and `apps status --logs N --json` returned 1, the live one. In either payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
 > ```python
 > {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
+> # a replica that has DIED carries one more key, from worker 0.16.65:
+> {"<replica-id>": {"…": "…", "death_cause": {"reason": "OOM", "message": "…"}}}
 > ```
-> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its four **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr` and read them as four log lines, with no error at all. Reach the lists explicitly:
+> Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr`, and on a dead replica `death_cause` too, and read them as log lines, with no error at all. Count on the key *names*, never on how many there are: the set grew by one in 0.16.65 and may grow again. Reach the lists explicitly:
 > ```python
 > for replica_id, rec in dep.get("logs", {}).items():
 >     lines = rec.get("stdout", []) + rec.get("stderr", [])
 >     print(f"--- {replica_id}")
 >     print("\n".join(lines[-50:]))
 > ```
+> **A replica that died tells you why, and the logs alone will not.** From worker **0.16.65** each dead replica's entry carries `death_cause`, because Ray Serve's controller only logs "crashed, marking it unhealthy immediately" and keeps no cause — so the replica that matters most is the one whose logs explain least. The value is `{"reason": ..., "message": ...}` or `None`:
+>
+> | `reason` | means |
+> |---|---|
+> | `OOM` | Ray's own memory monitor killed it. `message` carries Ray's error text. |
+> | `WORKER_DIED` | the process exited on its own — a signal, or a crash. |
+> | `NODE_DIED` | the node went away; `message` is appended with the node's own reason. |
+> | `RAY_KILL` | a deliberate stop. |
+> | `UNKNOWN` | Ray held a cause but no reason field. |
+>
+> ```python
+> for replica_id, rec in dep.get("logs", {}).items():
+>     cause = rec.get("death_cause")          # absent or None on a live replica
+>     if cause:
+>         print(f"{replica_id} died: {cause['reason']} — {cause['message']}")
+> ```
+>
+> `None` and absent both mean "no cause to report", and they are **not** the same as healthy: Ray returns no cause for a live actor *and* for a dead one the GCS has already evicted, so a dead replica you ask about too late looks exactly like a live one. Use the replica's presence in `get_deployment_replicas` to tell those apart, not `death_cause`. Against a worker older than 0.16.65 the key is simply absent, so `rec.get("death_cause")` is the safe read and a `KeyError` means you indexed it instead.
+>
 > **Read both channels.** Which one your own lines land in depends on how you emitted them (see the logging note under [Key rules](#key-rules)), and the framework writes to `stderr` regardless. Reading only one hides half the picture, and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
 >
 > **The framework logs every call for you, and that line is often all you need.** Each `@bioengine.method` invocation emits an audit line carrying the method name, the outcome and the wall-clock duration:
@@ -621,7 +771,7 @@ async def main():
 asyncio.run(main())
 PY
 ```
-This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead.
+This is irreversible and removes the whole app artifact (all versions) — only run it against artifacts you created for testing. If you only need to drop one pre-release "dev" version rather than the whole artifact, use `worker.delete_app_version` instead — it takes only versions tagged `…dev…`, and only the artifact's newest, since deleting any earlier one would corrupt everything committed after it.
 
 > **Verifying deletion.** `delete_app` returns `None` on success — don't treat the return value as confirmation either way. Verify with `bioengine apps list` (artifact should be gone) or `bioengine apps status <id>`. After deletion, `apps status <id>` can report the app as `NOT_RUNNING` rather than an outright "not found" error — treat `NOT_RUNNING` or absence from `apps list` as "gone".
 
@@ -678,6 +828,8 @@ request_id = await app.infer(model_id="affable-shark", inputs="<url>")
 
 Some apps (e.g. cellpose-finetuning) take HTTPS URIs of OME-Zarr datasets as input rather than streaming through the worker. Discover candidate datasets via the BioImage Archive search API, the IDR OME-NGFF samples catalogue, or any other public source — see [references/data_sources.md](references/data_sources.md) for the BIA, IDR / OMERO query patterns and how to extract `.ome.zarr` URIs from the response.
 
+When the data the user has is **not** OME-Zarr — an archive of OME-TIFF or CZI they do not want to migrate — [apps/omezarr-view.md](apps/omezarr-view.md) serves those files as lazy OME-Zarr views in place, producing exactly such a URI without converting or copying anything.
+
 ### App-specific subskills
 
 When working with a specific deployed app, load its dedicated subskill for the method signatures, conventions, and known quirks:
@@ -685,8 +837,10 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | Service | Subskill | Load when |
 |---|---|---|
 | Model Runner | [apps/model-runner/model-runner.md](apps/model-runner/model-runner.md) | Searching, running inference on, or comparing BioImage.IO Model Zoo models — including Cellpose-4 / Cellpose-SAM and micro-SAM |
-| Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | Running the Cellpose-3-and-earlier zoo models — which model-runner cannot serve |
-| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Fine-tuning Cellpose on custom annotated microscopy data |
+| Cellpose-3 Runner | [apps/cellpose3-runner.md](apps/cellpose3-runner.md) | RETIRED for new work. model-runner 2.11.2+ serves Cellpose-3 natively; read this only when targeting a worker pinned below 2.11.2 |
+| Model Fine-Tune | [apps/model-finetune.md](apps/model-finetune.md) | Fine-tuning micro-SAM, Cellpose-SAM or Cellpose-DINO on annotated pairs; validating and staging a dataset from an external store before a run; image embeddings and the ONNX prompt decoder for browser annotation |
+| Cellpose Fine-Tuning | [apps/cellpose-finetuning.md](apps/cellpose-finetuning.md) | Superseded by Model Fine-Tune above. Its artifact still exists (newest 1.1.1) but **no service is currently deployed for `bioimage-io/cellpose-finetuning`**, so calls against the id on that page resolve to nothing — measured 2026-11-05. Read it only for historical context |
+| OME-Zarr View | [apps/omezarr-view.md](apps/omezarr-view.md) | Serving existing OME-TIFF / CZI files as OME-Zarr without converting them — for a viewer, an annotation UI, or a training loader |
 
 > **After completing an inference / analysis run: leave a feedback report** if the call surface, tensor format, model-ID nicknames, or RDF output keys did not match what the subskill described. See [§ Leave a feedback report](#leave-a-feedback-report) at the end of this file.
 
@@ -739,6 +893,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | [references/custom_dashboard.md](references/custom_dashboard.md) | Branded facility / lab dashboard as a Hypha artifact (Task 1, optional) |
 | [references/app_templates.md](references/app_templates.md) | Working templates: simple app, composition app, frontend (Task 2) |
 | [references/model_serving.md](references/model_serving.md) | GPU VRAM sizing, multiplexing, HuggingFace, BioImage.IO integration, auto-scaling (Task 2) |
+| [references/hpc_apps.md](references/hpc_apps.md) | Writing an app for a SLURM worker: wall clocks, queue-time cold starts, node pinning, VRAM packing (Task 2) |
 | [references/data_sources.md](references/data_sources.md) | Streaming OME-Zarr from BioImage Archive, IDR / OMERO, and any HTTPS source (Tasks 2 & 4) |
 | [references/manifest_reference.md](references/manifest_reference.md) | Full `manifest.yaml` field reference (Task 2) |
 | [references/cli_reference.md](references/cli_reference.md) | Full CLI reference for every `bioengine` subcommand (Tasks 2, 3, 4) |
@@ -747,7 +902,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 
 ## Leave a feedback report
 
-Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the shared public collection `bioimage-io/skill-issues` (feedback for every bioimage.io skill lands here; the `skill: "bioengine"` field below tags it). The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
+Every time you finish a non-trivial BioEngine task (worker setup, app deployment, dataset wiring, model-runner inference run, debugging an outage) — especially if it took multiple trial-and-error cycles, required reading source code, or needed an undocumented flag — **leave a structured feedback report** in the collection `bioimage-io/issues` with type `skill-issue` (feedback for every bioimage.io skill lands here; the `skill: "bioengine"` field below tags it). **Filing needs a Hypha token** — any logged-in user's, no `bioimage-io` membership required; if you do not have one, see [Getting a token](#getting-a-token) or send the user to <https://bioimage.io/#/bioengine/token>. Reports are NOT publicly readable, so logs and tracebacks are safe to attach. The manifest listing IS public though, so keep free text in `report.md`. The bioengine team reads these regularly and uses them to patch the skill, the CLI, the worker, and the apps.
 
 **When to file a report (any of these is a trigger):**
 
@@ -786,11 +941,13 @@ Concrete patches — paragraphs to add, tables to extend, sections to reorganise
 (Optional but useful — prevents refactoring of things that already serve agents well.)
 ```
 
-**Do not include secrets** (tokens, raw chat logs, PII). Reports are public once committed.
+**Do not include secrets** (tokens, raw chat logs, PII). The manifest is world-listable the moment it is committed, and a report you cannot read back is also one you cannot redact.
 
 ### Submit
 
-Any authenticated Hypha token works — the collection grants `@: r+` so any logged-in user can submit child reports. No `bioimage-io` permission required.
+Any authenticated Hypha token works — the collection grants `@` (every logged-in user) `list`, `draft` and `attach`, so anyone signed in can submit a child report without `bioimage-io` permission. An **anonymous** caller gets `list` only and is refused with `PermissionError: User does not have permission to attach an artifact to the collection 'issues'`; if you see that, the token is missing or expired rather than insufficiently privileged. The grant does not include `read`, so you cannot fetch your own `report.md` back afterwards — keep a local copy if you need one.
+
+**No token in hand?** Do not skip the report. Send the user to <https://bioimage.io/#/bioengine/token> (they must press **Login** first — the page will not prompt them), and follow [Getting a token](#getting-a-token) for the full flow including writing it to `.env`.
 
 ```python
 import datetime, os, httpx
@@ -806,17 +963,21 @@ async def submit_feedback(report_md_path: str, slug: str, title: str,
 
     date = datetime.date.today().isoformat()
     report = await am.create(
-        parent_id="bioimage-io/skill-issues",
-        alias=f"report-{date}-bioengine-{slug}",  # e.g. report-2026-06-05-bioengine-slurm-berzelius
-        type="report",
+        parent_id="bioimage-io/issues",
+        alias=f"skill-{date}-bioengine-{slug}",   # e.g. skill-2026-06-05-bioengine-slurm-berzelius
+        type="skill-issue",                       # "website-issue" for the site itself
         manifest={
-            "name": title,
-            "description": summary,
+            # STRUCTURAL FIELDS ONLY. `list` on the collection is open to everyone
+            # and returns child manifests, so anything written here is public.
+            "name": f"skill-{date}-bioengine-{slug}",   # a slug, NOT a description
             "skill": "bioengine",                 # REQUIRED — which skill this report is about
             "tags": tags or [],                   # e.g. ["worker-setup", "slurm", "cluster:berzelius"]
+            "reported_at": date,
         },
         stage=True,
     )
+    # `title` and `summary` are free text, so they belong in the report file,
+    # which is NOT publicly readable. Put them at the top of report.md.
     put_url = await am.put_file(report.id, file_path="report.md")
     async with httpx.AsyncClient() as c:
         with open(report_md_path, "rb") as f:
@@ -833,4 +994,4 @@ async def submit_feedback(report_md_path: str, slug: str, title: str,
 
 Useful tags for triage: `worker-setup`, `slurm`, `single-machine`, `external-cluster`, `app:model-runner`, `app:cellpose-finetuning`, `cli`, `docs`, `bug-launcher`, `bug-worker`, `undocumented-flag`, `cluster:<name>`. Add more freely.
 
-The same snippet + the full template + the latest tag list are also stored on the collection's manifest (`am.read("bioimage-io/skill-issues").manifest`) — fetch from there if you suspect this section is stale.
+The same snippet + the full template + the latest tag list are also stored on the collection's manifest (`am.read("bioimage-io/issues").manifest`) — fetch from there if you suspect this section is stale.

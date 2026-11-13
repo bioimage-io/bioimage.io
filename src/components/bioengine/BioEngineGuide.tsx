@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { hyphaWebsocketClient } from 'hypha-rpc';
 import { useHyphaStore } from '../../store/hyphaStore';
 import { HYPHA_SERVER_URL } from '../../config/hypha';
@@ -112,6 +113,73 @@ type ContainerRuntimeType = 'docker' | 'podman' | 'apptainer' | 'singularity';
 const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
+
+const PREBUILT_MODEL_RUNNER_VERSION = '2.10.6';
+const PREBUILT_MODEL_RUNNER_IMAGE = `ghcr.io/aicell-lab/model-runner:${PREBUILT_MODEL_RUNNER_VERSION}`;
+
+// The standard worker builds each app's environment on first deploy; the prebuilt
+// model-runner image ships those dependencies, so a model serves without that wait.
+const IMAGE_PRESETS = [
+  {
+    label: 'Standard worker',
+    image: '',
+    hint: `${DEFAULT_IMAGE}: builds each app's environment on first deploy`,
+  },
+  {
+    label: 'Prebuilt model runner',
+    image: PREBUILT_MODEL_RUNNER_IMAGE,
+    hint: `${PREBUILT_MODEL_RUNNER_IMAGE}: model-runner dependencies preinstalled, so there is no environment build on first deploy`,
+  },
+];
+
+// Apps people most often want a worker to come up already running. Selecting one
+// offers its prebuilt image, which is otherwise buried in the advanced options.
+// prebuiltImage null = no image published yet; the offer is skipped until there is
+// one, so adding a tag here is the only change needed when it ships.
+interface SuggestedStartupApp {
+  artifactId: string;
+  applicationId: string;
+  label: string;
+  blurb: string;
+  prebuiltImage: string | null;
+}
+
+const SUGGESTED_STARTUP_APPS: SuggestedStartupApp[] = [
+  {
+    artifactId: 'bioimage-io/model-runner',
+    applicationId: 'model-runner',
+    label: 'Model Runner',
+    blurb: 'Run, test and compare bioimage.io models',
+    prebuiltImage: PREBUILT_MODEL_RUNNER_IMAGE,
+  },
+  {
+    artifactId: 'bioimage-io/model-finetune',
+    applicationId: 'model-finetune',
+    label: 'Model Finetune',
+    blurb: 'Fine-tune models on your own data',
+    prebuiltImage: null,
+  },
+];
+
+const ImagePresetPicker: React.FC<{ value: string; onChange: (v: string) => void }> = ({ value, onChange }) => (
+  <div className="flex flex-wrap gap-2 mb-2">
+    {IMAGE_PRESETS.map((preset) => (
+      <button
+        key={preset.label}
+        type="button"
+        title={preset.hint}
+        onClick={() => onChange(preset.image)}
+        className={`px-2.5 py-1 rounded-full border text-xs transition-colors ${
+          value === preset.image
+            ? 'border-blue-500 bg-blue-50 text-blue-700'
+            : 'border-gray-300 bg-white text-gray-600 hover:bg-gray-50'
+        }`}
+      >
+        {preset.label}
+      </button>
+    ))}
+  </div>
+);
 
 // One entry of --startup-applications. `config` is the payload the shared deploy
 // dialog emits (the deploy_app kwargs), or null while the box is still unconfigured.
@@ -230,13 +298,78 @@ const StartupApplicationRow: React.FC<{
   );
 };
 
+// Query parameter that selects the audience panel, e.g. `#/bioengine?mode=ai-agent`.
+const AUDIENCE_PARAM = 'mode';
+// Written to the URL in its spelled-out form. The internal state value stays
+// `agent`, which is what the rest of this component and its markup already use.
+const AUDIENCE_AGENT = 'ai-agent';
+const AUDIENCE_HUMAN = 'human';
+
+/**
+ * Read the audience out of a URL parameter.
+ *
+ * Only an explicit `human` selects the wizard. Everything else — absent, a
+ * typo, `ai-agent`, or the bare `agent` that a hand-written link might use —
+ * resolves to the agent panel, which is the default entry point for setting up
+ * a worker.
+ */
+function parseAudienceParam(raw: string | null): 'human' | 'agent' {
+  return (raw || '').trim().toLowerCase() === AUDIENCE_HUMAN ? 'human' : 'agent';
+}
+
 const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScrollToWorkers }) => {
   const { server, isLoggedIn, user } = useHyphaStore();
   const [os, setOS] = useState<OSType>('macos');
   const [mode, setMode] = useState<ModeType>('single-machine');
   // Top-level audience toggle: humans get the full configurator below;
   // agents get a compact panel that hands off to the BioEngine SKILL.md.
-  const [audience, setAudience] = useState<'human' | 'agent'>('human');
+  //
+  // The selection is addressable, so a link can drop someone straight into the
+  // mode it is written for: `#/bioengine?mode=ai-agent` for the agent panel,
+  // `#/bioengine?mode=human` (or no param) for the configurator. The app runs
+  // on a HashRouter, so the fragment is already the route and a bare
+  // `#ai-agent` is not available — the mode travels as a query parameter
+  // inside the hash instead, the same way the resource grid carries `?partner=`.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const [audience, setAudience] = useState<'human' | 'agent'>(
+    () => parseAudienceParam(searchParams.get(AUDIENCE_PARAM)),
+  );
+
+  // URL -> state. Covers back/forward and a link pasted while the page is
+  // already open. Guarded on inequality so it cannot ping-pong with the
+  // state -> URL effect below.
+  const audienceParam = searchParams.get(AUDIENCE_PARAM);
+  useEffect(() => {
+    const fromUrl = parseAudienceParam(audienceParam);
+    setAudience(prev => (prev === fromUrl ? prev : fromUrl));
+  }, [audienceParam]);
+
+  // State -> URL. Both modes are written out explicitly, so the human wizard is
+  // addressable as `?mode=human` rather than only as a bare path — the URL then
+  // says which panel you are looking at in both directions. `replace` keeps the
+  // toggle out of the back-button history, where a segmented control does not
+  // belong.
+  const setAudienceAndUrl = useCallback((next: 'human' | 'agent') => {
+    setAudience(next);
+    setSearchParams(prev => {
+      const params = new URLSearchParams(prev);
+      params.set(AUDIENCE_PARAM, next === 'agent' ? AUDIENCE_AGENT : AUDIENCE_HUMAN);
+      return params;
+    }, { replace: true });
+  }, [setSearchParams]);
+
+  // Canonicalise a bare `/bioengine/worker-setup` to `?mode=ai-agent` on
+  // arrival: handing the job to an agent is the default way in, and the
+  // address bar then always names the mode so the URL can be copied as-is.
+  useEffect(() => {
+    if (audienceParam === null) {
+      setSearchParams(prev => {
+        const params = new URLSearchParams(prev);
+        params.set(AUDIENCE_PARAM, AUDIENCE_AGENT);
+        return params;
+      }, { replace: true });
+    }
+  }, [audienceParam, setSearchParams]);
   const [agentPromptCopied, setAgentPromptCopied] = useState(false);
   const [includeAgentToken, setIncludeAgentToken] = useState(false);
   const [containerRuntime, setContainerRuntime] = useState<ContainerRuntimeType>('docker');
@@ -257,6 +390,13 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   const [startupApps, setStartupApps] = useState<StartupApplication[]>([]);
   const [editingStartupUid, setEditingStartupUid] = useState<string | null>(null);
   const startupUidCounter = useRef(0);
+
+  // Prebuilt-image offer: the suggestion awaiting a yes/no, then the image to
+  // apply once the advanced section is open and the field can be scrolled to.
+  const [prebuiltOffer, setPrebuiltOffer] = useState<SuggestedStartupApp | null>(null);
+  const [pendingPrebuiltImage, setPendingPrebuiltImage] = useState<string | null>(null);
+  const [imageFieldFlash, setImageFieldFlash] = useState(false);
+  const imageInputRef = useRef<HTMLInputElement>(null);
 
   // Advanced options
   const [workspace, setWorkspace] = useState('');
@@ -418,6 +558,47 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     // box is exactly the state the row warns about.
     setEditingStartupUid(uid);
   };
+
+  // Unlike addStartupApp this does NOT open the settings dialog: the suggestion
+  // already carries a working config, so the next thing worth asking about is
+  // the image rather than fields the user does not need to touch.
+  const addSuggestedStartupApp = (suggestion: SuggestedStartupApp) => {
+    startupUidCounter.current += 1;
+    const uid = `startup-app-${startupUidCounter.current}`;
+    setStartupApps(prev => [
+      ...prev,
+      { uid, config: { artifact_id: suggestion.artifactId, application_id: suggestion.applicationId } },
+    ]);
+    if (suggestion.prebuiltImage && customImage !== suggestion.prebuiltImage) {
+      setPrebuiltOffer(suggestion);
+    }
+  };
+
+  const acceptPrebuiltImage = () => {
+    if (!prebuiltOffer?.prebuiltImage) return;
+    setPendingPrebuiltImage(prebuiltOffer.prebuiltImage);
+    setPrebuiltOffer(null);
+    setShowAdvanced(true);
+  };
+
+  // Runs once the accordion is actually open, so the field exists to scroll to.
+  // The short delay lets the expansion settle before measuring its position.
+  useEffect(() => {
+    if (!pendingPrebuiltImage || !showAdvanced) return;
+    const timer = window.setTimeout(() => {
+      setCustomImage(pendingPrebuiltImage);
+      setImageFieldFlash(true);
+      imageInputRef.current?.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      setPendingPrebuiltImage(null);
+    }, 150);
+    return () => window.clearTimeout(timer);
+  }, [pendingPrebuiltImage, showAdvanced]);
+
+  useEffect(() => {
+    if (!imageFieldFlash) return;
+    const timer = window.setTimeout(() => setImageFieldFlash(false), 3000);
+    return () => window.clearTimeout(timer);
+  }, [imageFieldFlash]);
 
   const removeStartupApp = (uid: string) => {
     setStartupApps(prev => prev.filter(app => app.uid !== uid));
@@ -799,6 +980,65 @@ spec:
           Add startup application
         </button>
       </div>
+
+      {(() => {
+        const chosen = new Set(
+          startupApps.map(app => (app.config?.artifact_id || '').trim()).filter(Boolean),
+        );
+        const available = SUGGESTED_STARTUP_APPS.filter(s => !chosen.has(s.artifactId));
+        if (available.length === 0) return null;
+        return (
+          <div className="mt-3 pt-3 border-t border-gray-200">
+            <p className="text-xs text-gray-500 mb-2">Suggested</p>
+            <div className="flex flex-wrap gap-2">
+              {available.map(suggestion => (
+                <button
+                  key={suggestion.artifactId}
+                  type="button"
+                  onClick={() => addSuggestedStartupApp(suggestion)}
+                  title={suggestion.artifactId}
+                  className="flex items-start gap-2 px-3 py-2 text-left bg-white border border-gray-300 rounded-lg hover:border-blue-400 hover:bg-blue-50 transition-colors"
+                >
+                  <span className="text-blue-500 mt-0.5">+</span>
+                  <span>
+                    <span className="block text-sm font-medium text-gray-800">{suggestion.label}</span>
+                    <span className="block text-xs text-gray-500">{suggestion.blurb}</span>
+                  </span>
+                </button>
+              ))}
+            </div>
+          </div>
+        );
+      })()}
+
+      {prebuiltOffer && prebuiltOffer.prebuiltImage && (
+        <div className="mt-3 p-3 bg-blue-50 border border-blue-200 rounded-lg">
+          <p className="text-sm text-blue-900">
+            Use the prebuilt <strong>{prebuiltOffer.label}</strong> image?
+          </p>
+          <p className="text-xs text-blue-800 mt-1">
+            It ships this app's dependencies, so the first deploy skips the environment build and the app
+            serves in well under a minute instead of minutes. This sets the Container Image under Advanced
+            Options to <code className="bg-white/70 px-1 rounded">{prebuiltOffer.prebuiltImage}</code>.
+          </p>
+          <div className="flex gap-2 mt-2.5">
+            <button
+              type="button"
+              onClick={acceptPrebuiltImage}
+              className="px-3 py-1.5 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+            >
+              Yes, use it
+            </button>
+            <button
+              type="button"
+              onClick={() => setPrebuiltOffer(null)}
+              className="px-3 py-1.5 text-sm font-medium text-blue-700 bg-white border border-blue-300 rounded-lg hover:bg-blue-50 transition-colors"
+            >
+              No, keep the standard worker
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   );
 
@@ -818,7 +1058,7 @@ spec:
                     type="button"
                     role="tab"
                     aria-selected={selected}
-                    onClick={() => setAudience(value)}
+                    onClick={() => setAudienceAndUrl(value)}
                     // The agent tab keeps a light blue tint while unselected so the
                     // "let an agent do this" route is noticed rather than looking
                     // like the inactive half of a plain toggle.
@@ -852,7 +1092,6 @@ spec:
             return (
               <div className="space-y-4">
                 <div className="p-5 bg-blue-50 rounded-xl border border-blue-200">
-                  <h4 className="text-base font-semibold text-blue-900 mb-2">Set up your worker with an AI agent</h4>
                   <p className="text-sm text-blue-800">
                     Copy the prompt below into your AI agent (Claude Code, Codex, Gemini CLI, and so on). It will load the BioEngine skill, ask you about your environment, then guide you through the deployment and a readiness test.
                   </p>
@@ -895,6 +1134,24 @@ spec:
                       {isLoggedIn && isGeneratingToken && <span className="text-gray-500"> (generating token...)</span>}
                     </span>
                   </label>
+
+                  {/* A worker only accepts an explicit list of admin users, so an
+                      agent working without a token cannot register one against
+                      your workspace. Warn rather than block: the agent can still
+                      walk the user through obtaining a token themselves. */}
+                  {!(includeAgentToken && token) && (
+                    <div className="mt-3 flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                      <svg className="w-4 h-4 mt-0.5 flex-shrink-0 text-amber-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01M5.07 19h13.86c1.54 0 2.5-1.67 1.73-3L13.73 4a2 2 0 00-3.46 0L3.34 16c-.77 1.33.19 3 1.73 3z" />
+                      </svg>
+                      <p className="text-xs text-amber-800">
+                        <span className="font-semibold">No Hypha token in this prompt.</span>{' '}
+                        {isLoggedIn
+                          ? 'A worker registers against a workspace and only admits the admin users it is configured with, so the agent will have to stop and ask you for a token part-way through. Tick the box above to include one.'
+                          : 'A worker registers against a workspace and only admits the admin users it is configured with. Log in to include a token, or be ready to supply one when the agent asks.'}
+                      </p>
+                    </div>
+                  )}
                 </div>
               </div>
             );
@@ -1140,10 +1397,13 @@ spec:
 
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
-                      <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                      <ImagePresetPicker value={customImage} onChange={setCustomImage} />
+                      <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                         placeholder={DEFAULT_IMAGE}
-                        className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                        className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
+                          imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
+                        }`} />
+                      <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}. The prebuilt model runner ships the model-runner dependencies, so a model serves without waiting for an environment build on first deploy.</p>
                     </div>
 
                     <div>
@@ -1574,6 +1834,22 @@ spec:
                         <label className="block text-sm font-medium text-gray-700">GPUs</label>
                         <InfoPopover label="GPU info">
                           <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
+                          {/* Only surfaced for Docker, and only once GPUs are actually
+                              requested. The fault is real but narrow (it needs a worker
+                              up for days), and the fix has a prerequisite a plain
+                              toolkit install does not provide, so it stays behind the
+                              popover instead of changing the generated command. */}
+                          {containerRuntime === 'docker' && gpus > 0 && (
+                            <>
+                              <br /><br />
+                              <strong>Workers that stay up for days:</strong> <code className="font-mono">--gpus=all</code> attaches the GPU after the container is created, so a later cgroup reconcile can drop access while the device files still look present. To pin it at creation time instead, generate a CDI spec on the host:
+                              {/* Its own line, wrapping only at the space: the default
+                                  break-after-hyphen splits `--output` down the middle,
+                                  which is easy to mistype when copying by hand. */}
+                              <code className="font-mono block bg-gray-50 rounded px-2 py-1 my-1">sudo nvidia-ctk cdi generate <span className="whitespace-nowrap">--output=/etc/cdi/nvidia.yaml</span></code>
+                              then swap the flag for <code className="font-mono">--device nvidia.com/gpu=all</code>. Not the default, because installing the toolkit does not write that spec.
+                            </>
+                          )}
                         </InfoPopover>
                       </div>
                       <input type="number" min="0" max="16" value={gpus}
@@ -1730,10 +2006,13 @@ spec:
                   {/* ── Container / runtime ── */}
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
-                    <input type="text" value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                    <ImagePresetPicker value={customImage} onChange={setCustomImage} />
+                    <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                       placeholder={DEFAULT_IMAGE}
-                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                    <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}.</p>
+                      className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
+                        imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
+                      }`} />
+                    <p className="text-xs text-gray-500 mt-1">Container image used to run the BioEngine worker. Leave empty to use {DEFAULT_IMAGE}. The prebuilt model runner ships the model-runner dependencies, so a model serves without waiting for an environment build on first deploy.</p>
                   </div>
 
                   {mode === 'single-machine' && (
@@ -1974,16 +2253,20 @@ spec:
           </>)}
           {/* end human mode */}
 
-          {/* ── Need help (visible in both human and agent modes) ── */}
-          <div className="pt-4 flex justify-center">
-            <button
-              type="button"
-              onClick={() => { setAudience('agent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
-              className="text-sm text-blue-600 hover:text-blue-800 font-medium underline"
-            >
-              Need help? Let an AI agent set it up
-            </button>
-          </div>
+          {/* ── Need help: human mode only. In agent mode the whole panel is
+                 already the agent route, so offering it again would point at
+                 the page you are on. ── */}
+          {audience === 'human' && (
+            <div className="pt-4 flex justify-center">
+              <button
+                type="button"
+                onClick={() => { setAudienceAndUrl('agent'); window.scrollTo({ top: 0, behavior: 'smooth' }); }}
+                className="text-sm text-blue-600 hover:text-blue-800 font-medium underline"
+              >
+                Need help? Let an AI agent set it up
+              </button>
+            </div>
+          )}
 
           {/* ── Links (visible in both human and agent modes) ── */}
           <div className="mt-4 pt-4 border-t border-gray-200 flex items-center justify-center gap-6 flex-wrap">

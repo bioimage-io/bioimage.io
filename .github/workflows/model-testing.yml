@@ -15,8 +15,19 @@ on:
         required: false
         default: false
         type: boolean
+      site:
+        # Only kth is offered: deNBI stopped hosting a model-runner on
+        # 2026-09-25, so pinning there would target a site with nothing to run
+        # the models. Kept as a choice rather than dropped entirely because the
+        # pin itself is the point, and a second site may come back.
+        description: 'Compute site to pin the run to'
+        required: false
+        default: 'kth'
+        type: choice
+        options:
+          - kth
       service_id:
-        description: 'Model-runner service id (leave empty for bioimage-io/model-runner)'
+        description: 'Model-runner service id (advanced: bypasses the site pin, results are not comparable with pinned runs)'
         required: false
         type: string
 
@@ -59,6 +70,7 @@ jobs:
         # Set safe defaults for inputs (handle scheduled runs)
         MODEL_IDS="${{ github.event.inputs.model_ids || '' }}"
         SKIP_CACHE="${{ github.event.inputs.skip_cache || 'false' }}"
+        SITE="${{ github.event.inputs.site || 'kth' }}"
         SERVICE_ID="${{ github.event.inputs.service_id || '' }}"
 
         # Build command arguments
@@ -73,6 +85,12 @@ jobs:
           ARGS="$ARGS --skip-cache"
         fi
 
+        if [ -n "$SITE" ]; then
+          ARGS="$ARGS --site $SITE"
+        fi
+
+        # An explicit service id bypasses the site pin entirely; the script
+        # says so in its log so the reports are not read as comparable.
         if [ -n "$SERVICE_ID" ]; then
           ARGS="$ARGS --service-id $SERVICE_ID"
         fi

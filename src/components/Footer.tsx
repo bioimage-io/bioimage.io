@@ -115,17 +115,16 @@ const Footer: React.FC = () => {
             {/* License and Terms */}
             <div className="bg-white/60 backdrop-blur-sm rounded-2xl border border-white/50 p-6  transition-all duration-300">
               <div className="flex flex-col items-center justify-center space-y-3">
+                {/*
+                  This sentence must not drift from docs/terms_of_service.md, which is the
+                  canonical statement (see GH #13). The ToS reserves all rights unless content
+                  is explicitly licensed; the footer previously claimed the opposite default
+                  (CC-BY 4.0 unless specified otherwise) and the two contradicted each other on
+                  every page. Deliberately says nothing about what a resource's own licence
+                  covers -- that question is still open on GH #13.
+                */}
                 <p className="text-sm text-gray-700">
-                  All content is licensed under{' '}
-                  <a 
-                    href="https://creativecommons.org/licenses/by/4.0/" 
-                    target="_blank" 
-                    rel="noopener noreferrer"
-                    className="text-blue-600 hover:text-blue-800 font-medium hover:underline transition-all duration-300"
-                  >
-                    CC-BY 4.0
-                  </a>
-                  {' '}unless explicitly specified otherwise
+                  All rights to site content are reserved unless the content is explicitly licensed.
                 </p>
                 <p className="text-sm text-gray-700">
                   <Link 

@@ -9,6 +9,18 @@ interface Partner {
   documentation?: string;
   git_repo?: string;
   tooltip?: string;
+  /**
+   * Hypha workspace the partner's resources live under, used to build the
+   * `<workspace>/<id>` link a model declares to claim the partner. Absent for
+   * every partner today, so callers must default it to the partner id. The
+   * frontend reads it now so that adding it upstream needs no code change here.
+   */
+  workspace?: string;
+  /**
+   * Tags that identify this partner, as the partner declares them. NOT the same
+   * as the id: biapy declares `["BiaPy"]`. Compare case-insensitively.
+   */
+  tags?: string[];
 }
 
 interface ManifestResponse {
@@ -23,6 +35,8 @@ interface ManifestResponse {
         id: string;
         docs?: string;
         splash_subtitle?: string;
+        workspace?: string;
+        tags?: string[];
       }>;
     };
   };
@@ -72,7 +86,11 @@ class PartnerService {
         icon: partner.icon,
         id: partner.id,
         link: partner.docs,
-        tooltip: partner.splash_subtitle || partner.name
+        tooltip: partner.splash_subtitle || partner.name,
+        // Passed through rather than derived. `workspace` is absent upstream
+        // today; reading it here means adding it needs no code change.
+        workspace: partner.workspace,
+        tags: partner.tags
       }));
     } catch (err) {
       useHyphaStore.getState().markHyphaUnreachable(
