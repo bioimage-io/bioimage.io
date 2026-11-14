@@ -821,6 +821,66 @@ const AppDeploymentsStatusDialog: React.FC<AppDeploymentsStatusDialogProps> = ({
                         </div>
                       )}
 
+                      {/* Per-replica admission cap the app author declared with
+                          bioengine.app(max_ongoing_requests=...). Served per
+                          deployment by get_app_status since bioengine 0.16.96
+                          (apps/manager.py:1184 -> _per_replica_ongoing_limit).
+                          Gated on KEY PRESENCE, not on a version compare and not
+                          on truthiness: an older worker omits the key entirely and
+                          must render nothing, while a present null means "the
+                          worker did not report an integer cap".
+
+                          NULL ARRIVES TWO WAYS AND THEY NEED DIFFERENT WORDS.
+                          For ProxyDeployment the worker short-circuits on the NAME
+                          before it ever reads deployment_config
+                          (apps/manager.py:1112), so that null is a deliberate
+                          withholding, not an absence: the module DOES declare
+                          max_ongoing_requests=10 in its own @deployment
+                          (apps/proxy_deployment.py:125), and the short-circuit's
+                          docstring says why it is withheld — its Serve-level cap
+                          is not the bound that governs client calls, the top-level
+                          field is. So the generic "declares no per-replica limit,
+                          so Ray Serve applies its own default" is false on both
+                          halves there, and inverts what bounds the proxy on the one
+                          row where the instance-wide field IS the answer. The other
+                          way null arrives is a user deployment whose cap is unset or
+                          non-integral, where that sentence is correct and stays.
+                          The VALUE CHIP splits for the same reason: "Not reported"
+                          says the worker told us nothing, which is true of the unset
+                          user deployment and false of the proxy, where the worker
+                          holds the number and withholds it on purpose. That row reads
+                          "Not applicable" instead — the per-replica question does not
+                          apply to it, and the sentence beside it names the limit that
+                          does. The producing lane asked for exactly this split
+                          (worker owner warm-rhea-rcypvs, 2026-11-13: "Render it as
+                          not applicable, not as no data").
+                          Absent and null therefore
+                          render differently, and neither may collapse to 0, which
+                          would read as "accepts no requests". A bool is excluded by
+                          the typeof check, mirroring the worker's own
+                          isinstance(limit, bool) exclusion. */}
+                      {data && typeof data === 'object' && 'max_ongoing_requests' in data && (
+                        <div>
+                          <p className="text-sm font-medium text-gray-700 mb-1">Per-replica request limit</p>
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="inline-flex items-center px-2 py-1 rounded text-xs font-medium border bg-white text-gray-700 border-gray-200">
+                              {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
+                                ? `${data.max_ongoing_requests} concurrent`
+                                : name === 'ProxyDeployment'
+                                  ? 'Not applicable'
+                                  : 'Not reported'}
+                            </span>
+                            <span className="text-xs text-gray-500">
+                              {typeof data.max_ongoing_requests === 'number' && Number.isInteger(data.max_ongoing_requests)
+                                ? 'Requests one replica of this deployment handles at a time, declared by the app author. This is not the instance-wide limit set when the app was deployed.'
+                                : name === 'ProxyDeployment'
+                                  ? 'The proxy admits callers for the whole application, so its concurrency is governed by the instance-wide limit set when the app was deployed, not by a per-replica cap.'
+                                  : 'This deployment declares no per-replica limit, so Ray Serve applies its own default. Not the same as a limit of zero.'}
+                            </span>
+                          </div>
+                        </div>
+                      )}
+
                       {/* Per-deployment node placement. One badge per
                           distinct (node_id, state) pair across all replicas
                           that have a node_id — so STARTING and DEPLOY_FAILED

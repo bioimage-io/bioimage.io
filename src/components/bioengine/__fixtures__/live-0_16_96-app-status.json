@@ -1,0 +1,53 @@
+{
+  "_provenance": {
+    "captured": "2026-11-13",
+    "service_id": "ws-user-github|49943582/bioengine-worker-0063-verify:bioengine-worker",
+    "bioengine_version": "0.16.96",
+    "application_id": "composition-demo",
+    "note": "Verbatim get_app_status payload from a live bioengine 0.16.96 worker, trimmed to the fields this dialog reads. Every per-deployment max_ongoing_requests differs from the instance-wide one (10), so a build that echoed the top-level number would show 10 in all five rows and fail the assertions in the accompanying test."
+  },
+  "max_ongoing_requests": 10,
+  "status": "RUNNING",
+  "deployments": {
+    "EntryDeployment": {
+      "max_ongoing_requests": 20,
+      "message": "",
+      "replica_states": {
+        "RUNNING": 1
+      },
+      "status": "HEALTHY"
+    },
+    "ProxyDeployment": {
+      "max_ongoing_requests": null,
+      "message": "",
+      "replica_states": {
+        "RUNNING": 1
+      },
+      "status": "HEALTHY"
+    },
+    "RuntimeA": {
+      "max_ongoing_requests": 5,
+      "message": "",
+      "replica_states": {
+        "RUNNING": 1
+      },
+      "status": "HEALTHY"
+    },
+    "RuntimeB": {
+      "max_ongoing_requests": 5,
+      "message": "",
+      "replica_states": {
+        "RUNNING": 1
+      },
+      "status": "HEALTHY"
+    },
+    "RuntimeC": {
+      "max_ongoing_requests": 5,
+      "message": "",
+      "replica_states": {
+        "RUNNING": 1
+      },
+      "status": "HEALTHY"
+    }
+  }
+}
