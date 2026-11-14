@@ -2,6 +2,7 @@ import React from 'react';
 import { render, screen } from '@testing-library/react';
 import '@testing-library/jest-dom';
 import DeploymentCard from './DeploymentCard';
+import DeployedBioEngineApps from './DeployedBioEngineApps';
 import shortfallFixture from './__fixtures__/shortfall-0_16_108.json';
 
 // The worker reports `resource_shortfall` only when no single node had room for a
@@ -111,5 +112,43 @@ describe('DeploymentCard resource_shortfall', () => {
   it('says so rather than printing blank when a resource set is empty', () => {
     renderCard({ resource_shortfall: { ...SHORTFALL, requested: {} } });
     expect(screen.getByText(/Requested:/i).parentElement).toHaveTextContent('not reported');
+  });
+});
+
+// The tests above hand the card its prop directly, which cannot see the two
+// reshaping steps between `get_app_status` and that prop. Both are spreads today
+// (`{...app, <overrides>}` in BioEngineWorker, `{artifact_id: key, ...value}`
+// here), so an additive key rides through untouched -- but that is a property of
+// the current code, not a guarantee, and a future refactor to a named allowlist
+// would drop the field while every card-level test above stayed green.
+describe('the shortfall survives the dashboard reshaping get_app_status', () => {
+  const statusPayload = (appEntry: Record<string, unknown>) => ({
+    bioengine_apps: {
+      'stuck-app': {
+        application_id: 'stuck-app',
+        deployment_name: 'stuck-app',
+        display_name: 'Stuck App',
+        status: 'NOT_STARTED',
+        ...appEntry,
+      },
+    },
+  });
+
+  it('names the shortfall when the dashboard is pointed at a payload carrying one', () => {
+    render(
+      <DeployedBioEngineApps
+        status={statusPayload({ resource_shortfall: SHORTFALL })}
+        onUndeployArtifact={() => {}}
+      />,
+    );
+    expect(screen.getByText(PANEL_HEADING)).toBeInTheDocument();
+    expect(screen.getAllByRole('listitem')).toHaveLength(2);
+  });
+
+  it('draws no panel when the payload omits the key, as an older worker does', () => {
+    render(
+      <DeployedBioEngineApps status={statusPayload({})} onUndeployArtifact={() => {}} />,
+    );
+    expect(screen.queryByText(PANEL_HEADING)).not.toBeInTheDocument();
   });
 });
