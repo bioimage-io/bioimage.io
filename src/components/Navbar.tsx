@@ -3,7 +3,7 @@ import { Link, useLocation, useNavigate } from 'react-router-dom';
 import LoginButton from './LoginButton';
 import { BiCube } from 'react-icons/bi';
 import { BsDatabase, BsCollection } from 'react-icons/bs';
-import { HiOutlineBeaker } from 'react-icons/hi';
+import { HiOutlineBeaker, HiOutlineGlobeAlt } from 'react-icons/hi';
 import { IoDocumentTextOutline, IoCloudUploadOutline } from 'react-icons/io5';
 import { AiOutlineInfoCircle } from 'react-icons/ai';
 import { RiLoginBoxLine } from 'react-icons/ri';
@@ -63,6 +63,10 @@ const Navbar: React.FC = () => {
             <Link to="/applications" className={navLinkClasses("/applications")}>
               <HiOutlineBeaker className="mr-2" size={20} />
               Applications
+            </Link>
+            <Link to="/campaigns" className={navLinkClasses("/campaigns")}>
+              <HiOutlineGlobeAlt className="mr-2" size={20} />
+              Campaigns
             </Link>
             <a 
               href="https://bioimage.io/docs" 
@@ -163,6 +167,14 @@ const Navbar: React.FC = () => {
             >
               <HiOutlineBeaker className="mr-3" size={20} />
               Applications
+            </Link>
+            <Link 
+              to="/campaigns" 
+              className={mobileNavLinkClasses("/campaigns")}
+              onClick={() => setIsMobileMenuOpen(false)}
+            >
+              <HiOutlineGlobeAlt className="mr-3" size={20} />
+              Campaigns
             </Link>
             <a 
               href="https://bioimage.io/docs"

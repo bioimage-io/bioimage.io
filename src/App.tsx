@@ -26,6 +26,7 @@ import BioEngineWorkerAdmin from './components/bioengine/BioEngineWorkerAdmin';
 import BioEngineAppsPage from './components/bioengine/BioEngineAppsPage';
 import BioEngineTokenPage from './components/bioengine/BioEngineTokenPage';
 import ColabPage from './components/colab/ColabPage';
+import CampaignsPage from './components/campaigns/CampaignsPage';
 import { useConnectionLiveness } from './hooks/useConnectionLiveness';
 
 // `/bioengine/worker` moved to `/bioengine/worker-admin` when the BioEngine
@@ -148,6 +149,7 @@ const AppContent: React.FC = () => {
               so the query string has to survive the move. */}
           <Route path="/bioengine/worker" element={<BioEngineWorkerRedirect />} />
           <Route path="/colab/*" element={<ColabPage />} />
+          <Route path="/campaigns/*" element={<CampaignsPage />} />
         </Routes>
       </main>
       {!hideFooter && <Footer />}
