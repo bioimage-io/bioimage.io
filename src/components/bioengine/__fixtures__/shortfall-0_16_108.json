@@ -1,0 +1,39 @@
+{
+  "_comment": [
+    "A resource_shortfall report as bioengine-worker emits it. CONSTRUCTED from the shape in",
+    "aicell-lab/bioengine origin/main bioengine/apps/manager.py (_check_resources returns",
+    "requested / free_per_node / cluster_free / detected_at), NOT captured from a live worker:",
+    "producing a real one needs an external cluster on which no node can fit the deploy.",
+    "The field ships in worker 0.16.108 and is absent in 0.16.107, both measured by grepping",
+    "the installed manager.py inside the published images (5 occurrences against 0, control",
+    "application_resources = 6 in both).",
+    "",
+    "The numbers are chosen so cluster_free EXACTLY EQUALS requested while no single node can",
+    "fit the app. That is the trap the worker author called out: admission is per node, so a",
+    "cluster total that looks sufficient can accompany a deploy that is correctly unplaceable.",
+    "A UI that renders cluster_free as free capacity passes a weaker fixture and fails this one."
+  ],
+  "requested": {
+    "num_cpus": 8,
+    "num_gpus": 2,
+    "memory": 34359738368
+  },
+  "free_per_node": {
+    "a1b2c3d4e5f67890aaaa": {
+      "num_cpus": 4,
+      "num_gpus": 1,
+      "memory": 17179869184
+    },
+    "b2c3d4e5f67890aabbbb": {
+      "num_cpus": 4,
+      "num_gpus": 1,
+      "memory": 17179869184
+    }
+  },
+  "cluster_free": {
+    "num_cpus": 8,
+    "num_gpus": 2,
+    "memory": 34359738368
+  },
+  "detected_at": 1763080000.123
+}
