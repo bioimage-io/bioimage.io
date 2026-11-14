@@ -22,7 +22,13 @@ import { BASE_URL } from './baseUrl';
 // The tests run in order and share the fixture: 1 and 2 must run BEFORE 3,
 // because they assume the image has no saved annotation yet.
 
-test.use({ baseURL: BASE_URL });
+// Viewport stated rather than inherited. playwright.config.ts sets none, so
+// these ran at Playwright's default, which happens to be desktop-sized but
+// says so nowhere. The annotate page's tool rail and ACTIONS panel are only
+// both on screen at a desktop width, and a result that depends on the
+// viewport should name it. notes/verify/verify-0035.sh reads the numbers back
+// out of this line, so what it reports cannot drift from what ran.
+test.use({ baseURL: BASE_URL, viewport: { width: 1280, height: 900 } });
 
 const DATASET_ALIAS = process.env.FIXTURE_ALIAS || 'verify35-47a780080dae';
 const LABEL = process.env.FIXTURE_LABEL || 'cells';
