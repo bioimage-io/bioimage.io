@@ -1085,7 +1085,7 @@ spec:
           {/* ── AI Agent mode: blue intro + grey copy-able prompt with optional admin-token injection ── */}
           {audience === 'agent' && (() => {
             const skillUrl = 'https://bioimage.io/skills/bioengine/SKILL.md';
-            const basePrompt = `Read ${skillUrl} and follow the instructions to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
+            const basePrompt = `Fetch ${skillUrl} with curl so you get the raw bytes, not a summarising web-fetch tool, which drops the exact commands. Then follow it to set up a BioEngine worker. Ask me about my environment and any required information as we go.`;
             const promptText = (includeAgentToken && token)
               ? `${basePrompt}\n\nUse this Hypha admin token for my workspace (valid for ${tokenLifetimeLabel}, ask me to generate a new one if it has expired):\n${token}`
               : basePrompt;

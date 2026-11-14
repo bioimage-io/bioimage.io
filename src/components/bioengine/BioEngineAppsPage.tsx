@@ -62,7 +62,7 @@ type WorkspaceState = {
 
 const buildPrompt = (serviceIds: string[], token: string): string => {
   const parts = [
-    `Read ${SKILL_URL} and follow it to call BioEngine applications that are already deployed. Ask me what I want to run, then inspect the app's available methods before calling them.`,
+    `Fetch ${SKILL_URL} with curl so you get the raw bytes, not a summarising web-fetch tool, which drops the exact commands. Then follow it to call BioEngine applications that are already deployed. Ask me what I want to run, then inspect the app's available methods before calling them.`,
   ];
   if (serviceIds.length > 0) {
     const noun = serviceIds.length === 1 ? 'this app' : 'these apps';
