@@ -36,7 +36,7 @@ const TOKEN_LIFETIME_LABEL = '12 hours';
  * already knows which worker to build against.
  */
 const buildPrompt = (workerIds: string[], token: string): string => {
-  const base = `Read ${SKILL_URL} and follow it to work with an existing BioEngine worker. Ask me what I want to do before changing anything. You can:
+  const base = `Fetch ${SKILL_URL} with curl so you get the raw bytes, not a summarising web-fetch tool, which drops the exact commands. Then follow it to work with an existing BioEngine worker. Ask me what I want to do before changing anything. You can:
   - deploy an app that already exists in a Hypha artifact collection
   - build a new BioEngine app from scratch, then deploy it to the worker
   - update, redeploy or undeploy an app that is already running
