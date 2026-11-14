@@ -16,7 +16,11 @@ const TagInput: React.FC<{
   onChange: (tags: string[]) => void;
   placeholder?: string;
   allowWildcard?: boolean;
-}> = ({ tags, onChange, placeholder, allowWildcard = true }) => {
+  // Lets a visible label name this component's inner input, by giving that input
+  // an id the label can point at. Without it the control has no accessible name,
+  // since the label is a sibling of the wrapper div and not of the input itself.
+  inputId?: string;
+}> = ({ tags, onChange, placeholder, allowWildcard = true, inputId }) => {
   const [inputValue, setInputValue] = useState('');
   const [focusedIdx, setFocusedIdx] = useState<number | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -95,6 +99,7 @@ const TagInput: React.FC<{
       ))}
       <input
         ref={inputRef}
+        id={inputId}
         type="text"
         value={inputValue}
         placeholder={tags.length === 0 ? placeholder : ''}
@@ -1185,11 +1190,17 @@ spec:
                   onClick={() => !disabled && setMode(value as ModeType)}
                 >
                   <div className="flex items-center mb-2">
-                    <input type="radio" name="deployment-mode" value={value} checked={mode === value}
+                    {/* The visible mode name is the radio's accessible name, so it is a
+                        <label> pointing at the input rather than a bare <span>. Without
+                        the association a screen reader announces three unnamed radios.
+                        One id per mode value, so the three rendered cards stay distinct. */}
+                    <input id={`bw-deployment-mode-${value}`}
+                      type="radio" name="deployment-mode" value={value} checked={mode === value}
                       disabled={disabled}
                       onChange={(e) => !disabled && setMode(e.target.value as ModeType)}
                       className={`w-4 h-4 text-${color}-600`} />
-                    <span className="ml-2 font-medium text-gray-800">{label}</span>
+                    <label htmlFor={`bw-deployment-mode-${value}`}
+                      className="ml-2 font-medium text-gray-800">{label}</label>
                   </div>
                   <p className="text-sm text-gray-600 ml-6">{desc}</p>
                   <div className="mt-2 ml-6">
@@ -1229,16 +1240,16 @@ spec:
                 <h5 className="text-sm font-semibold text-gray-700 mb-3">Configuration</h5>
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
-                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                    <label htmlFor="bw-worker-name" className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input id="bw-worker-name" type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
                       placeholder="BioEngine Worker"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
                   </div>
 
                   <div className="md:col-span-2">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Address</label>
-                    <input
+                    <label htmlFor="bw-ray-cluster-address" className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Address</label>
+                    <input id="bw-ray-cluster-address"
                       type="text"
                       value={rayAddress}
                       onChange={(e) => setRayAddress(e.target.value)}
@@ -1251,8 +1262,8 @@ spec:
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Ray Workspace Directory</label>
-                    <input
+                    <label htmlFor="bw-ray-workspace-directory" className="block text-sm font-medium text-gray-700 mb-1">Ray Workspace Directory</label>
+                    <input id="bw-ray-workspace-directory"
                       type="text"
                       value={rayWorkspaceDir}
                       onChange={(e) => setRayWorkspaceDir(e.target.value)}
@@ -1263,8 +1274,8 @@ spec:
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Kubernetes Namespace</label>
-                    <input
+                    <label htmlFor="bw-kubernetes-namespace" className="block text-sm font-medium text-gray-700 mb-1">Kubernetes Namespace</label>
+                    <input id="bw-kubernetes-namespace"
                       type="text"
                       value={k8sNamespace}
                       onChange={(e) => setK8sNamespace(e.target.value)}
@@ -1323,8 +1334,8 @@ spec:
                 {showAdvanced && (
                   <div className="mt-3 grid grid-cols-1 md:grid-cols-2 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
-                      <TagInput
+                      <label htmlFor="bw-admin-users" className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
+                      <TagInput inputId="bw-admin-users"
                         tags={adminUsers}
                         onChange={setAdminUsers}
                         placeholder="user@example.com"
@@ -1335,7 +1346,7 @@ spec:
 
                     <div className="md:col-span-2">
                       <div className="flex items-center justify-between mb-1">
-                        <label className="block text-sm font-medium text-gray-700">Authentication Token</label>
+                        <label htmlFor="bw-authentication-token" className="block text-sm font-medium text-gray-700">Authentication Token</label>
                         {isLoggedIn && (
                           <button
                             type="button"
@@ -1354,7 +1365,7 @@ spec:
                           </button>
                         )}
                       </div>
-                      <input
+                      <input id="bw-authentication-token"
                         type="password"
                         value={token}
                         onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
@@ -1370,8 +1381,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
-                      <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
+                      <label htmlFor="bw-server-url" className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
+                      <input id="bw-server-url" type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
                         placeholder={HYPHA_SERVER_URL}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use {HYPHA_SERVER_URL}.</p>
@@ -1379,7 +1390,7 @@ spec:
 
                     <div>
                       <div className="flex items-center justify-between mb-1">
-                        <label className="block text-sm font-medium text-gray-700">Hypha Workspace</label>
+                        <label htmlFor="bw-hypha-workspace" className="block text-sm font-medium text-gray-700">Hypha Workspace</label>
                         {workspaceResolved && workspace && (
                           <span className="flex items-center text-xs text-green-600">
                             <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1389,16 +1400,16 @@ spec:
                           </span>
                         )}
                       </div>
-                      <input type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
+                      <input id="bw-hypha-workspace" type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
                         autoComplete="off"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Hypha workspace for service registration. Resolved from the token if left empty.</p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
+                      <label htmlFor="bw-container-image" className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
                       <ImagePresetPicker value={customImage} onChange={setCustomImage} />
-                      <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                      <input id="bw-container-image" type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                         placeholder={DEFAULT_IMAGE}
                         className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
                           imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
@@ -1407,8 +1418,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Ray Version</label>
-                      <input type="text" value={rayVersion} onChange={(e) => setRayVersion(e.target.value)}
+                      <label htmlFor="bw-ray-version" className="block text-sm font-medium text-gray-700 mb-1">Ray Version</label>
+                      <input id="bw-ray-version" type="text" value={rayVersion} onChange={(e) => setRayVersion(e.target.value)}
                         placeholder={DEFAULT_RAY_VERSION}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">
@@ -1417,16 +1428,16 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Ray Client Server Port</label>
-                      <input type="number" value={clientServerPort} onChange={(e) => setClientServerPort(e.target.value)}
+                      <label htmlFor="bw-ray-client-server-port" className="block text-sm font-medium text-gray-700 mb-1">Ray Client Server Port</label>
+                      <input id="bw-ray-client-server-port" type="number" value={clientServerPort} onChange={(e) => setClientServerPort(e.target.value)}
                         placeholder="10001"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Port exposed by the Ray head service</p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Auth Token</label>
-                      <input
+                      <label htmlFor="bw-ray-cluster-auth-token" className="block text-sm font-medium text-gray-700 mb-1">Ray Cluster Auth Token</label>
+                      <input id="bw-ray-cluster-auth-token"
                         type="password"
                         value={rayAuthToken}
                         onChange={(e) => setRayAuthToken(e.target.value)}
@@ -1481,8 +1492,8 @@ spec:
                   </p>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Docker Hub Username</label>
-                    <input type="text" value={dockerHubUsername} onChange={(e) => setDockerHubUsername(e.target.value)}
+                    <label htmlFor="bw-docker-hub-username" className="block text-sm font-medium text-gray-700 mb-1">Docker Hub Username</label>
+                    <input id="bw-docker-hub-username" type="text" value={dockerHubUsername} onChange={(e) => setDockerHubUsername(e.target.value)}
                       placeholder="<your-dockerhub-username>"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Registry namespace for your custom image, filled into the build script, push command, and deployment YAML below.</p>
@@ -1693,40 +1704,40 @@ spec:
                   <h5 className="text-sm font-semibold text-gray-700 mb-3">Worker Defaults & Cluster Configuration</h5>
                   <p className="text-xs text-gray-500 mb-3">Defaults used when BioEngine submits a SLURM job to start a new Ray worker. Individual deployments can override these per-app.</p>
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
-                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                    <label htmlFor="bw-worker-name-2" className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input id="bw-worker-name-2" type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
                       placeholder="BioEngine Worker"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">CPU Cores per Worker</label>
-                      <input type="number" min="1" max="128" value={slurmDefaultNumCpus}
+                      <label htmlFor="bw-cpu-cores-per-worker" className="block text-sm font-medium text-gray-700 mb-1">CPU Cores per Worker</label>
+                      <input id="bw-cpu-cores-per-worker" type="number" min="1" max="128" value={slurmDefaultNumCpus}
                         onChange={(e) => setSlurmDefaultNumCpus(parseInt(e.target.value) || 1)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Requested with <code className="bg-gray-100 px-1 rounded">--cpus-per-task</code> per worker</p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">GPUs per Worker</label>
-                      <input type="number" min="0" max="16" value={slurmDefaultNumGpus}
+                      <label htmlFor="bw-gpus-per-worker" className="block text-sm font-medium text-gray-700 mb-1">GPUs per Worker</label>
+                      <input id="bw-gpus-per-worker" type="number" min="0" max="16" value={slurmDefaultNumGpus}
                         onChange={(e) => setSlurmDefaultNumGpus(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Set to 0 for CPU-only worker jobs</p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Memory per CPU (GB)</label>
-                      <input type="number" min="1" max="128" value={slurmDefaultMemPerCpu}
+                      <label htmlFor="bw-memory-per-cpu-gb" className="block text-sm font-medium text-gray-700 mb-1">Memory per CPU (GB)</label>
+                      <input id="bw-memory-per-cpu-gb" type="number" min="1" max="128" value={slurmDefaultMemPerCpu}
                         onChange={(e) => setSlurmDefaultMemPerCpu(parseInt(e.target.value) || 1)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Total RAM = CPUs × this value</p>
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Worker Time Limit</label>
-                      <input type="text" value={slurmDefaultTimeLimit}
+                      <label htmlFor="bw-worker-time-limit" className="block text-sm font-medium text-gray-700 mb-1">Worker Time Limit</label>
+                      <input id="bw-worker-time-limit" type="text" value={slurmDefaultTimeLimit}
                         onChange={(e) => setSlurmDefaultTimeLimit(e.target.value)}
                         placeholder="4:00:00"
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -1734,8 +1745,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Max Workers</label>
-                      <input type="number" min="1" max="64"
+                      <label htmlFor="bw-max-workers" className="block text-sm font-medium text-gray-700 mb-1">Max Workers</label>
+                      <input id="bw-max-workers" type="number" min="1" max="64"
                         value={slurmMaxWorkers}
                         onChange={(e) => setSlurmMaxWorkers(e.target.value === '' ? '' : Math.max(1, parseInt(e.target.value) || 1))}
                         placeholder="10"
@@ -1744,8 +1755,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">GPU sbatch directive</label>
-                      <select value={slurmGpuFlag} onChange={(e) => setSlurmGpuFlag(e.target.value)}
+                      <label htmlFor="bw-gpu-sbatch-directive" className="block text-sm font-medium text-gray-700 mb-1">GPU sbatch directive</label>
+                      <select id="bw-gpu-sbatch-directive" value={slurmGpuFlag} onChange={(e) => setSlurmGpuFlag(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="--gpus={n}">--gpus=&#123;n&#125;</option>
                         <option value="--gres=gpu:{n}">--gres=gpu:&#123;n&#125;</option>
@@ -1763,16 +1774,16 @@ spec:
                 <div className="p-4 bg-gray-50 rounded-xl border border-gray-200">
                   <h5 className="text-sm font-semibold text-gray-700 mb-3">Container & Compute</h5>
                   <div className="mb-4">
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
-                    <input type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
+                    <label htmlFor="bw-worker-name-3" className="block text-sm font-medium text-gray-700 mb-1">Worker Name</label>
+                    <input id="bw-worker-name-3" type="text" value={workerName} onChange={(e) => setWorkerName(e.target.value)}
                       placeholder="BioEngine Worker"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Display name for this worker in the Hypha service registry.</p>
                   </div>
                   <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Operating System</label>
-                      <select value={os} onChange={(e) => setOS(e.target.value as OSType)}
+                      <label htmlFor="bw-operating-system" className="block text-sm font-medium text-gray-700 mb-1">Operating System</label>
+                      <select id="bw-operating-system" value={os} onChange={(e) => setOS(e.target.value as OSType)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="macos">macOS</option>
                         <option value="linux">Linux</option>
@@ -1782,12 +1793,12 @@ spec:
 
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-sm font-medium text-gray-700">Container Runtime</label>
+                        <label htmlFor="bw-container-runtime" className="block text-sm font-medium text-gray-700">Container Runtime</label>
                         <InfoPopover label="Container runtime info">
                           BioEngine runs inside a container. Make sure the selected container runtime is installed on this machine. The latest image is ~1.1 GB and will be pulled automatically on first run.
                         </InfoPopover>
                       </div>
-                      <select value={containerRuntime} onChange={(e) => setContainerRuntime(e.target.value as ContainerRuntimeType)}
+                      <select id="bw-container-runtime" value={containerRuntime} onChange={(e) => setContainerRuntime(e.target.value as ContainerRuntimeType)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="docker">Docker</option>
                         <option value="podman">Podman</option>
@@ -1806,12 +1817,12 @@ spec:
                       {(containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? null : (
                         <>
                           <div className="flex items-center gap-1 mb-1">
-                            <label className="block text-sm font-medium text-gray-700">Shared Memory Size (GB)</label>
+                            <label htmlFor="bw-shared-memory-size-gb" className="block text-sm font-medium text-gray-700">Shared Memory Size (GB)</label>
                             <InfoPopover label="Shared memory size info">
                               Ray's object store lives in <code className="bg-gray-100 px-1 rounded">/dev/shm</code>, which Docker and Podman default to just 64 MB, too small for Ray. This sets that limit. Independent of the Workspace Directory mount below, which is for persistent files on the host.
                             </InfoPopover>
                           </div>
-                          <input type="number" min="1" max="256" value={shmSizeGb}
+                          <input id="bw-shared-memory-size-gb" type="number" min="1" max="256" value={shmSizeGb}
                             onChange={(e) => setShmSizeGb(parseInt(e.target.value) || 1)}
                             className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                           <p className="text-xs text-gray-500 mt-1">
@@ -1822,8 +1833,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">CPU Cores</label>
-                      <input type="number" min="1" max="64" value={cpus}
+                      <label htmlFor="bw-cpu-cores" className="block text-sm font-medium text-gray-700 mb-1">CPU Cores</label>
+                      <input id="bw-cpu-cores" type="number" min="1" max="64" value={cpus}
                         onChange={(e) => setCpus(parseInt(e.target.value) || 1)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">CPUs allocated to Ray head node</p>
@@ -1831,7 +1842,7 @@ spec:
 
                     <div>
                       <div className="flex items-center gap-1 mb-1">
-                        <label className="block text-sm font-medium text-gray-700">GPUs</label>
+                        <label htmlFor="bw-gpus" className="block text-sm font-medium text-gray-700">GPUs</label>
                         <InfoPopover label="GPU info">
                           <strong>GPU support</strong> requires the <strong>NVIDIA Container Toolkit</strong> to be installed on the host. See the <a href="https://docs.nvidia.com/datacenter/cloud-native/container-toolkit/latest/install-guide.html" target="_blank" rel="noopener noreferrer" className="underline hover:text-blue-900">installation guide</a>.
                           {/* Only surfaced for Docker, and only once GPUs are actually
@@ -1852,7 +1863,7 @@ spec:
                           )}
                         </InfoPopover>
                       </div>
-                      <input type="number" min="0" max="16" value={gpus}
+                      <input id="bw-gpus" type="number" min="0" max="16" value={gpus}
                         onChange={(e) => setGpus(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">
@@ -1861,8 +1872,8 @@ spec:
                     </div>
 
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Memory (GB)</label>
-                      <input type="number" min="0" max="512" value={memory}
+                      <label htmlFor="bw-memory-gb" className="block text-sm font-medium text-gray-700 mb-1">Memory (GB)</label>
+                      <input id="bw-memory-gb" type="number" min="0" max="512" value={memory}
                         onChange={(e) => setMemory(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">Total RAM available to Ray on this machine (0 = auto-detect).</p>
@@ -1897,8 +1908,8 @@ spec:
 
                   {/* ── Worker identity ── */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
-                    <TagInput
+                    <label htmlFor="bw-admin-users-2" className="block text-sm font-medium text-gray-700 mb-1">Admin Users</label>
+                    <TagInput inputId="bw-admin-users-2"
                       tags={adminUsers}
                       onChange={setAdminUsers}
                       placeholder="user@example.com"
@@ -1909,8 +1920,8 @@ spec:
 
                   {/* ── BioEngine data directory ── */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">BioEngine Workspace Directory</label>
-                    <input type="text" value={workspaceDir}
+                    <label htmlFor="bw-bioengine-workspace-directory" className="block text-sm font-medium text-gray-700 mb-1">BioEngine Workspace Directory</label>
+                    <input id="bw-bioengine-workspace-directory" type="text" value={workspaceDir}
                       onChange={(e) => setWorkspaceDir(e.target.value)}
                       placeholder={os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine'}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -1922,7 +1933,7 @@ spec:
                   {/* ── Hypha connection ── */}
                   <div className="md:col-span-2">
                     <div className="flex items-center justify-between mb-1">
-                      <label className="block text-sm font-medium text-gray-700">
+                      <label htmlFor="bw-authentication-token-2" className="block text-sm font-medium text-gray-700">
                         Authentication Token
                       </label>
                       {isLoggedIn && (
@@ -1944,6 +1955,7 @@ spec:
                       )}
                     </div>
                     <input
+                      id="bw-authentication-token-2"
                       type="password"
                       value={token}
                       onChange={(e) => { setToken(e.target.value); setTokenIsManual(true); }}
@@ -1961,8 +1973,8 @@ spec:
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
-                    <input type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
+                    <label htmlFor="bw-server-url-2" className="block text-sm font-medium text-gray-700 mb-1">Server URL</label>
+                    <input id="bw-server-url-2" type="text" value={serverUrl} onChange={(e) => setServerUrl(e.target.value)}
                       placeholder={HYPHA_SERVER_URL}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Hypha server URL. Leave empty to use {HYPHA_SERVER_URL}.</p>
@@ -1970,7 +1982,7 @@ spec:
 
                   <div>
                     <div className="flex items-center justify-between mb-1">
-                      <label className="block text-sm font-medium text-gray-700">Hypha Workspace</label>
+                      <label htmlFor="bw-hypha-workspace-2" className="block text-sm font-medium text-gray-700">Hypha Workspace</label>
                       {workspaceResolved && workspace && (
                         <span className="flex items-center text-xs text-green-600">
                           <svg className="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -1980,15 +1992,15 @@ spec:
                         </span>
                       )}
                     </div>
-                    <input type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
+                    <input id="bw-hypha-workspace-2" type="text" value={workspace} onChange={(e) => { setWorkspace(e.target.value); setWorkspaceResolved(false); }}
                       autoComplete="off"
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Hypha workspace name for service registration. Resolved from the token if left empty.</p>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
-                    <input type="text" value={clientId} onChange={(e) => setClientId(e.target.value)}
+                    <label htmlFor="bw-client-id" className="block text-sm font-medium text-gray-700 mb-1">Client ID</label>
+                    <input id="bw-client-id" type="text" value={clientId} onChange={(e) => setClientId(e.target.value)}
                       className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                     <p className="text-xs text-gray-500 mt-1">Auto-generated by BioEngine if left empty.</p>
                   </div>
@@ -1996,8 +2008,8 @@ spec:
                   {/* ── GPU indices ── */}
                   {mode === 'single-machine' && gpus > 0 && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">GPU Indices</label>
-                      <input type="text" value={gpuIndices} onChange={(e) => setGpuIndices(e.target.value)}
+                      <label htmlFor="bw-gpu-indices" className="block text-sm font-medium text-gray-700 mb-1">GPU Indices</label>
+                      <input id="bw-gpu-indices" type="text" value={gpuIndices} onChange={(e) => setGpuIndices(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
                       <p className="text-xs text-gray-500 mt-1">CUDA_VISIBLE_DEVICES: comma-separated GPU indices (e.g. 0,1). Leave empty to use all GPUs.</p>
                     </div>
@@ -2005,9 +2017,9 @@ spec:
 
                   {/* ── Container / runtime ── */}
                   <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
+                    <label htmlFor="bw-container-image-2" className="block text-sm font-medium text-gray-700 mb-1">Container Image</label>
                     <ImagePresetPicker value={customImage} onChange={setCustomImage} />
-                    <input type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
+                    <input id="bw-container-image-2" type="text" ref={imageInputRef} value={customImage} onChange={(e) => setCustomImage(e.target.value)}
                       placeholder={DEFAULT_IMAGE}
                       className={`w-full px-3 py-2 border rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 transition-all duration-300 ${
                         imageFieldFlash ? 'border-blue-500 ring-2 ring-blue-400 bg-blue-50' : 'border-gray-300'
@@ -2017,8 +2029,8 @@ spec:
 
                   {mode === 'single-machine' && (
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Platform Override</label>
-                      <select value={platformOverride} onChange={(e) => setPlatformOverride(e.target.value)}
+                      <label htmlFor="bw-platform-override" className="block text-sm font-medium text-gray-700 mb-1">Platform Override</label>
+                      <select id="bw-platform-override" value={platformOverride} onChange={(e) => setPlatformOverride(e.target.value)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500">
                         <option value="">Auto-detect</option>
                         <option value="linux/amd64">linux/amd64</option>
@@ -2032,8 +2044,8 @@ spec:
                   {mode === 'slurm' && (
                     <>
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Worker Workspace Directory</label>
-                        <input type="text" value={slurmWorkerWorkspaceDir}
+                        <label htmlFor="bw-worker-workspace-directory" className="block text-sm font-medium text-gray-700 mb-1">Worker Workspace Directory</label>
+                        <input id="bw-worker-workspace-directory" type="text" value={slurmWorkerWorkspaceDir}
                           onChange={(e) => setSlurmWorkerWorkspaceDir(e.target.value)}
                           placeholder={workspaceDir || '$HOME/.bioengine'}
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
@@ -2041,8 +2053,8 @@ spec:
                       </div>
 
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Further SLURM Args</label>
-                        <input type="text" value={slurmFurtherArgs}
+                        <label htmlFor="bw-further-slurm-args" className="block text-sm font-medium text-gray-700 mb-1">Further SLURM Args</label>
+                        <input id="bw-further-slurm-args" type="text" value={slurmFurtherArgs}
                           onChange={(e) => setSlurmFurtherArgs(e.target.value)}
                           placeholder='--account=<your-project> --partition=gpu'
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
@@ -2050,8 +2062,8 @@ spec:
                       </div>
 
                       <div className="md:col-span-2">
-                        <label className="block text-sm font-medium text-gray-700 mb-1">Further Apptainer Args</label>
-                        <input type="text" value={slurmApptainerArgs}
+                        <label htmlFor="bw-further-apptainer-args" className="block text-sm font-medium text-gray-700 mb-1">Further Apptainer Args</label>
+                        <input id="bw-further-apptainer-args" type="text" value={slurmApptainerArgs}
                           onChange={(e) => setSlurmApptainerArgs(e.target.value)}
                           placeholder="--bind /path/on/host:/path/in/container"
                           className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 font-mono text-sm" />
