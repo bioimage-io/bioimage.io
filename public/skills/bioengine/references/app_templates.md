@@ -7,6 +7,7 @@
   - [Getting the frontend URL](#getting-the-frontend-url)
   - [Sending an uploaded image to the backend](#sending-an-uploaded-image-to-the-backend)
   - [Capping what you send back](#capping-what-you-send-back)
+  - [Don't relabel a watershed result through its binary mask](#dont-relabel-a-watershed-result-through-its-binary-mask)
   - [Shipping a multi-file frontend](#shipping-a-multi-file-frontend)
   - [Testing your frontend](#testing-your-frontend)
   - [Choosing your theme (both are shipped)](#choosing-your-theme-both-are-shipped)
@@ -42,6 +43,7 @@ authorized_users:
 
 ```python
 """Single-deployment BioEngine app."""
+import sys
 import time
 from datetime import datetime
 from typing import Dict, Union
@@ -50,7 +52,11 @@ from pydantic import Field
 
 import bioengine
 
-logger = bioengine.logger  # never use print()
+# No `logger = bioengine.logger` here, deliberately. That logger has no handlers
+# and level NOTSET, so logger.info() never reaches `bioengine apps status --logs`:
+# 13 of 13 print-to-stderr lines came back and 0 of 13 logger lines did. Breadcrumbs
+# below go to stderr with flush=True. See SKILL.md § Key rules for the measurement
+# and for the handler-attaching variant if you want the logger's formatting.
 
 
 @bioengine.app(
@@ -73,7 +79,7 @@ class MyDeployment:
 
     @bioengine.async_init
     async def load(self) -> None:
-        logger.info("MyDeployment async_init complete")
+        print("MyDeployment async_init complete", file=sys.stderr, flush=True)
 
     @bioengine.smoke_test
     async def smoke(self) -> None:
@@ -82,6 +88,26 @@ class MyDeployment:
         assert arr.shape == (3, 3)
         result = await self.ping()
         assert result["status"] == "ok"
+        # Safe only because `ping` declares no Field(...)-defaulted parameter.
+        # The moment one does, call the undecorated helper instead -- see below.
+
+    def _check(self) -> None:
+        """Undecorated. Both the hook and the public method delegate here."""
+        if self.greeting is None:
+            raise RuntimeError("greeting was never set")
+
+    @bioengine.health_check
+    async def healthy(self) -> None:
+        # Raise to signal unhealthy. THE RETURN VALUE IS DISCARDED: the worker
+        # awaits this hook and ignores whatever comes back, so returning
+        # {"status": "degraded"} marks the replica healthy forever.
+        self._check()
+
+    @bioengine.method
+    async def health(self) -> Dict[str, str]:
+        """A caller-visible health report. Not the hook, and not a substitute."""
+        self._check()
+        return {"status": "ok"}
 
     @bioengine.method
     async def ping(self) -> Dict[str, Union[str, float]]:
@@ -104,9 +130,13 @@ class MyDeployment:
         return {"result": float(np.sum(arr)), "count": len(values)}
 ```
 
-*(Validated: this exact template deploys green on a live worker — `ping` and `process` both call successfully.)*
+*(Validated: this template deploys green on a live worker — `ping` and `process` both call successfully. That run predates the `health_check` / `health` pair added above, so those two lines are not covered by it.)*
+
+> **The health check is the one hook whose return value is thrown away.** The worker `await`s it and discards the result (`bioengine/_app/mixin.py`), so the only way to report unhealthy is to **raise**; the decorator's own docstring says "Raise to signal unhealthy." An app that returns `{"status": "degraded"}` is marked healthy for as long as it runs. If you also want callers to be able to ask, expose a separate `@bioengine.method` and have **both delegate to one undecorated helper**, rather than having the hook call the method. The two have opposite contracts — the hook reports by raising and the method reports by returning — so a hook that delegates to the method has to turn a returned status back into an exception, and the moment someone edits one of them the two answers drift. A plain helper gives each the shape it owes its own caller from one piece of logic.
 
 > **Heavy DL dependencies take a while.** For TensorFlow/PyTorch-class `pip` pins plus a first-use pretrained-weight download inside `async_init`, expect a multi-minute (roughly 5–15 min) `DEPLOYING` window. That's normal, not a hang — don't start unnecessary retries or assume failure; wait for `HEALTHY` or `DEPLOY_FAILED`.
+>
+> **That range is deep-learning-specific; size your deadline to the pins you actually wrote.** A classical-CV set (scipy / scikit-image / tifffile / imagecodecs / Pillow) was measured reaching `HEALTHY` in roughly 25 seconds. A 15-minute deadline carried over to that app gives you no way to tell a slow install from a genuinely stuck deploy, which is the one thing the deadline exists to do.
 
 ---
 
@@ -174,8 +204,6 @@ from runtime_a import RuntimeA
 from runtime_b import RuntimeB
 from runtime_c import RuntimeC
 
-logger = bioengine.logger
-
 
 @bioengine.app(
     num_cpus=0,
@@ -242,9 +270,11 @@ class EntryDeployment:
 
 ```python
 """RuntimeA — text processing."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -256,7 +286,7 @@ logger = bioengine.logger
 class RuntimeA:
     @bioengine.async_init
     async def load(self) -> None:
-        logger.info("RuntimeA ready")
+        print("RuntimeA ready", file=sys.stderr, flush=True)
 
     @bioengine.smoke_test
     async def smoke(self) -> None:
@@ -278,9 +308,11 @@ class RuntimeA:
 
 ```python
 """RuntimeB — data analysis."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -293,7 +325,7 @@ class RuntimeB:
     @bioengine.async_init
     async def load(self) -> None:
         import numpy as np
-        logger.info(f"RuntimeB ready (numpy {np.__version__})")
+        print(f"RuntimeB ready (numpy {np.__version__})", file=sys.stderr, flush=True)
 
     async def ping(self) -> str:
         return "pong"
@@ -312,9 +344,11 @@ class RuntimeB:
 
 ```python
 """RuntimeC — image processing."""
+import sys
+
 import bioengine
 
-logger = bioengine.logger
+# Breadcrumbs go to stderr, not bioengine.logger — see the Simple app template.
 
 
 @bioengine.app(
@@ -327,7 +361,7 @@ class RuntimeC:
     @bioengine.async_init
     async def load(self) -> None:
         from PIL import Image  # noqa: F401
-        logger.info("RuntimeC ready")
+        print("RuntimeC ready", file=sys.stderr, flush=True)
 
     async def ping(self) -> str:
         return "pong"
@@ -2883,6 +2917,26 @@ payload["overlay_scale"] = scale        # 1.0 when untouched
 ```
 
 Use nearest-neighbour (`order=0`, no anti-aliasing) for label and mask images — interpolating between label IDs invents objects that do not exist. Full-resolution masks belong in a downloadable artifact, not in the RPC response.
+
+### Don't relabel a watershed result through its binary mask
+
+A per-object table like the one above is only as good as the object count feeding it, and there is one line that silently halves it. `segmentation.watershed(..., mask=binary)` separates touching objects **by label value and inserts no background line between them**. So the tidy-up that looks like harmless renumbering:
+
+```python
+labels = segmentation.watershed(-distance, markers, mask=binary)
+labels = measure.label(labels > 0)      # ← re-fuses every split, silently
+```
+
+throws the split away: `labels > 0` is the original single blob again, and connected-component labelling returns one object where the watershed found two. Measured on two overlapping discs (`scikit-image` 0.21.0):
+
+```
+peaks_found          = 2
+watershed_objects    = 2
+after measure.label  = 1          ← the split is gone
+after relabel_sequential = 2      ← preserved
+```
+
+Nothing raises. The symptom is a plausible object count that happens to be wrong, which is the hardest kind to notice in a table a user is reading for the first time. If you need labels numbered `1..N` with no gaps, use `segmentation.relabel_sequential(labels)`, which renumbers without touching the partition. If you do not need it, skip the step: `regionprops` does not care whether the label values are contiguous.
 
 ### Shipping a multi-file frontend
 
