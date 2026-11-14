@@ -83,14 +83,23 @@ Swap the image name and change nothing else:
 
 ```bash
 docker run -d --name bioengine-worker \
-  --restart unless-stopped --shm-size=8g --gpus=all \
+  --restart unless-stopped --shm-size=8g --memory=28g --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
   ghcr.io/aicell-lab/model-runner:2.10.6 \
-  python -m bioengine.worker --mode single-machine --head-num-cpus 4 --head-num-gpus 1
+  python -m bioengine.worker --mode single-machine \
+    --head-num-cpus 4 --head-num-gpus 1 --head-memory-in-gb 16
 ```
 
 Pass `-e HYPHA_TOKEN` with no value so the token comes from your environment — a token written as `-e HYPHA_TOKEN=<value>` is world-readable in `/proc/<pid>/cmdline` for the container's whole life.
+
+> **Set both memory flags, and know that only one of them is a limit.** `--head-memory-in-gb` is a Ray *scheduling reservation* — the same shape as `gpu_memory_mb` for apps. Ray hands out work believing it has that much, and nothing stops the container exceeding it. `--memory` is the container's cgroup limit and is the part that actually bounds the process.
+>
+> Setting only the reservation is the common mistake, and on a shared machine it is the expensive one. Ray sizes its own memory monitor from `min(cgroup limit, host total)`, so with no `--memory` it measures itself against **the whole machine** and only starts shedding its own tasks at 95% of it — long after the kernel's OOM killer has begun acting. And when the kernel does act it kills Ray's workers first, because Ray marks them `oom_score_adj: 1000` so that a kill costs a retriable task. On a box running only BioEngine that is correct behaviour. On a shared box it means your worker is repeatedly killed for somebody else's allocation.
+>
+> Keep `--memory` **above** `--head-memory-in-gb`, or Ray schedules into memory it cannot get. A workable rule is reservation + shared-memory size + ~4 GB of overhead: the examples here reserve 16 GB with an 8 GB `--shm-size`, hence `--memory=28g`. Ray's object store lives in shared memory and counts against the same cgroup, which is why it is in the sum.
+>
+> `bioengine worker start` applies a memory cap for Docker and Podman only. For `apptainer`, `singularity` and `native` it **refuses** an explicit `--memory` rather than silently dropping it, so a command that looks accepted never is. Apptainer does have `--memory` of its own on `run`/`exec`/`shell`, alongside `--memory-reservation` (documented as a soft limit), `--memory-swap` and `--oom-kill-disable`. Those apply cgroups, so as a non-root user they need cgroups v2 in unified mode with systemd delegation, which Ubuntu 22.04, Debian 11 and Fedora 31+ give you by default. On a cgroups v1 host they are root-only. So on a cluster you can either pass apptainer's own `--memory`, or cap the runtime from outside the worker with a systemd `MemoryMax=` or the cgroup your scheduler places the job in: `systemd-run --user --scope -p MemoryMax=28G -- apptainer exec ...`.
 
 Two things to know before you pick it.
 
@@ -104,6 +113,7 @@ And `test(custom_environment=True)` does not work in single-machine mode in eith
 docker run --rm -it \
   --user $(id -u):$(id -g) \
   --shm-size=8g \
+  --memory=28g \
   --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
@@ -111,7 +121,8 @@ docker run --rm -it \
   python -m bioengine.worker \
     --mode single-machine \
     --head-num-cpus 4 \
-    --head-num-gpus 1
+    --head-num-gpus 1 \
+    --head-memory-in-gb 16
 ```
 
 **Detached (production / agent automation — survives session close, addressable by name):**
@@ -121,6 +132,7 @@ docker run -d --name bioengine-worker \
   --restart unless-stopped \
   --user $(id -u):$(id -g) \
   --shm-size=8g \
+  --memory=28g \
   --gpus=all \
   -v $HOME/.bioengine:/.bioengine \
   -e HYPHA_TOKEN \
@@ -128,7 +140,8 @@ docker run -d --name bioengine-worker \
   python -m bioengine.worker \
     --mode single-machine \
     --head-num-cpus 4 \
-    --head-num-gpus 1
+    --head-num-gpus 1 \
+    --head-memory-in-gb 16
 
 # Inspect:  docker logs -f bioengine-worker
 # Stop:     docker stop bioengine-worker && docker rm bioengine-worker
