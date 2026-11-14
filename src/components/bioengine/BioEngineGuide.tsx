@@ -114,6 +114,25 @@ const DEFAULT_IMAGE_VERSION = '0.16.1';
 const DEFAULT_IMAGE = `ghcr.io/aicell-lab/bioengine-worker:${DEFAULT_IMAGE_VERSION}`;
 const DEFAULT_RAY_VERSION = '2.55.1';
 
+// The host resource census is NOT a worker argument, which is why none of this
+// is pushed into `args`. Measured against ghcr.io/aicell-lab/bioengine-worker:0.16.92:
+// `python -m bioengine.worker --help` lists 56 flags and none of them match
+// census or host, while `bioengine worker start --help` lists --census,
+// --census-dir and --no-census. Those CLI options are a launcher convenience:
+// bioengine/cli/worker.py turns them into a bind mount plus two environment
+// variables, and bioengine/utils/host_census.py reads the directory from the
+// environment (`census_dir()` returns None when the variable is unset, so the
+// census is simply inert without it).
+//
+// Consequence for the wizard, which emits `docker run ... python -m
+// bioengine.worker` rather than going through the launcher: the census is OFF
+// today, not on, so this is an opt-IN control. It is also version-safe at any
+// image, because an unknown environment variable is ignored where an unknown
+// argv flag would abort argparse.
+const CONTAINER_CENSUS_DIR = '/.bioengine-hosts';
+const CENSUS_DIR_ENV = 'BIOENGINE_HOST_CENSUS_DIR';
+const CENSUS_WORKER_ID_ENV = 'BIOENGINE_WORKER_ID';
+
 const PREBUILT_MODEL_RUNNER_VERSION = '2.10.6';
 const PREBUILT_MODEL_RUNNER_IMAGE = `ghcr.io/aicell-lab/model-runner:${PREBUILT_MODEL_RUNNER_VERSION}`;
 
@@ -405,6 +424,10 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   const [adminUsers, setAdminUsers] = useState<string[]>([]);
   const [workerName, setWorkerName] = useState('');
   const [workspaceDir, setWorkspaceDir] = useState('');
+  // Off by default, which is what the wizard's command already does today, so
+  // leaving these alone keeps the generated command byte-identical.
+  const [censusEnabled, setCensusEnabled] = useState(false);
+  const [censusDir, setCensusDir] = useState('');
   const [shmSizeGb, setShmSizeGb] = useState(8);
   const [customImage, setCustomImage] = useState('');
   const [platformOverride, setPlatformOverride] = useState('');
@@ -710,23 +733,60 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     // Linux/macOS: $HOME is safe inside -v flags (unlike ~ which doesn't expand in quoted strings)
     const hostPath = workspaceDir || '$HOME/.bioengine';
 
+    const isSif = containerRuntime === 'apptainer' || containerRuntime === 'singularity';
+
+    // Where the census directory lives on the HOST. The container side is
+    // always CONTAINER_CENSUS_DIR, because that is what the environment
+    // variable points at and what every worker on the host has to agree on.
+    const censusHostPath = censusDir
+      || (os === 'windows' && !isSif ? '%USERPROFILE%\\.bioengine-hosts' : '$HOME/.bioengine-hosts');
+
     const mounts: string[] = [];
-    if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
+    if (isSif) {
       mounts.push(`--bind ${hostPath}:/.bioengine`);
+      if (censusEnabled) mounts.push(`--bind ${censusHostPath}:${CONTAINER_CENSUS_DIR}`);
     } else if (os === 'windows') {
       const winPath = workspaceDir || '%USERPROFILE%\\.bioengine';
       mounts.push(`-v ${winPath}:/.bioengine`);
+      if (censusEnabled) mounts.push(`-v ${censusHostPath}:${CONTAINER_CENSUS_DIR}`);
     } else {
       mounts.push(`-v ${hostPath}:/.bioengine`);
+      if (censusEnabled) mounts.push(`-v ${censusHostPath}:${CONTAINER_CENSUS_DIR}`);
     }
     const volumeMounts = mounts.join(' ');
 
+    // apptainer and singularity do not take -e; they read host variables whose
+    // names carry a runtime-specific prefix, which is the same mapping the
+    // launcher uses (_SIF_ENV_PREFIX in bioengine/cli/worker.py).
+    const sifEnvPrefix = containerRuntime === 'singularity' ? 'SINGULARITYENV_' : 'APPTAINERENV_';
+    // BIOENGINE_WORKER_ID is what an operator recognises in a co-tenancy
+    // warning. Without it the worker falls back to its hostname, which inside a
+    // container is the container id: unique, but not legible. Only emitted when
+    // the user actually named the worker, so it cannot invent a label.
+    const censusEnvPairs: Array<[string, string]> = censusEnabled
+      ? [
+          [CENSUS_DIR_ENV, CONTAINER_CENSUS_DIR],
+          ...(workerName ? [[CENSUS_WORKER_ID_ENV, workerName] as [string, string]] : []),
+        ]
+      : [];
+    const censusDockerEnv = censusEnvPairs
+      .map(([name, value]) => `-e ${name}="${value}"`)
+      .join(' ');
+    const censusSifEnv = censusEnvPairs
+      .map(([name, value]) => `${sifEnvPrefix}${name}="${value}"`)
+      .join(' ');
+
+    // The census directory has to exist before the runtime binds it, or docker
+    // creates it root-owned and the worker cannot write its own entry. The
+    // launcher does this itself (_create_option_dir in bioengine/cli/worker.py);
+    // the wizard has to say it, because the user runs the mount by hand.
     let createDirCmd = '';
     if (os === 'windows') {
       const winPath = workspaceDir || '%USERPROFILE%\\.bioengine';
-      createDirCmd = `cmd /c "mkdir "${winPath}" 2>nul || echo Directory already exists"`;
+      const winDirs = censusEnabled ? `${winPath}" "${censusHostPath}` : winPath;
+      createDirCmd = `cmd /c "mkdir "${winDirs}" 2>nul || echo Directory already exists"`;
     } else {
-      createDirCmd = `mkdir -p ${hostPath}`;
+      createDirCmd = `mkdir -p ${hostPath}${censusEnabled ? ` ${censusHostPath}` : ''}`;
     }
 
     const nl = ' \\\n  ';
@@ -734,7 +794,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     if (containerRuntime === 'apptainer' || containerRuntime === 'singularity') {
       const cacheEnv = getContainerCacheDir() ? `${containerRuntime.toUpperCase()}_CACHEDIR=${getContainerCacheDir()} ` : '';
       const parts = [
-        `${cacheEnv}${containerRuntime} exec`,
+        `${cacheEnv}${censusSifEnv ? `${censusSifEnv} ` : ''}${containerRuntime} exec`,
         ...(gpuFlag ? [gpuFlag.trim()] : []),
         volumeMounts,
         `docker://${imageToUse}`,
@@ -743,7 +803,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
       ].filter(Boolean);
       dockerCmd = parts.join(nl);
     } else if (os === 'windows') {
-      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
+      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${homeEnvFlag}${gpuEnvFlag}${censusDockerEnv ? `${censusDockerEnv} ` : ''}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
     } else {
       const parts = [
         `${containerRuntime} run`,
@@ -754,6 +814,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
         ...(userFlag ? [userFlag.trim()] : []),
         ...(homeEnvFlag ? [homeEnvFlag.trim()] : []),
         ...(gpuEnvFlag ? [gpuEnvFlag.trim()] : []),
+        ...(censusDockerEnv ? [censusDockerEnv] : []),
         volumeMounts,
         imageToUse,
         'python -m bioengine.worker',
@@ -1917,6 +1978,46 @@ spec:
                     <p className="text-xs text-gray-500 mt-1">
                       Directory for BioEngine apps, logs and ray cluster temporary files. Defaults to {os === 'windows' ? '%USERPROFILE%\\.bioengine' : '$HOME/.bioengine'}.
                     </p>
+                  </div>
+
+                  {/* ── Host resource census ──
+                      Opt-in, not opt-out: the wizard emits a plain container run
+                      rather than going through `bioengine worker start`, and the
+                      census is driven by an environment variable the wizard does
+                      not set today. Leaving this off keeps the command unchanged. */}
+                  <div>
+                    <div className="flex items-center gap-1 mb-1">
+                      <label className="block text-sm font-medium text-gray-700">Host Resource Census</label>
+                      <InfoPopover label="Host resource census info">
+                        Workers on one machine write what they reserved into a shared directory, so each can warn when the host has been promised more memory than it has, or the same GPU twice. Advisory only: it adds startup warnings and one status field, and changes nothing about scheduling.
+                        <br /><br />
+                        Off here because the wizard generates a plain <code className="bg-gray-100 px-1 rounded">{containerRuntime} run</code> command. The census travels as the <code className="bg-gray-100 px-1 rounded">{CENSUS_DIR_ENV}</code> environment variable plus a mount, so a worker started this way does not join it unless you tick this.
+                        <br /><br />
+                        Worth turning on when more than one worker shares a machine. On a machine running a single worker it has nothing to compare against.
+                      </InfoPopover>
+                    </div>
+                    <label className="flex items-center gap-2 cursor-pointer">
+                      <input type="checkbox" checked={censusEnabled}
+                        onChange={(e) => setCensusEnabled(e.target.checked)}
+                        className="w-4 h-4 text-blue-600 border-gray-300 rounded focus:ring-blue-500" />
+                      <span className="text-sm text-gray-700">Join the host resource census</span>
+                    </label>
+                    {censusEnabled && (
+                      <>
+                        <input type="text" value={censusDir}
+                          onChange={(e) => setCensusDir(e.target.value)}
+                          placeholder={os === 'windows' ? '%USERPROFILE%\\.bioengine-hosts' : '$HOME/.bioengine-hosts'}
+                          className="w-full mt-2 px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                        <p className="text-xs text-gray-500 mt-1">
+                          Census directory on the host. Every worker on this machine has to use the same one, so change it only if the default is not writable.
+                        </p>
+                      </>
+                    )}
+                    {!censusEnabled && (
+                      <p className="text-xs text-gray-500 mt-1">
+                        Not joined, so this worker will not warn about others on the same host.
+                      </p>
+                    )}
                   </div>
 
                   {/* ── Hypha connection ── */}
