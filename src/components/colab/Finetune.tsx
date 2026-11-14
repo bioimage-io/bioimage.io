@@ -22,6 +22,7 @@ import {
   validateTrainingParams,
 } from '../../utils/trainingModels';
 import { resolveInitCheckpointUrl } from '../../utils/finetuneCheckpoints';
+import { createSessionPoller, Poller } from '../../utils/sessionPoller';
 import LoginButton from '../LoginButton';
 import ExportModelDialog from './ExportModelDialog';
 import TrainingServicePicker from './TrainingServicePicker';
@@ -283,6 +284,11 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
       // same run a second time.
       setSearchParams({}, { replace: true });
       await refreshSessions();
+      // Polling stops itself once nothing is running, which is the normal state
+      // of a page that has been open a while. The run just started is exactly
+      // the thing it needs to track, so bring the loop back explicitly rather
+      // than leaving the new card frozen on its first value.
+      pollerRef.current?.start();
     } catch (err) {
       setStartError((err as Error).message || 'Failed to start training.');
     } finally {
@@ -352,54 +358,76 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
     return mine;
   }, [server, artifactAlias]);
 
-  const pollTimer = useRef<NodeJS.Timeout | null>(null);
+  // The poll loop lives in utils/sessionPoller.ts so its scheduling can be
+  // tested. It used to be an inline closure here that rescheduled itself only
+  // on the success path, so one throwing call ended polling for good and the
+  // card froze on its last value. See that module's header for the measurement.
+  const pollerRef = useRef<Poller | null>(null);
+  // Read through a ref so the poller is built once per (server, dataset) and
+  // not torn down every time `refreshSessions` gets a new identity.
+  const refreshSessionsRef = useRef(refreshSessions);
+  refreshSessionsRef.current = refreshSessions;
+
   useEffect(() => {
     if (!canManage || !server) return;
-    let active = true;
-
-    const tick = async () => {
-      setSessionsError(null);
-      try {
-        const mine = await refreshSessions();
-        if (!active) return;
-        const hasRunning = Object.values(mine).some((s) => !TERMINAL_STATUSES.includes(s.status));
-        if (hasRunning) {
-          pollTimer.current = setTimeout(tick, 5000);
-        }
-      } catch (err) {
-        if (active) setSessionsError((err as Error).message || 'Failed to load training sessions.');
-      }
-    };
-
-    setSessionsLoading(true);
-    tick().finally(() => {
-      if (active) setSessionsLoading(false);
+    const poller = createSessionPoller<Record<string, TrainingSessionStatus>>({
+      fetchSessions: () => refreshSessionsRef.current(),
+      hasRunning: (mine) => Object.values(mine).some((s) => !TERMINAL_STATUSES.includes(s.status)),
+      onResult: () => {
+        setSessionsError(null);
+        setSessionsLoading(false);
+      },
+      onError: (err, { willRetry }) => {
+        console.error('[Finetune] list_training_sessions failed', err);
+        setSessionsLoading(false);
+        // The giving-up message is the important one. Until then the card is
+        // still being tracked and a transient failure is not worth alarming
+        // about, but once polling stops the page must say so, because a stale
+        // card is indistinguishable from a live one.
+        setSessionsError(
+          willRetry
+            ? 'Could not reach the training service. Still trying.'
+            : 'Stopped tracking these runs because the training service kept failing. Press Refresh to start again.',
+        );
+      },
+      schedule: (fn, ms) => setTimeout(fn, ms),
+      cancel: (handle) => clearTimeout(handle),
     });
+    pollerRef.current = poller;
+    setSessionsLoading(true);
+    poller.start();
 
     return () => {
-      active = false;
-      if (pollTimer.current) clearTimeout(pollTimer.current);
+      poller.stop();
+      pollerRef.current = null;
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [canManage, server, artifactAlias]);
 
-  const handleManualRefresh = async () => {
+  const handleManualRefresh = () => {
+    const poller = pollerRef.current;
     setSessionsError(null);
     setSessionsLoading(true);
-    try {
-      const mine = await refreshSessions();
-      const hasRunning = Object.values(mine).some((s) => !TERMINAL_STATUSES.includes(s.status));
-      if (hasRunning && !pollTimer.current) {
-        pollTimer.current = setTimeout(async () => {
-          pollTimer.current = null;
-          await refreshSessions();
-        }, 5000);
-      }
-    } catch (err) {
-      setSessionsError((err as Error).message || 'Failed to load training sessions.');
-    } finally {
-      setSessionsLoading(false);
+    if (!poller) {
+      // The effect only builds a poller once the dataset is known to be
+      // manageable, so before then there is nothing to restart.
+      refreshSessions()
+        .catch((err) => {
+          console.error('[Finetune] manual refresh failed', err);
+          setSessionsError((err as Error).message || 'Failed to load training sessions.');
+        })
+        .finally(() => setSessionsLoading(false));
+      return;
     }
+    // Restart the loop rather than fetching once by hand. Refresh has to bring
+    // polling back after it has stopped for ANY reason, and the hard case is
+    // that it gave up on a service still failing: a bare fetch would throw
+    // there and leave the loop dead, which is the state the button exists to
+    // get out of. Restarting also resets the failure budget, which is what
+    // pressing Refresh means. The poller reports its own result and error, so
+    // there is no completion handling to do here.
+    poller.stop();
+    poller.start();
   };
 
   const handleStop = async (sessionId: string) => {
