@@ -12,20 +12,77 @@
  *
  *   node scripts/check-prebuilt-image-tags.js
  *
- * Exit 0 = the constant is the newest published tag. Exit 1 = it is behind (or
- * names a tag that does not exist). Exit 2 = the check itself could not run,
- * which is deliberately NOT a pass.
+ * The same tag is also written out longhand in the served skill docs, where it
+ * rots the same way and is read by agents rather than by the wizard. So the
+ * check has two arms: the constant must be the newest published tag, and every
+ * other copy of that image reference in the tree must agree with the constant.
+ * A guard that covers one of three copies leaves the other two to rot silently,
+ * which is the failure this script exists to end.
+ *
+ *   node scripts/check-prebuilt-image-tags.js
+ *
+ * Exit 0 = the constant is the newest published tag and every copy agrees.
+ * Exit 1 = it is behind, names a tag that does not exist, or a copy disagrees.
+ * Exit 2 = the check itself could not run, which is deliberately NOT a pass.
  */
 const fs = require('fs');
 const path = require('path');
 const https = require('https');
 
-const GUIDE = path.join(__dirname, '..', 'src', 'components', 'bioengine', 'BioEngineGuide.tsx');
+const ROOT = path.join(__dirname, '..');
+const GUIDE = path.join(ROOT, 'src', 'components', 'bioengine', 'BioEngineGuide.tsx');
 
 // image repo -> the constant in the guide that pins its tag
 const PINS = [
   { repo: 'aicell-lab/model-runner', constant: 'PREBUILT_MODEL_RUNNER_VERSION' },
 ];
+
+// Where a longhand `ghcr.io/<repo>:<tag>` may appear. Deliberately a short
+// explicit list rather than a whole-tree walk: build output and node_modules
+// carry compiled copies of these same strings, and failing on those would make
+// the check depend on whether someone had run a build.
+const COPY_ROOTS = [
+  path.join(ROOT, 'public', 'skills'),
+  path.join(ROOT, 'src'),
+];
+const COPY_EXTENSIONS = ['.md', '.tsx', '.ts', '.js', '.json', '.yml', '.yaml'];
+
+/** Every file under `dir` whose extension is one we scan. */
+function walk(dir) {
+  let out = [];
+  let entries;
+  try {
+    entries = fs.readdirSync(dir, { withFileTypes: true });
+  } catch (err) {
+    return out;
+  }
+  for (const entry of entries) {
+    const full = path.join(dir, entry.name);
+    if (entry.isDirectory()) out = out.concat(walk(full));
+    else if (COPY_EXTENSIONS.includes(path.extname(entry.name))) out.push(full);
+  }
+  return out;
+}
+
+/**
+ * Longhand `ghcr.io/<repo>:<tag>` references whose tag is a literal version.
+ * `${...}` interpolations are skipped on purpose: those derive from the
+ * constant, so they cannot disagree with it.
+ */
+function copiesOf(repo) {
+  const pattern = new RegExp(`ghcr\\.io/${repo.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}:([\\w.\\-]+)`, 'g');
+  const found = [];
+  for (const root of COPY_ROOTS) {
+    for (const file of walk(root)) {
+      const text = fs.readFileSync(file, 'utf8');
+      let match;
+      while ((match = pattern.exec(text)) !== null) {
+        found.push({ file: path.relative(ROOT, file), tag: match[1] });
+      }
+    }
+  }
+  return found;
+}
 
 function get(url, headers = {}) {
   return new Promise((resolve, reject) => {
@@ -102,6 +159,19 @@ function newer(a, b) {
       failed = true;
     } else {
       console.log(`ok    ${constant}='${pinned}' is the newest tag on ghcr.io/${repo}`);
+    }
+
+    // Second arm: every longhand copy of the image must name the same tag the
+    // constant does. This is checked even when the constant itself is behind,
+    // so one run reports every place that needs editing rather than one.
+    const stale = copiesOf(repo).filter(copy => copy.tag !== pinned);
+    if (stale.length > 0) {
+      for (const copy of stale) {
+        console.error(`FAIL  ${copy.file} names ghcr.io/${repo}:${copy.tag}, but ${constant}='${pinned}'`);
+      }
+      failed = true;
+    } else {
+      console.log(`ok    every longhand ghcr.io/${repo} reference agrees with ${constant}`);
     }
   }
 
