@@ -122,6 +122,28 @@ interface DeploymentCardProps {
       num_gpus?: number;
       memory?: number;
     };
+    // Non-null only when no single node had room at deploy time and the worker
+    // proceeded anyway on the autoscaling assumption (external clusters only).
+    // Such an app sits at NOT_STARTED with no failure status and never registers
+    // its service, so this is the only surface that explains it.
+    //
+    // Three states, two of which must render identically:
+    //   absent  -> worker predates the field (measured: 0 occurrences in
+    //              bioengine-worker 0.16.107, 5 in 0.16.108)
+    //   null    -> current worker, a node had room. The common case by far.
+    //   object  -> the shortfall report below.
+    // The worker emits the key via `.get()` so a recovered app yields null
+    // rather than a missing key, but an older worker omits it entirely. Absent
+    // and null mean the same thing and are both rendered as today.
+    resource_shortfall?: {
+      requested?: { num_cpus?: number; num_gpus?: number; memory?: number };
+      free_per_node?: Record<string, { num_cpus?: number; num_gpus?: number; memory?: number }>;
+      // Diagnostic only, NOT the admission test. Admission is per node: four
+      // free GPUs spread over two nodes do not admit a four-GPU replica, so
+      // this total can look sufficient while the deploy is correctly unplaceable.
+      cluster_free?: { num_cpus?: number; num_gpus?: number; memory?: number };
+      detected_at?: number;
+    } | null;
     // `not disable_gpu` on the worker (apps/manager.py). True whenever the app
     // was not explicitly deployed CPU-only, which covers both whole-GPU apps
     // (num_gpus > 0) and apps that ask for a slice by VRAM instead, where
@@ -169,7 +191,32 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
     return gb < 1 ? `${Math.round(gb * 1024)} MB` : `${gb.toFixed(1)} GB`;
   };
 
+  // Renders a {num_cpus, num_gpus, memory} triple in the same units the resource
+  // pills use, skipping any member the worker did not report. Both sides of the
+  // shortfall panel go through this, because "requested 4 CPUs" against "free
+  // 2 CPUs" is only comparable at a glance if the two are formatted the same way.
+  // Tests `typeof === 'number'` rather than truthiness so that a legitimate 0 free
+  // still prints (0 free is the whole point of the panel) and so a stray boolean
+  // cannot coerce into a count.
+  const describeResourceSet = (
+    set?: { num_cpus?: number; num_gpus?: number; memory?: number } | null,
+  ): string => {
+    if (!set) return 'not reported';
+    const parts: string[] = [];
+    if (typeof set.num_cpus === 'number') {
+      parts.push(`${set.num_cpus} CPU${set.num_cpus !== 1 ? 's' : ''}`);
+    }
+    if (typeof set.num_gpus === 'number') {
+      parts.push(`${set.num_gpus} GPU${set.num_gpus !== 1 ? 's' : ''}`);
+    }
+    if (typeof set.memory === 'number') {
+      parts.push(formatMemoryToGB(set.memory));
+    }
+    return parts.length > 0 ? parts.join(', ') : 'not reported';
+  };
+
   const resources = deployment.resources ?? null;
+  const shortfall = deployment.resource_shortfall ?? null;
 
   // An app can hold a GPU without reserving a whole one: asking by VRAM
   // (gpu_memory_mb) leaves num_gpus at 0, so gating the badge on the count
@@ -413,6 +460,48 @@ const DeploymentCard: React.FC<DeploymentCardProps> = ({
               {deployment.status}
             </span>
           </div>
+
+          {/* Shown only when the worker reported a shortfall, which it does only
+              for a deploy no single node could fit on an external cluster. The
+              status chip alone renders NOT_STARTED in the same neutral grey as
+              any unrecognised state, so without this panel "waiting to start"
+              and "will never start" look identical. */}
+          {shortfall && (
+            <div className="mb-3 p-3 rounded-lg border border-amber-200 bg-amber-50">
+              <p className="text-sm font-medium text-amber-800 mb-1">
+                No single node had room for this app
+              </p>
+              <p className="text-xs text-amber-700 mb-2">
+                The worker accepted this deployment expecting the cluster to add a bigger node.
+                Until one arrives the app stays in this state and its service never registers.
+              </p>
+              <p className="text-xs text-amber-800">
+                <span className="font-medium">Requested:</span>{' '}
+                {describeResourceSet(shortfall.requested)}
+              </p>
+              {shortfall.free_per_node && Object.keys(shortfall.free_per_node).length > 0 && (
+                <div className="text-xs text-amber-800 mt-1">
+                  <span className="font-medium">Free on each node:</span>
+                  <ul className="mt-1 space-y-0.5">
+                    {Object.entries(shortfall.free_per_node).map(([nodeId, free]) => (
+                      <li key={nodeId}>
+                        <span className="font-mono">{nodeId.slice(0, 12)}</span>
+                        {': '}
+                        {describeResourceSet(free)}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+              {shortfall.cluster_free && (
+                <p className="text-xs text-amber-700 mt-2">
+                  Added up across every node there is {describeResourceSet(shortfall.cluster_free)}{' '}
+                  free, which does not mean this app can be placed. A replica has to fit on one
+                  node.
+                </p>
+              )}
+            </div>
+          )}
 
           {deployment.start_time && formatTimeInfo && (
             <div className="mb-3">
