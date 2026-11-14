@@ -353,9 +353,12 @@ while True:
         break
     await asyncio.sleep(2)
 report = status["result"]
-print(report["status"])   # "passed", "valid-format", or "failed"
+# A refused or crashed run has NO "status" key — it is {"error": "..."} instead.
+print(report.get("status", report.get("error")))   # "passed" / "valid-format" / "failed"
 
-# Model with a custom conda env declared via the weights `dependencies` field:
+# Model with a custom conda env declared via the weights `dependencies` field.
+# Needs mamba or conda on the replica's image; refused by name when neither is
+# present, as {"error": "custom_environment=True needs a conda implementation ..."}.
 test_run_id = await mr.test(model_id="resourceful-lizard", custom_environment=True)
 ```
 
