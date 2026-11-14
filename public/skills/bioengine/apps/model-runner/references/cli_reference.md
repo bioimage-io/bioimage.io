@@ -44,9 +44,23 @@ All commands accept `--json` for machine-parseable output.
 Neither returns a result directly. `infer` returns a `request_id`, `test` returns a `test_run_id`; you poll the matching status method until the job is terminal (`completed_at` set, `queue_position == 0`) and read its `result`:
 
 - `infer` → poll `get_infer_status(request_id=...)`; `result` is the output dict (or `{"error": "..."}`).
-- `test` → poll `get_test_status(test_run_id=...)`; `result` is the BioImage.IO test report (`result["status"]` ∈ `passed` / `valid-format` / `failed`).
+- `test` → poll `get_test_status(test_run_id=...)`; `result` is the BioImage.IO test report (`result["status"]` ∈ `passed` / `valid-format` / `failed`) **or `{"error": "..."}`**, exactly as for `infer`. A refused or crashed run has no `status` key at all, so branch on `result.get("status")` rather than indexing it — `result["status"]` raises `KeyError` on the error shape.
 
 The report auto-publishes to the `bioimage-io/test-reports` collection — there is no `attach_test_report` parameter. Pass `custom_environment=True` to `test` for a model that declares a `dependencies` conda env (test-only path).
+
+> **`custom_environment=True` needs `mamba` or `conda` on the replica's image, and since model-runner 2.11.9 it is refused by name when neither is there.** It shells out to build the model's declared env, and the images this project publishes (`bioengine-worker`, `model-runner`) are `python:3.11-slim` based and ship neither. `micromamba` is not accepted even when present — it takes `create` rather than `env create`, so its argument shapes are untested.
+>
+> The refusal arrives as the error shape above. The message names the model, says the deployment is at fault rather than the model, and states that **no test was run and no report was produced** — so there is nothing to interpret as a verdict. It interpolates the model id, so match on a stable fragment rather than the whole string:
+>
+> ```python
+> err = result.get("error", "")
+> if "custom_environment=True" in err and "installs none of" in err:
+>     ...  # re-run with custom_environment=False, or use an image that ships conda
+> ```
+>
+> Before this was refused explicitly, the missing binary surfaced from deep in the call as a `status="failed"` **validation report about the model**, carrying a traceback as its only detail — so a caller reading `report["status"]` concluded the model was broken when the image was. If you have logic that treats `failed` as a model verdict, that reading was wrong on this path and is now unreachable.
+>
+> A **different** message, *"needs a conda implementation on PATH…"*, guards the same precondition one layer down for callers that invoke the runtime deployment's `test` directly. You will not see it through `test()` / `get_test_status`, which always goes through the entry deployment.
 
 ```bash
 # Inference, end to end (submit → poll):
@@ -89,7 +103,7 @@ Supported `file_type` values for `get_upload_url`: `.npy`, `.png`, `.tiff`/`.tif
 | `model_id` | str | — | Model nickname. |
 | `stage` | bool | false | Test the staged version; report lands in the `staged/` slot. |
 | `cache` | `skip`\|`check`\|`reuse` | `check` | Model-cache policy (same values as `infer`). `check` re-downloads + re-tests only if the artifact changed; `skip` forces a fresh download + re-test; `reuse` trusts the cached package and report. |
-| `custom_environment` | bool | false | Run inside the model's declared `dependencies` conda env (test-only; env cached on the shared PVC, LRU-evicted). |
+| `custom_environment` | bool | false | Run inside the model's declared `dependencies` conda env (test-only; env cached on the shared PVC, LRU-evicted). **Needs `mamba` or `conda` on the replica's image; refused by name when neither is present — see the note above.** |
 
 ## Environment variables
 
