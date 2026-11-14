@@ -1,5 +1,15 @@
 # BioImage.IO — Claude Code Guidelines
 
+This repository is the React/TypeScript frontend of the **BioImage Model Zoo**
+(<https://bioimage.io>): a community platform for sharing, testing and running deep learning
+models for bioimage analysis, with model records in the bioimageio RDF format, in-browser
+inference through BioEngine, and artifact storage and RPC through Hypha Cloud. It is a
+production site with a wide community, so a change here is visible to people who did not ask
+for it. There is no README.md at the repo root; `docs/` holds the user-facing documentation.
+
+This file carries only what the repository cannot tell you itself. The stack, the scripts and
+the dependency versions are in `package.json`; the component layout is in the skill below.
+
 ## Hard Rules
 
 These override every other instruction in this file, in any skill, and in any task brief.
@@ -35,84 +45,97 @@ This repo has no `check-version` and no version file, so the bump-last sequencin
 
 ---
 
-## Project Goal
+## User-visible text: no em dashes, and a check that enforces it
 
-**BioImage Model Zoo** (<https://bioimage.io>) is a community-driven, fully open platform for sharing, discovering, testing, and deploying deep learning models for bioimage analysis. The platform makes models truly **FAIR** — Findable, Accessible, Interoperable, and Reproducible — across frameworks, operating systems, and software ecosystems.
+Strings that reach a user carry no em dash (`—`, U+2014) and no en dash (`–`, U+2013) in prose.
+Which surfaces count, what is exempt, and the allowed compact numeric range (`5–95%`) are all
+encoded in the check, so run it rather than reading the rule back out of here. It runs inside
+`pnpm test`, and standalone:
 
-### Core Mission
+    npm run check-ui-text                        # exits 1 and names the file:line of each violation
+    node scripts/check-ui-text.js --self-test    # 22 checks, proves it can still go RED
 
-1. **Model repository** — Host pre-trained DL models (segmentation, restoration, classification, etc.) with standardized metadata (RDF/YAML), DOIs, memorable nicknames, and full provenance (training data, notebooks, authors).
-2. **Cross-tool interoperability** — A single model format (bioimageio spec) runs across ilastik, deepImageJ, QuPath, StarDist, ImJoy, ZeroCostDL4Mic, CSBDeep, Icy, and more — without per-tool re-integration.
-3. **In-browser testing via BioEngine** — Users can evaluate any model on their own images directly on the website; the BioEngine serves GPU inference from cloud infrastructure (de.NBI / Kubernetes + Triton).
-4. **Community contribution pipeline** — Model submission through Zenodo or the web upload form; automatic CI quality assurance; manual curator review; community partner collections via GitHub.
-5. **FAIR developer tooling** — Python (`bioimageio.core`) and Java libraries let developers programmatically load, run, export, and re-upload models in only a few lines of code.
+Do not grep for this: a dash grep over `src` matches 255 lines across 73 files, nearly all of them
+in exempt comments, so a grep gate is red on arrival and gets switched off. The check parses, so a
+comment, a JSDoc block, a `console.*` log and a regex literal are not nodes it reads. To keep a
+dash on purpose, add `ui-text-check: allow` on the line or `ui-text-check: disable` in the file.
 
-### Active Feature: Collaborative Annotation & Fine-Tuning
-
-The current in-browser application layer extends the platform with:
-
-- **Collaborative annotation** — mount local folders or upload images to cloud, share annotation sessions with teammates via URL, collect segmentation masks in real time.
-- **AI-assisted annotation** — Cellpose / Cellpose-SAM auto-segmentation with interactive correction tools.
-- **Fine-tune Cellpose-SAM** — trigger training from the UI using annotated data stored in Hypha Artifacts, then deploy trained models back into the annotation workflow.
-
-This layer runs **entirely in the browser** (Python via Pyodide/WebAssembly, image visualization via OpenLayers) backed by **Hypha Cloud** for service registration, artifact storage, and RPC coordination.
+One clause of the rule is not mechanisable and stays a judgement: prefer two sentences or a
+comma over a semicolon, and keep one only where it genuinely joins two independent clauses.
 
 ---
 
-## User-Visible Text Rules
+## Three measured facts that will mislead you
 
-Any string that renders to a user in the website UI (JSX text, `title`/`placeholder`/`aria-label` attributes, button labels, dialog copy, toast and error messages, comment-thread bodies posted through the app) must follow these punctuation rules:
+All three measured on one clean tree, 2026-11-04.
 
-- **No em dashes (`—`, U+2014).** Rewrite the sentence with a period, comma, colon, or parentheses instead. This includes standalone `—` used as a placeholder.
-- **No en dashes (`–`, U+2013) in prose.** Use "to" for ranges in sentences (a bare `–` between numeric bounds in a compact label is acceptable, e.g. `5–95%`).
-- **No unnecessary semicolons.** Prefer splitting into two sentences or using a comma. Only keep a semicolon when it genuinely joins two closely related independent clauses and no cleaner rewrite exists.
+**Do not gate on `tsc --noEmit`: it is broken by design.** `package.json` declares TypeScript
+3.9.10 against a tsconfig using `jsx: "react-jsx"`, which needs 4.1+. Exit 1 with 2,211 errors:
+one `TS6046` for that option, and 2,210 `TS1xxx` parse errors inside dependencies' `.d.ts` files
+3.9 cannot read. **Zero are under `src/`.** The two gates that do mean something, both exit 0:
 
-These rules apply ONLY to user-visible strings. Code comments, JSDoc, `console.*` logs, commit messages, SKILL.md files, and this CLAUDE.md are exempt (em dashes are fine there).
+    ./node_modules/.bin/react-scripts build
+    npx react-scripts test --watchAll=false      # 108 cases across 11 suites
 
-## Tech Stack
+Allow the build 25 minutes: measured under 3 min idle but 12 min 44 s and 19 min 35 s under load,
+and once killed with no exit status at 3 GB free. A short timeout reports a failure that did not
+happen (180 s has, twice), so judge it on `^Failed to compile`, the `build/` output and the exit
+status, never on elapsed time, and check free memory before blaming the code. A bare `error` grep
+is useless: it matches third-party `Failed to parse source map ... Error: ENOENT` and eslint
+warnings about variables merely NAMED `...Error...` on builds that succeeded. Output is
+deterministic, so a repeated `main.<hash>.js` corroborates a real completion. Worked example:
+`notes/build-verification-2026-11-04.txt`.
 
-| Layer | Technology |
-|---|---|
-| Frontend framework | React 18 + TypeScript |
-| Package manager | pnpm |
-| Styling | Tailwind CSS + Material-UI (MUI) |
-| State management | Zustand |
-| Image visualization | OpenLayers |
-| In-browser Python | web-python-kernel (Pyodide/WebAssembly) |
-| Backend / services | Hypha RPC (`hypha-rpc` npm package) |
-| Artifact storage | Hypha Artifact Manager |
-| AI segmentation | Cellpose / Cellpose-SAM (via Hypha service) |
+**This file gets `skip-worktree` set in worktrees, and then edits to it never commit.** It is a
+per-worktree index bit, set so session-local notes can live here uncommitted. Seen with a local
+copy 101 lines longer than the tracked blob while `git status` and `git diff` both reported the
+file clean over that entire difference. Check before editing:
+
+    git ls-files -v -- CLAUDE.md    # H = normal, S = your edits will not commit
+
+`.github/copilot-instructions.md` symlinks to this file, so what lands here is public and also
+reaches Copilot.
+
+**`node_modules` is shared, so a dependency purge is never local to your worktree.** In a worktree
+here it symlinks into the main checkout (`readlink -f node_modules`), so it is every worktree's
+install at once. Never clear a "remove the modules directory" prompt with `CI=true`, which is what
+pnpm's own no-TTY message suggests. It is intermittent: on 2026-11-04 `pnpm run <script>` failed
+with `ERR_PNPM_ABORTED_REMOVE_MODULES_DIR_NO_TTY`, then exited 0 within the hour on the same tree
+and would not fail again, and the abort that saved it is TTY-dependent. Prefer the binaries, which
+cannot touch the store. `pnpm` is right in CI, where the checkout is fresh.
 
 ---
 
 ## Where to find more
 
-Load these skills before touching the matching area of the codebase — they hold the deeper guidance (coding standards, architectural patterns, component inventory, dev rules):
+Load the matching skill before touching that area:
 
-- **`.claude/skills/bioimageio-website/SKILL.md`** — code-level guide for this repository. Read it before any non-trivial change: coding conventions, component layout under `src/components/{colab,annotate}/`, store contracts, the Hypha-reachability banner pattern, the `HYPHA_SERVER_URL` config seam, and the development rules (read-before-edit, no speculative features, undo snapshots on every vector mutation, etc.).
-- **`public/skills/bioimageio-models/SKILL.md`** — agent-facing skill served at `https://bioimage.io/skills/bioimageio-models/SKILL.md`. Walks any AI agent through the full model contribution pipeline (gather info → build package → static + dynamic validation → submit to Hypha → optional BioEngine validation). The Upload page (`src/components/Upload.tsx`) advertises this URL to contributors.
-- **`public/skills/bioengine/SKILL.md`** — canonical deploy workflow and CLI reference for BioEngine apps. Load this before deploying or updating a BioEngine application. Critical rule: always pass `--app-id <running-id>` when updating; omitting it creates a new random instance.
+- **`.claude/skills/bioimageio-website/SKILL.md`** — the code-level guide to this repository.
+  Read it before any non-trivial change.
+- **`public/skills/bioimageio-models/SKILL.md`** — the model contribution pipeline, for any
+  agent. `src/components/Upload.tsx` advertises its public URL to contributors.
+- **`public/skills/bioengine/SKILL.md`** — the BioEngine deploy workflow. Carries one trap worth
+  knowing before you read it: always pass `--app-id <running-id>` when updating an app, because
+  omitting it silently deploys a new random instance instead of updating the old one.
 
-## Related Repositories
+The two under `public/skills/` are **served** at <https://bioimage.io/skills/>, so editing the
+repo copy does not change what a reader fetches until it is deployed.
 
-Working copies of the sibling libraries live under `bioimageio-resources/` in this repo (added 2026-07-07) so they can be grepped side-by-side with the frontend:
+## Related repositories
 
-| Repo | Path | Current release | Role |
-|---|---|---|---|
-| spec-bioimage-io | `bioimageio-resources/spec-bioimage-io` | 0.5.11.0 (2026-06-15) | RDF format spec + `bioimageio.spec` Python library |
-| core-bioimage-io-python | `bioimageio-resources/core-bioimage-io-python` | 0.10.4 (pins spec 0.5.10.2) | `bioimageio.core` — what the Test button delegates to |
-| collection | `bioimageio-resources/collection` | dev (CI-only) | Community partner registry + reviewer roster (JSON config) |
-| bioengine | `../bioengine` | co-developed sibling | Ray-Serve inference backend behind the BioEngine button |
+These are separate upstream repositories, **not part of this one**. `bioimageio-resources/` is
+gitignored (`.gitignore:39`) with 0 tracked files, so a fresh clone and most worktrees do not
+have it even though the main checkout does. Do not point a contributor there; clone what
+you need yourself.
 
-The spec ↔ core versions are a pinned chain — bumping one without the other silently rejects otherwise-valid resources. See the bioimageio-website skill for the version-chain rule, the partner-registry file, and the YAML 1.2 / ruyaml gotcha.
+| Repo | Role |
+|---|---|
+| [spec-bioimage-io](https://github.com/bioimage-io/spec-bioimage-io) | RDF format spec + `bioimageio.spec` Python library |
+| [core-bioimage-io-python](https://github.com/bioimage-io/core-bioimage-io-python) | `bioimageio.core` — what the Test button delegates to |
+| [collection](https://github.com/bioimage-io/collection) | Community partner registry + reviewer roster (JSON config) |
+| [bioengine](https://github.com/aicell-lab/bioengine) | Ray-Serve inference backend behind the BioEngine button |
 
----
-
-## Active Development Focus
-
-The primary ongoing work is extending the collaborative annotation + Cellpose-SAM fine-tuning pipeline:
-
-- Tighter integration between annotation masks and training data preparation.
-- Interactive correction of Cellpose-SAM predictions within the annotation viewer.
-- Model versioning and rollback in the Hypha artifact store.
-- Progress reporting during fine-tuning via streaming Hypha RPC updates.
+The spec ↔ core versions are a pinned chain: bumping one without the other silently rejects
+otherwise-valid resources. Read the versions out of the checkouts rather than from here. See the
+bioimageio-website skill for the version-chain rule, the partner-registry file, and the
+YAML 1.2 / ruyaml gotcha.

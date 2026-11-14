@@ -1,0 +1,11 @@
+[Tests/Tests and user-visible text]   ✅  Success - Main Checkout [3.051191379s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Setup pnpm [1.750102604s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Setup Node [6.645432958s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Install dependencies [5.371169796s]
+[Tests/Tests and user-visible text]   | ok    no extra violations beyond the expected 8 (saw 8)
+[Tests/Tests and user-visible text]   | 22 passed, 0 failed, 22 checks ran
+[Tests/Tests and user-visible text]   ✅  Success - Main Punctuation check self-test [338.902827ms]
+[Tests/Tests and user-visible text]   | FAIL  src/components/MyArtifactCard.tsx:78  [title=] em dash: CI red-run probe em dash — must FAIL
+[Tests/Tests and user-visible text]   | 1 violation(s) in 15299 user-visible string(s) across 174 file(s). Rewrite with a period, comma, colon or parentheses; use "to" for a range in a sentence. If the character is the point, add `// ui-text-check: allow`.
+[Tests/Tests and user-visible text]   ❌  Failure - Main No em dashes in user-visible text [1.669102467s]
+[Tests/Tests and user-visible text] 🏁  Job failed

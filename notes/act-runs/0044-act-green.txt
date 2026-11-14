@@ -1,0 +1,13 @@
+[Tests/Tests and user-visible text]   ✅  Success - Main Checkout [2.277578749s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Setup pnpm [1.998214667s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Setup Node [6.446066859s]
+[Tests/Tests and user-visible text]   ✅  Success - Main Install dependencies [10.269803358s]
+[Tests/Tests and user-visible text]   | ok    no extra violations beyond the expected 8 (saw 8)
+[Tests/Tests and user-visible text]   | 22 passed, 0 failed, 22 checks ran
+[Tests/Tests and user-visible text]   ✅  Success - Main Punctuation check self-test [331.750313ms]
+[Tests/Tests and user-visible text]   | ok    15298 user-visible string(s) across 174 file(s), no banned dashes
+[Tests/Tests and user-visible text]   ✅  Success - Main No em dashes in user-visible text [1.788396715s]
+[Tests/Tests and user-visible text]   | Test Suites: 11 passed, 11 total
+[Tests/Tests and user-visible text]   | Tests:       108 passed, 108 total
+[Tests/Tests and user-visible text]   ✅  Success - Main Test suite [2m42.409182798s]
+[Tests/Tests and user-visible text] 🏁  Job succeeded

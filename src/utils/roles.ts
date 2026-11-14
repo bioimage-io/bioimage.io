@@ -148,16 +148,31 @@ export interface ContributorPermissionsResult {
   contributorKeys: string[];
 }
 
+/**
+ * The contributors an artifact's edit rights follow: every maintainer, and the
+ * FIRST author only.
+ *
+ * Being credited on a model is not the same as being responsible for it. Author
+ * lists run long (511 entries across 293 committed artifacts, measured
+ * 2026-11-03) and a middle author has no more claim on the files than any other
+ * reader. Maintainers are named precisely because they maintain it, and the
+ * first author is the one conventionally accountable for the work, so those are
+ * the two that get write access.
+ *
+ * An entry with no email contributes nothing, here and anywhere else that
+ * decides a permission. Names are not keys: `artifactOwnership.ts` matches on
+ * display name because it builds a private VIEW where a collision costs one
+ * extra row, and that reasoning does not carry over to granting rights.
+ */
 function contributorEmails(manifest: ContributorManifest | null | undefined): Set<string> {
   const emails = new Set<string>();
-  const collect = (entries?: ContributorEntry[]) => {
-    for (const entry of entries || []) {
-      const email = entry?.email?.trim().toLowerCase();
-      if (email) emails.add(email);
-    }
+  const add = (entry?: ContributorEntry) => {
+    const email = entry?.email?.trim().toLowerCase();
+    if (email) emails.add(email);
   };
-  collect(manifest?.authors);
-  collect(manifest?.maintainers);
+  const authors = manifest?.authors;
+  if (Array.isArray(authors) && authors.length > 0) add(authors[0]);
+  for (const entry of manifest?.maintainers || []) add(entry);
   return emails;
 }
 

@@ -1,0 +1,99 @@
+name: Tests
+
+# Nothing ran this repo's checks before this workflow existed: .github/workflows/ held only a
+# deploy and a model-testing job, so the jest suite and the user-visible-text check were
+# enforced only by a contributor remembering to run them, and the production build was first
+# exercised on push to main, i.e. after review. Both now run on every pull request.
+#
+# ADVISORY, not blocking. A workflow file cannot make itself a required check; that is a branch
+# protection setting on the repository. See issue #0044.
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A second push to the same branch supersedes the first; nothing here has side effects.
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  # Fast, and the one most likely to fail on a copy change. Reports in a couple of minutes
+  # rather than waiting on the production build, which is why these are separate jobs.
+  checks:
+    name: Tests and user-visible text
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      # pnpm must be installed before setup-node: setup-node@v5 enables
+      # package-manager-cache by default and shells out to pnpm to prime the
+      # cache, which fails ("pnpm not found") if pnpm isn't on PATH yet.
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      # Prove the punctuation check can still go RED before trusting it when it says green.
+      # It generates a fixture of 8 user-visible violations and 10 exempt lines and asserts
+      # each one, so a check that quietly stopped looking fails here instead of passing.
+      - name: Punctuation check self-test
+        run: node scripts/check-ui-text.js --self-test
+
+      - name: No em dashes in user-visible text
+        run: pnpm run check-ui-text
+
+      # CI=true is set by the runner, so react-scripts test runs once instead of watching.
+      # --watchAll=false states it rather than relying on that.
+      - name: Test suite
+        run: pnpm exec react-scripts test --watchAll=false
+
+      # NO typecheck step, deliberately. This repo declares TypeScript 3.9.10 against a tsconfig
+      # needing 4.1+, so `tsc --noEmit` exits 1 with 2,211 errors, 2,210 of them parse failures
+      # inside dependencies' .d.ts files and ZERO under src/. It would fail every run and say
+      # nothing about the change. CLAUDE.md documents this; the build below is the real gate.
+
+  build:
+    name: Production build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          run_install: false
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+          cache: 'pnpm'
+
+      - name: Install dependencies
+        run: pnpm install
+
+      - name: Build
+        run: pnpm build
+        env:
+          # Required, not cosmetic: this repo compiles WITH warnings, and CI=true makes
+          # react-scripts build treat every warning as an error. deploy.yml sets the same
+          # thing for the same reason, so dropping it would fail a build that is fine.
+          CI: false
