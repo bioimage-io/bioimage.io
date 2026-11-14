@@ -88,7 +88,21 @@ Options:
 ```bash
 bioengine apps validate ./my-app/
 # OK: /path/to/my-app/manifest.yaml is a valid v0.6.0 BioEngine app manifest.
+#
+# Checked locally: structure, required fields, and `entry`.
+# NOT checked: whether the id 'my-app' is free in the workspace you upload to. This
+# command opens no connection, so it cannot know. If that id is already in use there,
+# `bioengine apps upload` refuses the bundle unless the manifest version is higher
+# than every version that id already carries — and if the lineage is not yours, the
+# id itself is what has to change.
+# To see which ids exist: bioengine apps list
 ```
+
+The `id` is interpolated from your manifest, so the exact bytes differ per app, and the
+`NOT checked:` line is one long line that is wrapped above to fit. Those four lines arrive
+from worker `0.16.105` on; `0.16.104` and earlier print the `OK:` line and nothing else.
+A manifest that fails validation prints nothing at all on stdout: it exits 1 and names the
+offending field on stderr, as `Error: Invalid manifest at <path>:` followed by the field.
 
 > **A green `validate` is not clearance to upload, because it never looked at the workspace.** It takes no `--worker` and no `--token` and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading — and `id` is one of the required fields it *does* check, which is what makes the `OK:` read as covering it. If that id already exists there, `upload` does not reject it for existing; it refuses the bundle unless your `version` is strictly higher (PEP 440) than every version that id already carries, so the error you get talks about versions. Bump `version` above the existing lineage if continuing it is yours to do, or change `id` if it is not. `bioengine apps list` shows which ids the workspace already has — run it before you pick a name, not after the refusal.
 
