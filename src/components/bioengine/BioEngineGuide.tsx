@@ -376,6 +376,10 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
   const [cpus, setCpus] = useState(4);
   const [gpus, setGpus] = useState(1);
   const [memory, setMemory] = useState(24);
+  // Hard cap on the container, in GB. 0 means no cap, which is what the runtime
+  // does when `--memory` is absent. Not the same knob as `memory` above, which
+  // is Ray's own scheduling reservation.
+  const [containerMemoryGb, setContainerMemoryGb] = useState(0);
   const [copiedStep1, setCopiedStep1] = useState(false);
   const [copiedStep2, setCopiedStep2] = useState(false);
   const [showAdvanced, setShowAdvanced] = useState(false);
@@ -617,6 +621,35 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     .map(app => app.config)
     .filter((config): config is Record<string, any> => Boolean(config?.artifact_id));
 
+  // The worker CLI refuses an explicit --memory for apptainer and singularity
+  // rather than dropping it silently (bioengine/cli/worker.py:377-395 at
+  // origin/main), and the wizard keeps the same scope.
+  //
+  // Note the CLI's reason is not that those runtimes have no --memory: apptainer
+  // documents one on run/exec/shell, with --memory-reservation and
+  // --memory-swap. It applies cgroups, so a non-root user needs cgroups v2 with
+  // systemd delegation, which the wizard cannot detect from a browser. That is
+  // why the field is scoped out here rather than offered and sometimes ignored.
+  //
+  // This gates the FIELD only. Whether the flag reaches the command is decided
+  // structurally, by the apptainer/singularity branch of getCommand never
+  // interpolating `memoryFlag` at all. The guard used to repeat the runtime test
+  // there as well, which read like defence in depth and was in fact unreachable:
+  // removing that conjunct and re-running the suite leaves 8 of 8 passing, so no
+  // test could ever have redded it. Leaking `memoryFlag` into that branch DOES
+  // red the two apptainer cases, which is the regression they exist to catch.
+  const containerMemoryApplies = containerRuntime !== 'apptainer' && containerRuntime !== 'singularity';
+
+  // `--memory` caps the container. `--head-memory-in-gb` (the Memory field) is
+  // a Ray *scheduling reservation*, so a cap at or below the reservation plus
+  // the object store's shared memory lets Ray hand out work the cgroup will
+  // never grant. Only meaningful once a reservation is actually set: with
+  // Memory at 0 the wizard emits none and Ray sizes itself from the cgroup
+  // limit, so there is nothing to contradict.
+  const containerMemoryFloorGb = memory + shmSizeGb;
+  const containerMemoryTooLow =
+    memory > 0 && containerMemoryGb > 0 && containerMemoryGb <= containerMemoryFloorGb;
+
   const getCommand = () => {
     let args: string[] = [];
 
@@ -698,6 +731,24 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
     const userFlag = getUserFlag();
     const gpuFlag = getGpuFlag();
     const shmFlag = (containerRuntime === 'apptainer' || containerRuntime === 'singularity') ? '' : `--shm-size=${shmSizeGb}g `;
+    // A flag of the container runtime, not of the worker: it is consumed before
+    // the image starts, so no image version gates it. The worker process inside
+    // has no --memory of its own (bioengine/worker/__main__.py parses with a
+    // strict parse_args), which is why this belongs here next to --shm-size and
+    // not in `args`. Attached with = so there is no space-separated value to
+    // mis-parse. Gated on single-machine, which is the only mode that renders
+    // the field, so a value set and then abandoned cannot leak into a command
+    // that does not show it.
+    //
+    // NOT gated on containerMemoryApplies, deliberately. That would be dead
+    // code: the apptainer/singularity branch below never interpolates
+    // `memoryFlag`, so the runtime can only reach here as docker or podman.
+    // Repeating the test was measured to be unreachable, and an unreachable
+    // guard is worse than none, because it reads as the thing protecting the
+    // invariant while no test can show it failing. Keep the invariant where it
+    // is enforced: do not add `memoryFlag` to that branch.
+    const memoryFlag = (mode === 'single-machine' && containerMemoryGb > 0)
+      ? `--memory=${containerMemoryGb}g ` : '';
     const platformFlag = platform && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity' ? `--platform ${platform} ` : '';
     const imageToUse = customImage || DEFAULT_IMAGE;
     const gpuEnvFlag = (gpuIndices && gpus > 0 && containerRuntime !== 'apptainer' && containerRuntime !== 'singularity')
@@ -743,7 +794,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
       ].filter(Boolean);
       dockerCmd = parts.join(nl);
     } else if (os === 'windows') {
-      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
+      dockerCmd = `cmd /c "${containerRuntime} run ${gpuFlag}${platformFlag}--rm ${shmFlag}${memoryFlag}${homeEnvFlag}${gpuEnvFlag}${volumeMounts} ${imageToUse} python -m bioengine.worker ${argsString}"`;
     } else {
       const parts = [
         `${containerRuntime} run`,
@@ -751,6 +802,7 @@ const BioEngineGuide: React.FC<{ onScrollToWorkers?: () => void }> = ({ onScroll
         ...(platformFlag ? [platformFlag.trim()] : []),
         '--rm',
         ...(shmFlag ? [shmFlag.trim()] : []),
+        ...(memoryFlag ? [memoryFlag.trim()] : []),
         ...(userFlag ? [userFlag.trim()] : []),
         ...(homeEnvFlag ? [homeEnvFlag.trim()] : []),
         ...(gpuEnvFlag ? [gpuEnvFlag.trim()] : []),
@@ -1865,7 +1917,39 @@ spec:
                       <input type="number" min="0" max="512" value={memory}
                         onChange={(e) => setMemory(parseInt(e.target.value) || 0)}
                         className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
-                      <p className="text-xs text-gray-500 mt-1">Total RAM available to Ray on this machine (0 = auto-detect).</p>
+                      <p className="text-xs text-gray-500 mt-1">RAM Ray reserves for itself on this machine (0 = auto-detect). A reservation, not a limit.</p>
+                    </div>
+
+                    <div>
+                      {!containerMemoryApplies ? null : (
+                        <>
+                          <div className="flex items-center gap-1 mb-1">
+                            <label className="block text-sm font-medium text-gray-700">Container Memory Limit (GB)</label>
+                            <InfoPopover label="Container memory limit info">
+                              A hard cap on everything inside the container, applied by {containerRuntime === 'podman' ? 'Podman' : 'Docker'} as <code className="bg-gray-100 px-1 rounded">--memory</code>. <strong>Memory (GB)</strong> is not a cap: Ray hands out work believing it has that much, and nothing stops the container growing past it.
+                              <br /><br />
+                              With no cap, Ray measures itself against the whole machine and starts shedding its own tasks only at 95% of it, long after the kernel's OOM killer has begun acting. And Ray's workers are the processes the kernel picks first, because Ray marks them for exactly that. On a machine running only BioEngine this is fine. On a shared machine it means your worker is killed for somebody else's allocation.
+                              <br /><br />
+                              Keep the cap above <strong>Memory (GB)</strong> plus <strong>Shared Memory Size (GB)</strong>, or Ray can schedule into memory the cap will not grant. Ray's object store lives in shared memory and counts against the same limit.
+                              <br /><br />
+                              This field is for Docker and Podman. Apptainer and Singularity do have a <code className="bg-gray-100 px-1 rounded">--memory</code> of their own, but it applies cgroups, which for a non-root user needs cgroups v2 with systemd delegation. The wizard cannot tell whether your host provides that, so it leaves capping those runtimes to the host, for example <code className="bg-gray-100 px-1 rounded">systemd-run --user --scope -p MemoryMax=28G</code>, or to your scheduler.
+                            </InfoPopover>
+                          </div>
+                          <input type="number" min="0" max="2048" value={containerMemoryGb}
+                            onChange={(e) => setContainerMemoryGb(parseInt(e.target.value) || 0)}
+                            className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500" />
+                          <p className="text-xs text-gray-500 mt-1">
+                            {containerMemoryGb > 0
+                              ? `Caps the whole container at ${containerMemoryGb} GB.`
+                              : 'No cap (0 = off), so the container can grow into the whole machine.'}
+                          </p>
+                          {containerMemoryTooLow && (
+                            <p className="text-xs text-amber-700 mt-1">
+                              Raise this above {containerMemoryFloorGb} GB. Ray reserves {memory} GB and its object store adds {shmSizeGb} GB of shared memory against the same cap, so at {containerMemoryGb} GB Ray can schedule into memory the container cannot get.
+                            </p>
+                          )}
+                        </>
+                      )}
                     </div>
                   </div>
                 </div>
