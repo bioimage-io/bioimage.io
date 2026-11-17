@@ -15,15 +15,24 @@
 > page therefore fails today with a service-not-found error, and no version check on the worker
 > will tell you that, because the worker is fine and the service is simply absent.
 >
-> **The artifact is still there and still deployable**, at version 0.2.2 with 6 published
-> versions, so this is a deploy step you are missing rather than a dead end. If you are on a
-> worker below 2.11.2 and need Cellpose-3, you must **deploy it yourself first** (see
-> [§ Deployment](#deployment) below) and then resolve the per-replica service id from
-> `worker.get_app_status(None)`. Read the snippets below as "after you have deployed it".
+> **The artifact is still published**: 6 versions, latest 0.2.2, with no declared worker floor
+> or image pin that would refuse a deploy. So the likely reason your call fails is a deploy step
+> you are missing rather than a dead end. **A deploy has not been attempted**, here or by anyone
+> who checked this, so treat it as untested rather than known to work: what is measured is that
+> the artifact exists and nothing in its manifest forbids deploying it. If you are on a worker
+> below 2.11.2 and need Cellpose-3, **deploy it yourself first** (see
+> [§ Deployment](#deployment) below), then resolve the per-replica service id from
+> `worker.get_app_status(None)`. Read the snippets below as "after you have deployed it", and if
+> the deploy itself fails, that is new information worth reporting rather than something this
+> page has ruled out.
 >
 > If you can instead reach a worker running model-runner 2.11.2 or newer, prefer that: it needs
-> no deploy and no second service. KTH runs 2.11.6 and the published model-runner is 2.11.12,
-> while reef is on 2.10.3 and is the reason this page still exists.
+> no deploy and no second service. KTH runs 2.11.6 and the published model-runner is 2.11.12.
+> At least one production worker, reef, is **still below 2.11.2** and is the reason this page
+> still exists. Its exact version is not stated here on purpose, because the available readings
+> disagree: its container image tag reads `model-runner:2.9.0` while a drift table from
+> 2026-10-28 recorded 2.10.3, and the worker is too old to self-report a pinned version at all.
+> All three readings are below the floor, which is the only part that affects what you should do.
 
 **Service ID**: `bioimage-io/cellpose3-runner` · **Server**: `https://hypha.aicell.io` ·
 **Deployed**: nowhere, as of 2026-11-17 (deploy it yourself first, see the note above)
