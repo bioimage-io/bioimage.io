@@ -16,160 +16,11 @@ How to upload a validated model package to the BioImage Model Zoo using the Hyph
 
 ## Submission Script
 
-```python
-#!/usr/bin/env python3
-"""
-Submit a BioImage.IO model package to the Model Zoo.
-Usage: python submit_model.py <model_package_dir> <hypha_token>
-"""
-import asyncio
-import hashlib
-import os
-import sys
-from pathlib import Path
-
-import httpx
-from hypha_rpc import connect_to_server
-
-SERVER_URL = "https://hypha.aicell.io"
-PARENT_ID = "bioimage-io/bioimage.io"   # The main Zoo collection
-
-# Permission codes that mark a collection member as a model-zoo reviewer.
-# (`r` = public read, `@` = a list of specific readers — neither is a reviewer.)
-REVIEWER_CODES = {"rw", "rw+", "*"}
-REVIEWER_GRANT = "rw+"                   # what we grant each reviewer on the new model
-
-
-def build_reviewer_permissions(collection_config: dict) -> dict:
-    """Reviewer ids from the collection, each granted rw+ on the new model.
-
-    A reviewer holds a reviewer-coded permission on the parent collection. We
-    grant them the same rw+ (read/write, NOT delete) on the child model so they
-    can edit it during review. We never downgrade anyone already at `*`.
-    """
-    perms = {}
-    for uid, code in (collection_config.get("permissions") or {}).items():
-        # Guard the type: the `@` key maps to a LIST of reader ids, not a code
-        # string, and `list in set` would raise. Non-string codes are never
-        # reviewers (mirrors roles.ts `typeof code === 'string'`).
-        if isinstance(code, str) and code in REVIEWER_CODES and code != "*":
-            perms[uid] = REVIEWER_GRANT
-    return perms
-
-
-def compute_sha256(path: Path) -> str:
-    h = hashlib.sha256()
-    with open(path, "rb") as f:
-        for chunk in iter(lambda: f.read(65536), b""):
-            h.update(chunk)
-    return h.hexdigest()
-
-
-async def submit_model(package_dir: str, token: str):
-    package = Path(package_dir).resolve()
-    rdf_path = package / "rdf.yaml"
-    if not rdf_path.exists():
-        raise FileNotFoundError(f"rdf.yaml not found in {package}")
-
-    # Load manifest
-    import yaml  # pip install pyyaml
-    with open(rdf_path) as f:
-        manifest = yaml.safe_load(f)
-
-    name = manifest.get("name", "unnamed-model")
-    print(f"Submitting: {name}")
-
-    # Connect to Hypha — pass config as a dict, not keyword arguments
-    async with connect_to_server({
-        "server_url": SERVER_URL,
-        "token": token,
-        "method_timeout": 120,
-    }) as server:
-        am = await server.get_service("public/artifact-manager")
-
-        # --- Step 1: Create staged artifact ---
-        # alias pattern is type-specific (matches Upload.tsx logic):
-        #   model       → "{animal_adjective}-{animal}"   e.g. "affable-shark"
-        #   dataset     → "{fruit_adjective}-{fruit}"     e.g. "sweet-apple"
-        #   application → "{object_adjective}-{object}"   e.g. "shiny-hammer"
-        #
-        # Grant the collection's reviewers write access on the model *from
-        # creation*. Permissions in a create() call land directly in the
-        # enforced base config while the artifact stays staged/versionless (no
-        # commit, not published), so reviewers can edit the model the moment it
-        # goes to review without anyone having to commit it first. create()
-        # gives you (the uploader) `*` automatically, so we only add reviewers.
-        collection = await am.read(artifact_id=PARENT_ID)
-        reviewer_permissions = build_reviewer_permissions(collection.get("config") or {})
-
-        artifact = await am.create(
-            parent_id=PARENT_ID,
-            alias="{animal_adjective}-{animal}",   # generates a memorable 2-word animal name
-            type="model",
-            manifest={**manifest, "status": "draft"},   # new submissions start as a draft
-            config={"permissions": reviewer_permissions},
-            stage=True,         # Staged = not publicly visible yet; goes to curator review
-            overwrite=False,
-        )
-        artifact_id = artifact["id"]
-        print(f"Created artifact: {artifact_id} (reviewers granted rw+)")
-
-        # --- Step 2: Upload all files ---
-        # Exclude __pycache__ and other build artifacts
-        files = [
-            f for f in package.rglob("*")
-            if f.is_file() and "__pycache__" not in f.parts
-        ]
-
-        async with httpx.AsyncClient(timeout=300) as client:
-            for file_path in files:
-                rel_path = str(file_path.relative_to(package))
-                print(f"  Uploading {rel_path} ...")
-
-                # Determine download weight (higher = counts more in popularity sort)
-                is_weight = any(
-                    rel_path.endswith(ext)
-                    for ext in [".pt", ".pth", ".onnx", ".h5", ".pb", ".zip"]
-                )
-                weight = 1 if is_weight else 0
-
-                # Get presigned upload URL
-                put_url = await am.put_file(
-                    artifact_id=artifact_id,
-                    file_path=rel_path,
-                    download_weight=weight,
-                )
-
-                # Upload via HTTP PUT
-                with open(file_path, "rb") as fobj:
-                    response = await client.put(
-                        put_url,
-                        content=fobj.read(),
-                        headers={"Content-Type": ""},
-                    )
-                response.raise_for_status()
-                print(f"  ✓ {rel_path}")
-
-        # --- Step 3: Commit to staging ---
-        # Note: do NOT call am.commit() — the artifact stays in "stage" mode
-        # for curator review. Committing would bypass the review process.
-        # Curators will review and publish when ready.
-
-        staging_url = f"https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true"
-        print(f"\nSubmission complete!")
-        print(f"Artifact ID: {artifact_id}")
-        print(f"Review URL:  {staging_url}")
-        print(f"\nThe model is now in staging and awaiting curator review.")
-        print(f"You will be notified by email when it is published.")
-        return artifact_id
-
-
-if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: python submit_model.py <model_package_dir> <hypha_token>")
-        sys.exit(1)
-    asyncio.run(submit_model(sys.argv[1], sys.argv[2]))
-```
+Use [`scripts/upload_model.py`](https://bioimage.io/skills/bioimageio-models/scripts/upload_model.py)
+(SKILL.md Phase 5). It creates the staged draft with reviewers granted `rw+`, sets `id` /
+`id_emoji` from the generated alias in the manifest and the uploaded `rdf.yaml` (the web editor
+rejects RDF edits until both match), and uploads every file. Don't hand-roll a copy of it: an
+earlier copy here skipped the `id` step. The calls it makes are listed below.
 
 ---
 
@@ -244,7 +95,8 @@ await am.edit(
 > ```
 >
 > This checks one direction on purpose: the record legitimately carries keys that are deliberately
-> kept out of the shipped `rdf.yaml` (`status`) or are assigned server-side (`id`, `id_emoji`). For
+> kept out of the shipped `rdf.yaml` (`status`) or are set at upload from the generated alias (`id`,
+> `id_emoji`, added by `upload_model.py` to the manifest and the uploaded `rdf.yaml` only). For
 > the same reason, **merge rather than replace** when you call `am.edit` — read the current staged
 > manifest and lay the regenerated `rdf.yaml` on top of it (`{**current, **rdf}`), as
 > `submit_for_review.py` does. Passing the bare `rdf.yaml` wipes those fields.
@@ -290,7 +142,8 @@ await am.edit(
 
 # Re-upload changed files
 put_url = await am.put_file(artifact_id=existing_artifact_id, file_path="rdf.yaml")
-# ... HTTP PUT the updated file
+# ... HTTP PUT the updated file, with id / id_emoji kept via upload_model.set_rdf_ids
+# (see SKILL.md Step 6a-fix)
 ```
 
 Then re-run the BioEngine test (Phase 6a) and request review again (Phase 6b).
