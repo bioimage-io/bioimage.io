@@ -7,7 +7,26 @@
 > independently: if you are targeting a worker below 2.11.2, the behaviour below still applies.
 > Check the worker's deployed version before relying on either.
 
-**Service ID**: `bioimage-io/cellpose3-runner` · **Server**: `https://hypha.aicell.io`
+> **NOT RUNNING ANYWHERE RIGHT NOW, so `get_service` on it fails.** Measured 2026-11-17: of the
+> 36 services registered in the `bioimage-io` workspace and the 11 in `reef-imaging`, **none** is
+> a `cellpose3-runner`. It was deployed on the KTH worker as recently as 2026-10-28 (version
+> 0.2.0) and has since been taken down, so older notes and transcripts that show it working are
+> not wrong, just out of date. Every `get_service("bioimage-io/cellpose3-runner")` call on this
+> page therefore fails today with a service-not-found error, and no version check on the worker
+> will tell you that, because the worker is fine and the service is simply absent.
+>
+> **The artifact is still there and still deployable**, at version 0.2.2 with 6 published
+> versions, so this is a deploy step you are missing rather than a dead end. If you are on a
+> worker below 2.11.2 and need Cellpose-3, you must **deploy it yourself first** (see
+> [§ Deployment](#deployment) below) and then resolve the per-replica service id from
+> `worker.get_app_status(None)`. Read the snippets below as "after you have deployed it".
+>
+> If you can instead reach a worker running model-runner 2.11.2 or newer, prefer that: it needs
+> no deploy and no second service. KTH runs 2.11.6 and the published model-runner is 2.11.12,
+> while reef is on 2.10.3 and is the reason this page still exists.
+
+**Service ID**: `bioimage-io/cellpose3-runner` · **Server**: `https://hypha.aicell.io` ·
+**Deployed**: nowhere, as of 2026-11-17 (deploy it yourself first, see the note above)
 
 Inference-only service for the **Cellpose-3-and-earlier bioimage.io models** via [`bioimageio.core`](https://github.com/bioimage-io/core-bioimage-io-python). A small CPU companion to `model-runner`, whose runtime ships Cellpose 4 and therefore **cannot** load the Cellpose-3 architectures. Everything else — including Cellpose-4 / Cellpose-SAM, Cellpose-DINO and micro-SAM — runs natively on [model-runner](model-runner/model-runner.md).
 
@@ -25,6 +44,8 @@ from hypha_rpc import connect_to_server
 
 server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": "<HYPHA_TOKEN>"})
 svc = await server.get_service("bioimage-io/cellpose3-runner")   # concrete per-replica id — see model-runner § Service ID
+# ^ FAILS unless you deployed it first: nothing is registered under this id on any worker
+#   as of 2026-11-17. Deploy it (§ Deployment), then use the per-replica id from get_app_status.
 
 supported = await svc.list_supported_models()
 # ["famous-fish", "happy-elephant", "merry-gorilla", "philosophical-panda", "thoughtful-chipmunk"]
@@ -74,7 +95,13 @@ result = status["result"]
 
 ## Deployment
 
-The app reads `HYPHA_TOKEN` at startup (Hypha + S3), so a fresh deploy must inject it:
+**On a worker below 2.11.2 this is not optional**, it is the first step: nothing is registered
+anywhere (see the note at the top), so the service id does not resolve until you deploy it.
+
+The app reads `HYPHA_TOKEN` at startup (Hypha + S3), so a fresh deploy must inject it. The
+`version` below is an example, not a recommendation: `0.2.0` is what KTH last ran, while the
+published artifact is at `0.2.2`. Resolve the version you want from the artifact rather than
+copying this one.
 
 ```python
 await worker.deploy_app(
