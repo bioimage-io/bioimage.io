@@ -96,13 +96,21 @@ async def upload_model(package_dir: str, token: str) -> str:
         # Read the collection to resolve the reviewer set for the permission grant.
         collection = await am.read(artifact_id=PARENT_ID)
         reviewer_permissions = build_reviewer_permissions(collection.get("config") or {})
+        permissions = dict(reviewer_permissions)
+        # A token minted by generate_token has a random user id and carries the
+        # account in `parent`. create() grants `*` only to that random id, so the
+        # account itself could not edit or delete the draft once the token expired.
+        # Grant the account too. (Login tokens have no parent: nothing changes.)
+        owner = (server.config.get("user") or {}).get("parent")
+        if owner:
+            permissions[owner] = "*"
 
         artifact = await am.create(
             parent_id=PARENT_ID,
             alias=alias_pattern,
             type=model_type,
             manifest={**manifest, "status": "draft"},  # app-level manifest only
-            config={"permissions": reviewer_permissions},
+            config={"permissions": permissions},
             stage=True,           # staged = not publicly visible; awaits curator review
             overwrite=False,
         )

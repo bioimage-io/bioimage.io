@@ -1,7 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { Prism as SyntaxHighlighter } from 'react-syntax-highlighter';
 import { vscDarkPlus } from 'react-syntax-highlighter/dist/esm/styles/prism';
-import { useHyphaStore } from '../store/hyphaStore';
+import { useHyphaStore, getSavedToken } from '../store/hyphaStore';
 import { ClipboardIcon, CheckIcon } from '@heroicons/react/24/outline';
 import { useSearchParams } from 'react-router-dom';
 import { HYPHA_SERVER_URL } from '../config/hypha';
@@ -13,8 +13,9 @@ const ApiDocs: React.FC = () => {
   const [activeLanguageTab, setActiveLanguageTab] = useState<'curl' | 'python' | 'javascript'>('curl');
   const [activeHyphaLanguageTab, setActiveHyphaLanguageTab] = useState<'python' | 'javascript'>('python');
   const [token, setToken] = useState<string>('');
+  const [tokenMissing, setTokenMissing] = useState(false);
   const [copied, setCopied] = useState(false);
-  const { server, user } = useHyphaStore();
+  const { user } = useHyphaStore();
 
   // Add URL query parameter handling
   useEffect(() => {
@@ -24,12 +25,23 @@ const ApiDocs: React.FC = () => {
     });
   }, [activeMainTab, setSearchParams]);
 
-  const generateToken = async () => {
+  // Show the login token itself, not one from server.generateToken(). A generated
+  // token is a child token with a random user id (the account is only its
+  // `parent`), and artifact-manager create() grants `*` to that random id. Drafts
+  // created with it could not be edited or deleted by the account (#161).
+  const showToken = () => {
+    const saved = getSavedToken();
+    setToken(saved || '');
+    setTokenMissing(!saved);
+  };
+
+  // Expiry from the token's JWT `exp` claim, or null if it cannot be read.
+  const tokenExpiry = (t: string): Date | null => {
     try {
-      const newToken = await server.generateToken();
-      setToken(newToken);
-    } catch (error) {
-      console.error('Failed to generate token:', error);
+      const exp = JSON.parse(atob(t.split('.')[1].replace(/-/g, '+').replace(/_/g, '/'))).exp;
+      return typeof exp === 'number' ? new Date(exp * 1000) : null;
+    } catch {
+      return null;
     }
   };
 
@@ -46,19 +58,25 @@ const ApiDocs: React.FC = () => {
   // Token section component
   const TokenSection = () => (
     <div className="mb-8 p-6 bg-gray-50 rounded-lg border border-gray-200">
-      <h3 className="text-lg font-medium text-gray-900 mb-4">🔑 Generate API Token</h3>
+      <h3 className="text-lg font-medium text-gray-900 mb-4">🔑 API Token</h3>
       {user ? (
         <div className="space-y-4">
           <p className="text-gray-600">
-            Generate a personal API token to authenticate your requests to the BioImage Model Zoo API.
+            Your API token is the token of your current login. Requests made with it act as your account, so you can edit and delete everything you upload with it. Keep it secret.
           </p>
           <div className="flex flex-col space-y-3">
             <button
-              onClick={generateToken}
+              onClick={showToken}
               className="inline-flex items-center px-4 py-2 border border-transparent text-sm font-medium rounded-md shadow-sm text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 w-fit"
             >
-              Generate New Token
+              Show My Token
             </button>
+
+            {tokenMissing && (
+              <p className="text-sm text-yellow-700">
+                Your login session has expired. Log out and log in again to get a token.
+              </p>
+            )}
             
             {token && (
               <div className="relative">
@@ -87,6 +105,11 @@ const ApiDocs: React.FC = () => {
                     Copied to clipboard!
                   </span>
                 )}
+                {tokenExpiry(token) && (
+                  <p className="mt-2 text-sm text-gray-500">
+                    Valid until {tokenExpiry(token)!.toLocaleString()}. After that, log in again for a new token.
+                  </p>
+                )}
               </div>
             )}
           </div>
@@ -96,7 +119,7 @@ const ApiDocs: React.FC = () => {
           <div className="flex">
             <div className="ml-3">
               <p className="text-sm text-yellow-700">
-                Please log in to generate an API token. Click the login button in the top right corner.
+                Please log in to get an API token. Click the login button in the top right corner.
               </p>
             </div>
           </div>
@@ -636,7 +659,7 @@ fetch(\`${HYPHA_SERVER_URL}/bioimage-io/artifacts/bioimage.io/children?filters=\
 import json
 
 # Configuration
-API_TOKEN = "your-api-token-here"  # Generate from the token section above
+API_TOKEN = "your-api-token-here"  # Copy it from the token section above
 BASE_URL = "${HYPHA_SERVER_URL}"
 
 headers = {
@@ -1988,7 +2011,7 @@ main().catch(console.error);`}
               </summary>
               <div className="mt-3 text-gray-600">
                 <p className="mb-2">
-                  1. Generate an API token using the button in the "Generate API Token" section above (requires login)
+                  1. Get your API token from the "API Token" section above (requires login)
                 </p>
                 <p className="mb-2">
                   2. For HTTP requests, include the token in the Authorization header:
@@ -2114,7 +2137,7 @@ main().catch(console.error);`}
               <div className="mt-3 text-gray-600">
                 <ol className="list-decimal list-inside space-y-2">
                   <li>Prepare your model following the bioimage.io specification</li>
-                  <li>Create an account and generate an API token</li>
+                  <li>Create an account and get an API token</li>
                   <li>Use the upload example in the "Getting Started" section to create your model</li>
                   <li>Upload all required files (weights, rdf.yaml, cover image, etc.)</li>
                   <li>Set status to "in-review" when ready</li>
