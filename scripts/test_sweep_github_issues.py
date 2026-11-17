@@ -193,6 +193,84 @@ with tempfile.TemporaryDirectory() as tmp:
         check("a corrupt state file refuses to run", "refusing to run" in str(exc))
 
 # ---------------------------------------------------------------------------
+print("\n[6] the latch actually SKIPS, and a dry run never writes it")
+# ---------------------------------------------------------------------------
+# Section [5] tests the state STORE. These test the SKIP, which is the part the
+# daily cron depends on: without it the sweep re-files every open issue in both
+# backlogs, every day. Both properties were unarmed until a review found them.
+
+latched = {"160": {"row": "#0091"}}
+pool = [issue(160, "already filed"), issue(161, "brand new")]
+
+left = [i["number"] for i in sweep.unfiled(pool, latched)]
+check("a latched issue is skipped", left == [161], f"unfiled={left}")
+
+# CONTROL: the arm above must be able to go RED. With nothing latched, the same
+# call has to return both — otherwise it would pass against any implementation.
+both = [i["number"] for i in sweep.unfiled(pool, {})]
+check("CONTROL: with an empty latch the same issue comes back",
+      both == [160, 161], f"unfiled={both}")
+
+# The latch keys are strings and GitHub's numbers are ints. An int-keyed latch
+# must NOT match, or a future refactor that drops str() reads as working.
+check("CONTROL: an int-keyed latch does not match, so str() is load-bearing",
+      [i["number"] for i in sweep.unfiled(pool, {160: {}})] == [160, 161])
+
+# --- a dry run must leave the state file untouched -------------------------
+import hashlib  # noqa: E402
+
+with tempfile.TemporaryDirectory() as tmp:
+    sweep.STATE_PATH = Path(tmp) / ".mycolab" / "state.json"
+    sweep.save_state({"filed": dict(latched)})
+    before_md5 = hashlib.md5(sweep.STATE_PATH.read_bytes()).hexdigest()
+    before_mtime = sweep.STATE_PATH.stat().st_mtime_ns
+
+    real_fetch, real_token, real_save = sweep.fetch_issues, sweep._token, sweep.save_state
+    sweep.fetch_issues = lambda token, state="open": list(pool)
+    sweep._token = lambda: "fake"
+    # COUNT the writes rather than timing them. mtime is NOT a usable oracle
+    # here: measured on this machine, two save_state() calls in succession leave
+    # st_mtime_ns identical (delta 0), so an mtime arm passes or fails on clock
+    # ticks rather than on the defect. It went red once and green once against
+    # the SAME mutant before this was replaced.
+    saves = []
+    sweep.save_state = lambda st: saves.append(1)
+    argv = sys.argv
+    import contextlib, io  # noqa: E402
+    buf = io.StringIO()
+    try:
+        sys.argv = ["sweep", "--dry-run"]
+        with contextlib.redirect_stdout(buf):
+            rc = sweep.main()
+    finally:
+        sys.argv = argv
+        sweep.fetch_issues, sweep._token = real_fetch, real_token
+        sweep.save_state = real_save
+    out = buf.getvalue()
+
+    after_md5 = hashlib.md5(sweep.STATE_PATH.read_bytes()).hexdigest()
+    check("a dry run exits 0", rc == 0, f"rc={rc}")
+    check("a dry run never calls save_state", not saves, f"save_state calls={len(saves)}")
+    # Content equality alone would PASS against the defect, because the old code
+    # rewrote byte-identical content. The call count above is the real arm; this
+    # one is kept so the weaker check is never mistaken for it.
+    check("a dry run leaves the state content identical", after_md5 == before_md5)
+
+    # main() must USE the latch, not merely be able to. Testing unfiled() alone
+    # passed against a mutant that replaced the call with `new = list(issues)` —
+    # the function still worked, main just stopped asking it. This asserts the
+    # count main itself reports, which is the only thing that catches that.
+    check("main() reports the latched issue as already filed",
+          "2 issue(s) in scope, 1 not yet filed" in out,
+          out.splitlines()[0] if out else "(no output)")
+
+    # Defect 3: a dry run reports on every issue in scope, not just unlatched
+    # ones. With the latch warm, iterating `new` printed nothing at all.
+    check("a dry run routes every issue in scope, latched ones included",
+          "GitHub #160 ->" in out and "GitHub #161 ->" in out,
+          f"160={'GitHub #160 ->' in out} 161={'GitHub #161 ->' in out}")
+
+# ---------------------------------------------------------------------------
 print(f"\n{len(PASS)} passed, {len(FAIL)} failed, {len(PASS) + len(FAIL)} cases ran")
 if FAIL:
     print("FAILED: " + "; ".join(FAIL))

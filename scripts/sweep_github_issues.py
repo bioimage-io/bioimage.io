@@ -402,6 +402,22 @@ def save_state(state: dict) -> None:
 
 
 # ---------------------------------------------------------------------------
+def unfiled(issues: list, already: dict) -> list:
+    """The issues the latch has NOT already recorded as filed.
+
+    Extracted from main() so it can be tested directly. It was an inline
+    comprehension, and the suite's latch arms only exercised the state STORE
+    (save/load/corrupt), so replacing the whole expression with
+    `new = list(issues)` — which re-files every open issue every single day —
+    left the suite green at 30/30 (reviewer REFUSE on #0093, point 1).
+
+    The keys are STRINGS: the GitHub payload carries `number` as an int and the
+    JSON latch can only key on strings, so comparing without str() silently
+    matches nothing and re-files everything.
+    """
+    return [i for i in issues if str(i.get("number")) not in already]
+
+
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--dry-run", action="store_true",
@@ -417,7 +433,7 @@ def main() -> int:
     state = load_state()
     already = state["filed"]
 
-    new = [i for i in issues if str(i.get("number")) not in already]
+    new = unfiled(issues, already)
     print(f"sweep: {len(issues)} issue(s) in scope, {len(new)} not yet filed")
 
     if args.seed:
@@ -429,7 +445,11 @@ def main() -> int:
         return 0
 
     filed = 0
-    for issue in new:
+    # A dry run reports on EVERY issue in scope, not only the unlatched ones.
+    # Iterating `new` meant that after the first real run a dry run printed zero
+    # routing lines, so the one command meant for inspecting the routing showed
+    # nothing at all once the latch was warm (reviewer REFUSE on #0093, point 3).
+    for issue in (issues if args.dry_run else new):
         number = issue["number"]
         route, why = classify(issue)
         confident = route_is_confident(route, why)
@@ -469,7 +489,14 @@ def main() -> int:
         filed += 1
         save_state(state)  # after each, so a crash cannot re-file what landed
 
-    save_state(state)
+    # NEVER write the latch on a dry run. This used to be unconditional while the
+    # line below printed "nothing written": the content happened to be safe,
+    # because a dry run returns before mutating `already`, but the FILE was
+    # rewritten every time. A dry run racing the real daily run then writes back
+    # its own stale snapshot and un-latches whatever the real run had just filed,
+    # which re-files those rows tomorrow (reviewer REFUSE on #0093, point 2).
+    if not args.dry_run:
+        save_state(state)
     print(f"\nsweep: filed {filed} new row(s)"
           + (" (dry run, nothing written)" if args.dry_run else ""))
     return 0
