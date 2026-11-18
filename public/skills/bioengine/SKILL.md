@@ -75,6 +75,8 @@ If your shell has a global `git config --global url."git@github.com:".insteadOf 
 > **The manifest has an offline checker; the decorator does not.** Run `bioengine apps validate ./my-app/` before every upload. It applies the v0.6.0 manifest validator locally — required fields, legacy `deployments:` lists (rejected with a migration hint), and `entry:` matching `package.module:ClassName` — printing `OK: …` and exiting 0 when the manifest is good, or exiting 1 and naming the offending field when it is not. A typo'd manifest field costs a second to find, not a deploy round-trip.
 >
 > It stops at the manifest. `@bioengine.app` kwargs and method signatures are confirmed only by pushing the artifact and watching the worker's response, so a typo'd *kwarg* still costs a full deploy round-trip — budget for that. The local loop described below covers your *logic* thoroughly and covers that decorator surface not at all: copy the decorator line from a working template rather than composing it from memory, and change one thing at a time.
+>
+> **A green `validate` is not clearance to upload, because it never looked at the workspace.** It reads your directory and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading — and `id` is one of the required fields it *does* check, which is exactly why the `OK:` reads as covering it. If that id already exists there, `apps upload` does not reject it for existing; it refuses the bundle unless your `version` is strictly higher (PEP 440) than every version that id already carries, so the error you get talks about versions. Two remedies, and which one applies is yours to decide: bump `version` above the existing lineage if continuing it is yours to do, or change `id` if it is not. `bioengine apps list` shows which ids the workspace already has — run it before you pick a name, not after the refusal.
 
 **Environment**:
 ```bash
@@ -700,7 +702,8 @@ CLI: `--hypha-token`.
 ```bash
 bioengine apps list                            # what artifacts are available to deploy
 bioengine apps status [APP_ID]                 # what's actually running on the worker
-bioengine apps status <app-id> --logs 50 --json  # actor logs (see the caveat below)
+bioengine apps status <app-id> --logs 50 --json  # actor logs, LIVE replicas only (see the caveat below)
+bioengine apps logs <app-id> -n 50             # the same logs plus the last DEAD replica — use after a crash
 bioengine apps stop <app-id> -y                # stop a running instance (-y skips the confirmation prompt)
 ```
 
@@ -745,7 +748,7 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > ```
 > So it is `result["<workspace>/<alias>"]["manifest"]["version"]`, against `result["<app-id>"]["status"]` for `apps status --json`. A filter written for one shape returns an empty result against the other, with no error to tell you which one you were holding.
 
-> **`logs` is nested two levels deep, and `bioengine apps logs` prints nothing.** Two separate traps. `bioengine apps logs <app-id> -n 20` has been observed printing empty per-deployment sections while thousands of characters of logs existed — reach them through `bioengine apps status <app-id> --logs N --json` instead. And in that payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
+> **`logs` is nested two levels deep, and `bioengine apps logs` prints it — from client 0.16.45 on.** Older clients read `logs` off the replica projection, where that key never exists, so the command printed empty per-deployment sections while thousands of characters sat one level up; fixed in **0.16.45**, so upgrade rather than work around it. **After a crash `apps logs` is the one to reach for, not `apps status`**: only `apps logs` asks for a dead replica (`n_previous_replica=1`), and the crashed replica is the one whose logs you want. Measured on a live worker — per deployment, `apps logs` returned 2 replicas and `apps status --logs N --json` returned 1, the live one. In either payload `deployments[<name>]["logs"]` is **keyed by replica id, and each value is a dict**, not a string and not a list:
 > ```python
 > {"<replica-id>": {"creation_timestamp": ..., "timezone": ..., "stdout": [...], "stderr": [...]}}
 > # a replica that has DIED carries one more key, from worker 0.16.65:
