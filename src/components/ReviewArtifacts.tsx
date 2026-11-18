@@ -19,6 +19,7 @@ import { getIsReviewer, getIsCollectionAdmin, fetchCollectionOwners, isPublished
 import { getDeletionRequest } from '../utils/deletionRequest';
 import RequestDeletionDialog from './RequestDeletionDialog';
 import DeclineDeletionDialog from './DeclineDeletionDialog';
+import { logFailure } from '../utils/failureLog';
 
 // Define view mode type for the dropdown. 'deletion' is admin-only.
 type ViewMode = 'published' | 'staging' | 'pending' | 'deletion';
@@ -422,7 +423,7 @@ const ReviewArtifacts: React.FC = () => {
       setIsApproveDialogOpen(false);
       setSelectedArtifact(null);
     } catch (err) {
-      console.error('Error approving artifact:', err);
+      logFailure(err, { operation: 'review', step: 'approve' });
       showError('Failed to approve model', err, selectedArtifact.id);
     } finally {
       setApproveLoading(false);
@@ -445,7 +446,7 @@ const ReviewArtifacts: React.FC = () => {
       setSelectedArtifact(null);
       setRejectReason('');
     } catch (err) {
-      console.error('Error rejecting artifact:', err);
+      logFailure(err, { operation: 'review', step: 'reject' });
       showError('Failed to reject model', err, selectedArtifact.id);
     } finally {
       setRejectLoading(false);
@@ -479,7 +480,7 @@ const ReviewArtifacts: React.FC = () => {
         setError('Staged changes were discarded, but refreshing the list failed. Please refresh manually.');
       }
     } catch (err) {
-      console.error('Error discarding staged changes:', err);
+      logFailure(err, { operation: 'review', step: 'discard' });
       setError('Failed to discard staged changes');
     } finally {
       setDeleteLoading(false);
@@ -504,7 +505,7 @@ const ReviewArtifacts: React.FC = () => {
       // Refresh the list
       loadArtifacts();
     } catch (error) {
-      console.error('Error updating status:', error);
+      logFailure(error, { operation: 'review', step: 'update-status' });
       showError('Failed to update model status', error, artifact.id);
     }
   };
@@ -593,7 +594,7 @@ const ReviewArtifacts: React.FC = () => {
         } catch (permErr) {
           // If reviewer resolution fails, still publish rather than block
           // acceptance. Reviewers can be topped up via the ops path if needed.
-          console.error('Could not grant reviewer permissions before commit:', permErr);
+          logFailure(permErr, { operation: 'review', step: 'grant-reviewer-permissions' });
         }
 
         currentArtifact = await artifactManager.commit({

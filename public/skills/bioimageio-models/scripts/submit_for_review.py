@@ -66,7 +66,12 @@ async def submit_for_review(artifact_id: str, token: str) -> None:
             manifest={**manifest, "status": "in-review"},
         )
         print(f"Review requested for {artifact_id} (status: {current} -> in-review)")
-        print(f"Track: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
+        # NOT a public model page: a staged in-review model has none, by design.
+        # This link reopens the upload form on the draft, which is only useful to
+        # the submitter. Labelling it "Track" led contributors to expect a status
+        # page and wonder what they were missing.
+        print(f"Resume editing: https://bioimage.io/#/upload?artifact_id={artifact_id}&stage=true")
+        print("The model is not publicly viewable until a curator publishes it.")
 
 
 def main() -> None:

@@ -68,6 +68,13 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
   const [isGeneratingToken, setIsGeneratingToken] = useState<boolean>(false);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [version, setVersion] = useState<string>('');
+  // The artifact's newest published version, read when the dialog opens on a
+  // RUNNING app. Needed because the version box is prefilled with whatever is
+  // currently deployed (see the prefill below), so the default action redeploys
+  // that same version even when the artifact has moved on. Nothing else in this
+  // dialog knows the artifact side: `bioengineApps` is running state from the
+  // worker, so without this read the staleness is invisible.
+  const [latestArtifactVersion, setLatestArtifactVersion] = useState<string | null>(null);
   const [applicationId, setApplicationId] = useState<string>('');
   const [kwargs, setKwargs] = useState<string>('{}');
   const [envVars, setEnvVars] = useState<string>('{}');
@@ -201,9 +208,43 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
     return () => document.removeEventListener('mousedown', handlePointerDown);
   }, [showArtifactList]);
 
+  // Read the artifact's newest published version while the dialog is open on a
+  // RUNNING app, so the prefilled version can be compared against it.
+  //
+  // Only for the running case: on a fresh deployment the version field is blank,
+  // which already means "latest", so there is nothing to warn about. Failure is
+  // silent on purpose, because this is advisory: if the read fails the dialog
+  // behaves exactly as it did before rather than blocking a deploy on it.
+  useEffect(() => {
+    if (!isOpen || !server) return;
+    const runningApp = initialApplicationId && bioengineApps
+      ? bioengineApps[initialApplicationId]
+      : null;
+    if (!runningApp || !['RUNNING', 'HEALTHY'].includes(runningApp.status)) return;
+
+    const artifact = (initialConfig?.artifact_id ?? artifactId ?? '').trim();
+    if (!artifact) return;
+
+    let cancelled = false;
+    (async () => {
+      try {
+        const am = await server.getService('public/artifact-manager');
+        const read = await am.read({ artifact_id: artifact, _rkwargs: true });
+        // `versions` is ordered oldest to newest, so the head is the last entry.
+        const versions = Array.isArray(read?.versions) ? read.versions : [];
+        const head = versions.length > 0 ? versions[versions.length - 1]?.version : null;
+        if (!cancelled && typeof head === 'string' && head) setLatestArtifactVersion(head);
+      } catch (err) {
+        console.warn('Could not read the artifact version list; skipping the staleness hint:', err);
+      }
+    })();
+    return () => { cancelled = true; };
+  }, [isOpen, server, initialApplicationId, bioengineApps, initialConfig?.artifact_id, artifactId]);
+
   useEffect(() => {
     if (isOpen) {
       setError(null);
+      setLatestArtifactVersion(null);
       setHyphaToken('');
       setTokenIsManual(false);
       setTokenError(null);
@@ -581,6 +622,25 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                 placeholder="Latest"
                 className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:ring-blue-500 focus:border-blue-500 text-gray-900"
               />
+              {/* The prefilled version is whatever is running. Deploying it again
+                  is a legitimate thing to want (a scaling-only edit must not move
+                  the version), but doing it unknowingly while newer code exists is
+                  not, and the worker cannot warn about it: it will report the
+                  deploy as the version you asked for, because you did ask. */}
+              {latestArtifactVersion && version.trim() && version.trim() !== latestArtifactVersion && (
+                <p className="mt-1 text-xs text-amber-700">
+                  This is the version currently running. The artifact has since published{' '}
+                  <span className="font-mono font-semibold">{latestArtifactVersion}</span>.{' '}
+                  <button
+                    type="button"
+                    onClick={() => setVersion(latestArtifactVersion)}
+                    className="underline font-medium hover:text-amber-900 focus:outline-none"
+                  >
+                    Use {latestArtifactVersion}
+                  </button>
+                  , or leave this as it is to redeploy the running version.
+                </p>
+              )}
             </div>
 
             <div className="md:col-span-2">

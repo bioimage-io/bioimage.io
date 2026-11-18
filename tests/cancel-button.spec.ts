@@ -7,7 +7,9 @@ import { test, expect } from '@playwright/test';
 // Requires:
 //   HYPHA_TOKEN env var — same token the user stores in localStorage after login.
 //   Dev server running: pnpm start
-//   Optional RUNNER_SITE=kth|denbi (default: denbi) — which runner site to test.
+//   Optional RUNNER_SITE=kth|denbi (default: kth) — which runner site to test.
+//   deNBI stopped hosting a model-runner app on 2026-09-25, so it is no longer a
+//   usable default; the override is kept for the day it comes back.
 //
 // FEATURE GATING (important):
 //   The Cancel button is feature-detected: it only renders when the connected
@@ -56,9 +58,12 @@ test.describe('Cancel button (model-test progress dialog)', () => {
     await expect(page.getByRole('button', { name: 'Test Model' })).toBeVisible({ timeout: 60000 });
 
     // Step 2: Pick the runner site in the Advanced Options popover.
-    // Default deNBI; override with RUNNER_SITE=kth. cancel_request lands per
-    // site independently, so the site under test is configurable.
-    const site = (process.env.RUNNER_SITE || 'denbi').toLowerCase();
+    // cancel_request lands per site independently, so the site under test is
+    // configurable via RUNNER_SITE. The default is KTH because deNBI no longer
+    // hosts a model-runner (2026-09-25), which leaves its radio permanently
+    // disabled — defaulting there made this spec fail on an unrelated topology
+    // change rather than on the cancel behaviour it exists to cover.
+    const site = (process.env.RUNNER_SITE || 'kth').toLowerCase();
     const siteLabel = site === 'kth' ? 'KTH' : 'deNBI';
     await page.getByRole('button', { name: 'Advanced Options' }).click();
     const siteRadio = page.getByRole('radio', { name: siteLabel });

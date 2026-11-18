@@ -12,7 +12,6 @@ import { imjoyToTfjs, inferImgAxesViaSpec, mapAxes, parseAxes, isImg2Img, proces
 import { BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID } from '../utils/bioengineService';
 import { HYPHA_SERVER_URL } from '../config/hypha';
 import { useModelRunnerConnection } from '../hooks/useModelRunnerConnection';
-import { useCellpose3Runner } from '../hooks/useCellpose3Runner';
 import AdvancedOptions from './AdvancedOptions';
 import InferenceProgressDialog, { InferenceProgress } from './InferenceProgressDialog';
 import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
@@ -148,12 +147,9 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const conn = useModelRunnerConnection();
   const modelRunners = conn.modelRunners;
   const modelId = artifactId ? artifactId.split('/').pop() : undefined;
-  // Cellpose-3 models can't be run by model-runner at all (its runtime ships
-  // Cellpose 4, which dropped those architectures); cellpose3-runner is their
-  // inference backend. Everything else, foundation models included, runs on
-  // model-runner.
-  const cellpose3 = useCellpose3Runner();
-  const isCellpose3Model = cellpose3.isSupported(modelId);
+  // model-runner 2.11.2 serves Cellpose-3 from its own internal environment,
+  // so every model routes to the same service. The former cellpose3-runner
+  // detour and its capability probe are gone.
   const [isLoading, setIsLoading] = useState(false);
   const [isRunning, setIsRunning] = useState(false);
   const [currentWindowId, setCurrentWindowId] = useState<string | null>(null);
@@ -195,11 +191,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
   const [tileSize, setTileSize] = useState<number>(512);
 
   // Effective service id for the next ModelRunnerEngine.init() call.
-  // Resolution order: explicit override > cellpose3-runner (Cellpose-3 models
-  // only) > toggle's active site > KTH constant (legacy fallback so this
-  // component never produces an empty serviceId).
+  // Resolution order: explicit override > toggle's active site > KTH constant
+  // (legacy fallback so this component never produces an empty serviceId).
   const serviceId = conn.serviceIdOverride.trim()
-    || (isCellpose3Model ? cellpose3.serviceId : modelRunners.activeServiceId)
+    || modelRunners.activeServiceId
     || BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID;
   
   // Button states
@@ -220,16 +215,11 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
     if (
       artifactId && hyphaCoreAPI && isHyphaCoreReady && isLoggedIn
       && !isRunning && !isLoading && !initializingRef.current
-      // Always wait for the cellpose3-runner probe to settle first: while it's
-      // still loading, isCellpose3Model reads as false, which would otherwise
-      // let a Cellpose-3 model fall through and wrongly init against
-      // model-runner, which rejects it.
-      && !cellpose3.loading
-      && (isCellpose3Model || (!modelRunners.loading && modelRunners.activeServiceId))
+      && !modelRunners.loading && modelRunners.activeServiceId
     ) {
       setupRunner();
     }
-  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId, cellpose3.loading, isCellpose3Model]);
+  }, [artifactId, hyphaCoreAPI, isHyphaCoreReady, isLoggedIn, modelRunners.loading, modelRunners.activeServiceId]);
 
   // Surface a resumable in-flight inference for this model (survives page refresh).
   useEffect(() => {
@@ -903,16 +893,12 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           onServerUrlChange={conn.setServerUrl}
           serviceIdOverride={conn.serviceIdOverride}
           onServiceIdOverrideChange={conn.setServiceIdOverride}
-          serviceIdPlaceholder={isCellpose3Model ? cellpose3.serviceId : (modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID)}
+          serviceIdPlaceholder={modelRunners.activeServiceId ?? BIOIMAGEIO_MODEL_RUNNER_SERVICE_ID}
           toggleSelected={conn.toggleSelected}
           onSelectSite={conn.selectSite}
           siteAvailable={{ kth: conn.baseRunners.kth.available, denbi: conn.baseRunners.denbi.available }}
           siteLoading={conn.baseRunners.loading}
-          // Hidden for Cellpose-3 models: cellpose3-runner is addressed by an
-          // unqualified service id, so the cluster is picked by load rather
-          // than by the user, and an inert toggle would only mislead. The
-          // service-id override field stays available as the escape hatch.
-          showToggle={isLoggedIn && !isCellpose3Model}
+          showToggle={isLoggedIn}
           onReset={conn.reset}
           isResetting={conn.isReconnecting || conn.isConnecting}
         >

@@ -5,8 +5,9 @@ import TestDetailsDialog, { ProgressInfo } from './TestDetailsDialog';
 import TestOptionsDialog from './TestOptionsDialog';
 import HintTooltip from './HintTooltip';
 import { resolveTestReportUrl } from '../utils/urlHelpers';
-import { isRuntimeStartingError, RUNTIME_STARTING_MESSAGE } from '../utils/runnerErrors';
+import { buildTestFailure, buildLostContact, isRunnerErrorResult } from '../utils/testRunOutcome';
 import { saveRunId, loadRunId, clearRunId } from '../utils/runPersistence';
+import { logFailure } from '../utils/failureLog';
 
 interface TestResult {
   name: string;
@@ -74,26 +75,6 @@ export type { TestResult };
 
 const sleep = (ms: number) => new Promise<void>(r => setTimeout(r, ms));
 
-/**
- * Build the failed-test result shown in the dialog. When the failure is the
- * transient "GPU runtime still starting" condition (same as the infer path),
- * surface the friendly message instead of the raw traceback.
- */
-const buildTestFailure = (error: unknown, fallbackMsg?: string): TestResult => {
-  const runtimeStarting = isRuntimeStartingError(error);
-  const rawMsg = error instanceof Error ? error.message : String(error);
-  return {
-    name: runtimeStarting ? 'BioEngine Starting' : 'Test Failed',
-    status: 'failed',
-    details: [{
-      name: runtimeStarting ? 'BioEngine Starting' : 'Error',
-      status: 'failed',
-      errors: [{ msg: runtimeStarting ? RUNTIME_STARTING_MESSAGE : (fallbackMsg ?? rawMsg), loc: ['test'] }],
-      warnings: [],
-    }],
-  };
-};
-
 const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
   artifactId,
   isStaged,
@@ -107,7 +88,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
 }, ref) => {
   const { server, isLoggedIn } = useHyphaStore();
   const internalRunners = useModelRunners({ skip: !!modelRunners });
-  const { activeRunner, hasAny, loading: runnersLoading, selected } = modelRunners ?? internalRunners;
+  const { activeRunner, hasAny, loading: runnersLoading, selected, activeServiceId } = modelRunners ?? internalRunners;
   // deNBI's conda env builds currently fail on an unfixable clock skew, so the
   // custom-environment test option is disabled while that site is selected.
   const customEnvDisabled = selected === 'denbi';
@@ -207,9 +188,43 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     // Expose the run id so the Cancel button can target it.
     setActiveTestRunId(test_run_id);
 
+    // A status poll that throws says nothing about the model — the run is
+    // already submitted and keeps going on the runner regardless. Treating one
+    // failed poll as a failed test reported "Test Failed" for models that went
+    // on to pass, so tolerate a short burst of RPC trouble (websocket blip,
+    // service re-resolution) and only give up after several in a row.
+    const MAX_CONSECUTIVE_POLL_ERRORS = 4;
+    let consecutivePollErrors = 0;
+
     try {
       for (let i = 0; i < MAX_POLLS; i++) {
-        const status = await runner.get_test_status({ test_run_id, _rkwargs: true });
+        let status: any;
+        try {
+          status = await runner.get_test_status({ test_run_id, _rkwargs: true });
+          consecutivePollErrors = 0;
+        } catch (pollErr) {
+          consecutivePollErrors++;
+          console.warn(
+            `get_test_status failed (${consecutivePollErrors}/${MAX_CONSECUTIVE_POLL_ERRORS}):`,
+            pollErr,
+          );
+          if (consecutivePollErrors >= MAX_CONSECUTIVE_POLL_ERRORS) {
+            // Out of contact. The run id stays persisted, so a reload resumes.
+            // Worth recording where an individual retry is not: this one ends
+            // the run, and the service id says WHICH replica stopped answering.
+            logFailure(pollErr, {
+              operation: 'bioengine',
+              step: `get_test_status (gave up after ${consecutivePollErrors})`,
+              artifactId,
+              version: isStaged ? 'stage' : undefined,
+              serviceId: activeServiceId ?? undefined,
+            });
+            finalResult = buildLostContact(pollErr);
+            break;
+          }
+          await sleep(3000);
+          continue;
+        }
 
         // v1.15.23 status: per-step `stages` (model_download/env_setup/run with
         // start/end/queue_position) + submitted_at/completed_at + result. Legacy
@@ -266,7 +281,9 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
             return; // finally still runs (clears run id + cancelling flag)
           }
 
-          if ('error' in result) {
+          // Value check, not key presence: `'error' in result` is true for
+          // `{error: null}` too, which would render a passing run as failed.
+          if (isRunnerErrorResult(result)) {
             finalResult = buildTestFailure(result.error as string);
           } else {
             setProgressInfo(prev => prev?.version === 'v2'
@@ -300,18 +317,18 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
         try {
           await onTestComplete(finalResult);
         } catch (refreshErr) {
-          console.error('Post-test refresh failed:', refreshErr);
+          logFailure(refreshErr, { operation: 'bioengine', step: 'post-test-refresh', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
         }
       }
     } catch (err) {
-      console.error('Test run failed:', err);
+      logFailure(err, { operation: 'bioengine', step: 'test', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
       const failureResult = buildTestFailure(err, `Failed to run model test: ${err}`);
       setTestResult(failureResult);
       if (onTestComplete) {
         try {
           await onTestComplete(failureResult);
         } catch (refreshErr) {
-          console.error('Post-test refresh failed:', refreshErr);
+          logFailure(refreshErr, { operation: 'bioengine', step: 'post-test-refresh', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
         }
       }
     } finally {
@@ -333,7 +350,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
     try {
       await runner.cancel_request({ request_id: activeTestRunId, _rkwargs: true });
     } catch (err) {
-      console.error('Failed to cancel test run:', err);
+      logFailure(err, { operation: 'bioengine', step: 'cancel', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
       // Leave the poll loop running; the run may still finish on its own.
       setIsCancelling(false);
     }
@@ -396,14 +413,14 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       await driveTestRun(runner, test_run_id);
     } catch (err) {
       // Failure before we obtained a run id (runner unavailable / unsupported API).
-      console.error('Test run failed:', err);
+      logFailure(err, { operation: 'bioengine', step: 'test', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
       const failureResult = buildTestFailure(err, `Failed to run model test: ${err}`);
       setTestResult(failureResult);
       if (onTestComplete) {
         try {
           await onTestComplete(failureResult);
         } catch (refreshErr) {
-          console.error('Post-test refresh failed:', refreshErr);
+          logFailure(refreshErr, { operation: 'bioengine', step: 'post-test-refresh', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
         }
       }
       setLoadingStep('');
@@ -431,7 +448,7 @@ const ModelTester = forwardRef<ModelTesterHandle, ModelTesterProps>(({
       }
       await driveTestRun(runner, test_run_id);
     } catch (err) {
-      console.error('Resume test failed:', err);
+      logFailure(err, { operation: 'bioengine', step: 'resume', artifactId, version: isStaged ? 'stage' : undefined, serviceId: activeServiceId ?? undefined });
       setTestResult(buildTestFailure(err, `Failed to resume model test: ${err}`));
       setLoadingStep('');
       setIsLoading(false);

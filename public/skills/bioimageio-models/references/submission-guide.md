@@ -220,6 +220,35 @@ await am.edit(
 )
 ```
 
+> **The RDF lives in two places, and they can silently diverge.** An artifact holds the RDF as a
+> **file** (`rdf.yaml`, in the file inventory) *and* as a separate stored **manifest** record.
+> `put_file` updates only the file; `am.edit(manifest=…)` updates only the record. Nothing warns you
+> when they disagree.
+>
+> This matters because the two audiences read different copies: `bioimageio` static validation and
+> the BioEngine remote test read the **file**, so they stay green on a stale record — while the
+> website, the collection listing, and a reviewer read the **record**. The usual way to get bitten
+> is to change a packaged file that `rdf.yaml` hashes (documentation, `environment.yaml`, weights,
+> architecture), regenerate `rdf.yaml`, re-upload just the changed files, and forget the `am.edit`.
+> The stored record then carries `sha256` values pointing at the pre-change files.
+>
+> **Rule: every `rdf.yaml` regeneration needs both a `put_file` and an `am.edit`.** Assert it before
+> requesting review:
+>
+> ```python
+> import yaml
+> stored = (await am.read(artifact_id=artifact_id, stage=True))["manifest"]
+> shipped = yaml.safe_load(open(f"{package_dir}/rdf.yaml"))
+> stale = sorted(k for k, v in shipped.items() if stored.get(k) != v)
+> assert not stale, f"stored manifest is stale for: {stale}"
+> ```
+>
+> This checks one direction on purpose: the record legitimately carries keys that are deliberately
+> kept out of the shipped `rdf.yaml` (`status`) or are assigned server-side (`id`, `id_emoji`). For
+> the same reason, **merge rather than replace** when you call `am.edit` — read the current staged
+> manifest and lay the regenerated `rdf.yaml` on top of it (`{**current, **rdf}`), as
+> `submit_for_review.py` does. Passing the bare `rdf.yaml` wipes those fields.
+
 ### `am.read(...)` — Check artifact status
 
 ```python

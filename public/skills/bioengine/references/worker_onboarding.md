@@ -59,7 +59,44 @@ If the user has already done the login and has a token, skip the whole flow and 
 
 ### 3a. Single-machine (Docker)
 
+> **If the user has the `bioengine` CLI installed, there is a shortcut.**
+> `bioengine worker start -- --mode single-machine --head-num-cpus 4 --head-num-gpus 1`
+> builds and runs the `docker run` below for you — correct mounts, `--shm-size`, GPU flags,
+> and the token passed through the environment rather than the command line. Add `-d` to
+> detach, `--dry-run` to see the command without running it, and use
+> `bioengine worker stop` / `bioengine worker logs -f` to manage it. See
+> [cli_reference.md § `bioengine worker`](cli_reference.md#bioengine-worker--run-the-worker-container).
+> Note the image it picks tracks the *installed* `bioengine` version, so pass `--image` to
+> pin a different tag. The hand-written form below stays the reference for hosts without
+> the CLI, and for every non-default flag.
+
 Pick the latest worker image tag from `https://github.com/aicell-lab/bioengine/pkgs/container/bioengine-worker`. The examples below use `:0.10.1` — substitute the current tag.
+
+**Two images to choose between.** Both run the same worker with the same flags; they differ only in what is already installed.
+
+| Image | Use when |
+|---|---|
+| `ghcr.io/aicell-lab/bioengine-worker:<version>` | The default. Each app's environment is built by Ray on first deploy, so the first model takes minutes before it serves. |
+| `ghcr.io/aicell-lab/model-runner:2.10.6` | Running bioimage.io models. The model-runner dependencies are preinstalled, so the first deploy skips the environment build and the model serves in well under a minute. |
+
+Swap the image name and change nothing else:
+
+```bash
+docker run -d --name bioengine-worker \
+  --restart unless-stopped --shm-size=8g --gpus=all \
+  -v $HOME/.bioengine:/.bioengine \
+  -e HYPHA_TOKEN \
+  ghcr.io/aicell-lab/model-runner:2.10.6 \
+  python -m bioengine.worker --mode single-machine --head-num-cpus 4 --head-num-gpus 1
+```
+
+Pass `-e HYPHA_TOKEN` with no value so the token comes from your environment — a token written as `-e HYPHA_TOKEN=<value>` is world-readable in `/proc/<pid>/cmdline` for the container's whole life.
+
+Two things to know before you pick it.
+
+Each tag bakes **one** BioEngine version, recorded in the image's `io.bioengine.version` label and its `BIOENGINE_VERSION` env var. The tag itself is the *model-runner app* version, so it tells you nothing about which worker you get — read the label. A tag is immutable, so a newer worker release only reaches this image when someone rebuilds, and that rebuild needs a new app version to be publishable at all.
+
+And `test(custom_environment=True)` does not work in single-machine mode in either image, because `mamba` is absent. Pass `custom_environment=False` explicitly: `None` inherits from the model's published report, which silently routes foundation models down the custom path.
 
 **Foreground (interactive — good for first runs, easy to Ctrl+C):**
 
@@ -113,7 +150,7 @@ docker run -d --name bioengine-worker \
 >     --client-id bioengine-worker-<facility>     # ← pin this
 > ```
 >
-> The full worker CLI is `python -m bioengine.worker --help` inside the image: `docker run --rm ghcr.io/aicell-lab/bioengine-worker:0.10.1 python -m bioengine.worker --help`.
+> The full worker CLI is `python -m bioengine.worker --help` inside the image: `docker run --rm ghcr.io/aicell-lab/bioengine-worker:<version> python -m bioengine.worker --help` (or `bioengine worker start -- --help`).
 
 ### 3b. SLURM
 
@@ -138,7 +175,7 @@ bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scrip
     --min-workers 0 \
     --max-workers 4 \
     --scale-down-threshold-seconds 300 \
-    --further-slurm-args "-A <project> -C thin"
+    --further-slurm-args="-A <project> -C thin"
 ```
 
 Key knobs (most are forwarded directly to `python -m bioengine.worker` — see [cli_reference.md → `python -m bioengine.worker`](cli_reference.md#python--m-bioengineworker--worker-process) for the full list):
@@ -150,9 +187,9 @@ Key knobs (most are forwarded directly to `python -m bioengine.worker` — see [
 | `--head-num-cpus / --head-num-gpus / --head-memory-in-gb` | Resources Ray pretends the head has (it runs on the login node) | Login-node policy usually forbids long-running compute, so the head is coordination-only: keep `--head-num-gpus 0`. |
 | `--default-num-gpus / --default-num-cpus / --default-mem-in-gb-per-cpu / --default-time-limit` | Defaults baked into every `sbatch` Ray-worker submission | Per-deployment overrides are possible later but these are the cluster's "house" allocations. |
 | `--min-workers / --max-workers / --scale-down-threshold-seconds` | Autoscaler bounds | `--min-workers 0` keeps the cluster idle until a deploy_app request comes in. |
-| `--further-slurm-args "<one quoted string>"` | Extra `sbatch` directives appended to every Ray-worker job | **One quoted string, not multiple tokens** (argparse rejects flag-shaped tokens). Use for `-A <project>` (account), `-C thin` (constraint), `-p <partition>`, `--qos=<qos>`. |
+| `--further-slurm-args=<one string>` | Extra `sbatch` directives appended to every Ray-worker job | **Join it with `=`**, one string, not multiple tokens. Use for `-A <project>` (account), `-C thin` (constraint), `-p <partition>`, `--qos=<qos>`, `--reservation=<name>`. Quoting after a space is not enough on its own — see the `expected one argument` row in §troubleshooting. |
 | `--gpu-slurm-flag '--gres=gpu:{n}'` | Use `--gres=gpu:N` instead of `--gpus=N` for the sbatch GPU directive | Default `--gpus={n}` works on Berzelius and generic clusters; switch to `--gres=gpu:{n}` for clusters that require it (some Slurm setups). Pass `''` to omit entirely when GPUs are requested via `--further-slurm-args`. |
-| `--further-apptainer-args "<one quoted string>"` | Extra flags forwarded to `apptainer exec` inside each worker job | Useful for `--bind /proj/<lab>:/proj/<lab>` to expose extra filesystems. |
+| `--further-apptainer-args=<one string>` | Extra flags forwarded to `apptainer exec` inside each worker job | Useful for `--bind /proj/<lab>:/proj/<lab>` to expose extra filesystems. Join with `=`, for the same reason as `--further-slurm-args`. |
 | `--sandbox` | **Launcher-only.** Build/reuse an apptainer sandbox dir instead of pulling a SIF | See below; required on most RHEL-8 HPC systems. |
 
 #### `--sandbox` — required on most HPC systems
@@ -181,7 +218,7 @@ bash <(curl -s https://raw.githubusercontent.com/aicell-lab/bioengine/main/scrip
     --mode slurm \
     --client-id bioengine-worker-<facility> \
     --sandbox \
-    --further-slurm-args "-A <project> -C thin" \
+    --further-slurm-args="-A <project> -C thin" \
     # … rest of the knobs above
 ```
 
@@ -413,7 +450,8 @@ After all checks pass, present a short summary table to the user with the worker
 | `Multiple services found` when calling worker | More than one worker registered with the same alias | Pass the full service ID `<workspace>/<client-id>:bioengine-worker`, not just the alias |
 | `get_status()` reports `total_memory: 0` in single-machine Docker mode | Ray's auto-detection mis-reads cgroups in some Docker setups (other resource fields are fine) | Cosmetic; not a worker fault. The CPU and GPU counts in the same payload are still correct, so the dashboard / scheduler aren't affected — only the memory card on the dashboard renders as `0 GB / 0 GB`. |
 | SLURM launcher fails during `apptainer pull` or hangs in `apptainer build` (RHEL-8 / Rocky-8) | Kernel `yama.ptrace_scope=2` breaks the default `proot/mksquashfs` SIF build path | Add `--sandbox` to the launcher invocation; it builds an apptainer sandbox dir (no proot needed) and caches it at `<workspace-dir>/images/`. See §3b. |
-| `--further-slurm-args` raises `expected one argument` or `unrecognized arguments` | Multi-token args are not quoted | Pass as a **single quoted string**, e.g. `--further-slurm-args "-A <project> -C thin"`. Internally `shlex.split` re-tokenises. |
+| `--further-slurm-args` raises `expected one argument` or `unrecognized arguments` | The value is a separate token that looks like a flag. Quoting does **not** fix this by itself: the shell strips the quotes, and argparse only accepts a flag-shaped value if it contains a space — so `"-A <project> -C thin"` works while `"--reservation=safe"` still exits 2 | Join with `=`: `--further-slurm-args=--reservation=safe`, or `--further-slurm-args="-A <project> -C thin"`. `shlex.split` re-tokenises either. Same for `--further-apptainer-args`. |
+| Ray-worker jobs are cancelled by root about an hour in, for low power efficiency | Sites that bill GPU time cancel jobs holding an idle GPU. A worker with no deployment yet draws idle power and looks like a stalled job; NSC Berzelius cancels below a 90 W moving average and exempts only jobs younger than an hour, interactive jobs, and jobs inside a reservation | Submit into an exempt reservation: `--further-slurm-args=--reservation=<name>` (on Berzelius, `safe`). Confirm it admits you first with `sbatch --test-only --reservation=<name> ...`, which creates no job. Scaling idle workers down sooner (`--scale-down-threshold-seconds`) reduces the exposure but does not exempt you. |
 | Worker exits cleanly after a brief Hypha 503 / upstream outage | WebSocket reconnect timeout is ~100 s; longer Hypha blips trigger a clean shutdown | Re-submit the sbatch / restart the process. Hypha artifacts persist, but Ray Serve deployments **do not auto-recover** — see §7. |
 | `am.get_file(path=...)` raises `unexpected keyword argument 'path'` | The artifact-manager API uses `file_path=`, not `path=` | Call `await am.get_file(artifact_id=..., file_path="manifest.yaml")`. |
 | `list_services({"type": "bioengine-apps"})` returns 0 entries despite a running app | Service type is **singular** `bioengine-app` (worker is `bioengine-worker`) | Use `{"type": "bioengine-app"}`. To enumerate apps on a specific worker, prefer `worker.get_app_status(None)`. |
@@ -424,7 +462,7 @@ After all checks pass, present a short summary table to the user with the worker
 
 Once all 7 checks pass:
 
-- Direct the user to the [BioEngine Dashboard](https://bioimage.io/#/bioengine) to manage their worker, or
+- Direct the user to the [BioEngine worker admin page](https://bioimage.io/#/bioengine/worker-admin) to manage their worker, or
 - If they asked for a branded dashboard (facility / lab), load **`custom_dashboard.md`** and follow it.
 - If they want to deploy an app, load the matching app subskill in `apps/` or follow the main SKILL.md app development sections.
 

@@ -21,9 +21,21 @@ import ReviewArtifacts from './components/ReviewArtifacts';
 import ApiDocs from './components/ApiDocs';
 import TermsOfService from './components/TermsOfService';
 import BioEngineHome from './components/bioengine/BioEngineHome';
-import BioEngineWorker from './components/bioengine/BioEngineWorker';
+import BioEngineWorkerSetup from './components/bioengine/BioEngineWorkerSetup';
+import BioEngineWorkerAdmin from './components/bioengine/BioEngineWorkerAdmin';
+import BioEngineAppsPage from './components/bioengine/BioEngineAppsPage';
+import BioEngineTokenPage from './components/bioengine/BioEngineTokenPage';
 import ColabPage from './components/colab/ColabPage';
 import { useConnectionLiveness } from './hooks/useConnectionLiveness';
+
+// `/bioengine/worker` moved to `/bioengine/worker-admin` when the BioEngine
+// landing page split into three audiences. Dashboard links carry the worker in
+// `?service_id=` and are shared around, so the search string is forwarded
+// verbatim rather than dropped. `replace` keeps the dead URL out of history.
+const BioEngineWorkerRedirect: React.FC = () => {
+  const { search } = useLocation();
+  return <Navigate to={`/bioengine/worker-admin${search}`} replace />;
+};
 
 // Add a utility function to check if footer should be hidden
 const shouldHideFooter = (pathname: string): boolean => {
@@ -78,9 +90,14 @@ const AppContent: React.FC = () => {
   // regardless of route.
   useConnectionLiveness();
 
+  // Scroll to the top when the ROUTE changes, not on every location change.
+  // Several pages keep UI state in the query string (the resource grid's
+  // search, tags and partner filter; the BioEngine app selection), and
+  // depending on `location` meant every one of those updates was treated as a
+  // fresh page and yanked the user back to the top mid-selection.
   useEffect(() => {
     window.scrollTo(0, 0);
-  }, [location]);
+  }, [location.pathname]);
 
   return (
     <div className="min-h-screen flex flex-col">
@@ -122,7 +139,14 @@ const AppContent: React.FC = () => {
           <Route path="/api" element={<ApiDocs />} />
           <Route path="/toc" element={<TermsOfService />} />
           <Route path="/bioengine" element={<BioEngineHome />} />
-          <Route path="/bioengine/worker" element={<BioEngineWorker />} />
+          <Route path="/bioengine/worker-setup" element={<BioEngineWorkerSetup />} />
+          <Route path="/bioengine/worker-admin" element={<BioEngineWorkerAdmin />} />
+          <Route path="/bioengine/apps" element={<BioEngineAppsPage />} />
+          <Route path="/bioengine/token" element={<BioEngineTokenPage />} />
+          {/* The worker dashboard moved under the admin route. Redirect rather
+              than drop it: dashboard URLs carry `?service_id=` and get shared,
+              so the query string has to survive the move. */}
+          <Route path="/bioengine/worker" element={<BioEngineWorkerRedirect />} />
           <Route path="/colab/*" element={<ColabPage />} />
         </Routes>
       </main>

@@ -3,6 +3,9 @@ import { useNavigate } from 'react-router-dom';
 import { useHyphaStore } from '../../store/hyphaStore';
 import BioEngineGitHubLink from './BioEngineGitHubLink';
 import { useObservedWorkspaces, DEFAULT_PUBLIC_WORKSPACE } from './hooks/useObservedWorkspaces';
+import { requestLogin } from '../../utils/loginRequest';
+import CountryFlag from './CountryFlag';
+import ObservedWorkspacesPanel from './ObservedWorkspacesPanel';
 
 type GeoLocation = {
   region?: string;
@@ -37,13 +40,22 @@ const parseMultipleServicesFromError = (errStr: string): string[] => {
   return ids;
 };
 
-const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
+// Exported so the admin page can seed its default selection by NAME. The
+// service id embeds a ReplicaSet hash that changes on every pod roll, so
+// matching on the id would go stale the first time the worker restarts.
+export const FEATURED_SERVICE_NAME = 'BioImage.IO BioEngine Worker';
 
 const ServiceCard: React.FC<{
   service: BioEngineService;
   onNavigate: (serviceId: string) => void;
   featured?: boolean;
-}> = ({ service, onNavigate, featured }) => {
+  /** Present only on the admin page, where cards can be picked for the agent
+   *  prompt. Left undefined elsewhere so the card keeps its single-button
+   *  layout rather than growing an inert control. */
+  selectable?: boolean;
+  selected?: boolean;
+  onToggleSelect?: (serviceId: string) => void;
+}> = ({ service, onNavigate, featured, selectable, selected, onToggleSelect }) => {
   const [copied, setCopied] = useState(false);
 
   const copyServiceId = async () => {
@@ -56,11 +68,18 @@ const ServiceCard: React.FC<{
     }
   };
 
+  // What the blue outline means depends on the screen. Where cards can be
+  // picked for the agent prompt it marks "included in the prompt", which is the
+  // state the user is actively managing; elsewhere it keeps marking the
+  // featured worker. The "Powers this website" badge is independent of both and
+  // always follows `featured`.
+  const highlighted = selectable ? !!selected : !!featured;
+
   return (
     <div className={`w-full max-w-[380px] backdrop-blur-sm rounded-2xl flex flex-col h-full transition-all duration-200 ${
-      featured
+      highlighted
         ? 'bg-gradient-to-br from-blue-50 to-purple-50 border-2 border-blue-300 shadow-md hover:shadow-lg hover:border-blue-400'
-        : 'bg-white/80 border border-white/20 shadow-sm hover:shadow-md hover:border-blue-200'
+        : 'bg-white border border-gray-300 shadow-sm hover:shadow-md hover:border-blue-300'
     }`}>
       <div className="p-6 flex-grow">
         <div className="flex items-center mb-4">
@@ -92,6 +111,7 @@ const ServiceCard: React.FC<{
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" />
               </svg>
               <span>{where}</span>
+              <CountryFlag countryCode={geo.country_code} countryName={geo.country_name} />
             </div>
           );
         })()}
@@ -130,7 +150,30 @@ const ServiceCard: React.FC<{
         </div>
       </div>
 
-      <div className="p-6 pt-0">
+      <div className="p-6 pt-0 space-y-2">
+        {selectable && (
+          <button
+            type="button"
+            aria-pressed={!!selected}
+            onClick={() => onToggleSelect?.(service.id)}
+            className={`w-full px-6 py-3 rounded-xl font-medium shadow-sm transition-all duration-200 flex items-center justify-center gap-2 ${
+              selected
+                ? 'bg-blue-600 text-white hover:bg-blue-700'
+                : 'bg-white text-gray-700 border border-gray-300 hover:border-blue-400 hover:text-blue-700'
+            }`}
+          >
+            {selected ? (
+              <>
+                <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+                </svg>
+                Selected for prompt
+              </>
+            ) : (
+              'Add to agent prompt'
+            )}
+          </button>
+        )}
         <button
           onClick={() => onNavigate(service.id)}
           className="w-full px-6 py-3 bg-gradient-to-r from-blue-600 to-blue-700 text-white rounded-xl hover:from-blue-700 hover:to-blue-800 shadow-sm hover:shadow-md transition-all duration-200 font-medium"
@@ -142,11 +185,27 @@ const ServiceCard: React.FC<{
   );
 };
 
-const BioEngineWorkerList: React.FC = () => {
+/**
+ * Worker discovery across the observed workspaces.
+ *
+ * Used bare on the admin page and, in `selectable` mode, as the picker that
+ * feeds the AI-agent prompt. Selection state is deliberately owned by the
+ * caller: the prompt needs it too, and keeping one copy avoids the two drifting
+ * apart. Discovery, enrichment and refresh stay here so there is a single
+ * implementation of the awkward parts (the "Multiple services found" fan-out in
+ * particular).
+ */
+const BioEngineWorkerList: React.FC<{
+  selectable?: boolean;
+  selectedIds?: string[];
+  onToggleSelect?: (serviceId: string) => void;
+  /** Fires whenever the discovered set changes, so a caller can seed a default
+   *  selection once workers actually appear. */
+  onServicesChange?: (services: BioEngineService[]) => void;
+}> = ({ selectable, selectedIds, onToggleSelect, onServicesChange }) => {
   const navigate = useNavigate();
   const { server, isLoggedIn } = useHyphaStore();
 
-  const [workspaceInput, setWorkspaceInput] = useState('');
   const [workspaceServices, setWorkspaceServices] = useState<Record<string, BioEngineService[]>>({});
   const [workspaceStatus, setWorkspaceStatus] = useState<Record<string, WorkspaceStatus>>({});
   const [manualRefreshLoading, setManualRefreshLoading] = useState(false);
@@ -163,11 +222,6 @@ const BioEngineWorkerList: React.FC = () => {
   }, [isLoggedIn, userWorkspace]);
 
   const { observedWorkspaces, addWorkspace, removeWorkspace } = useObservedWorkspaces(defaultWorkspaces);
-
-  const handleAddWorkspace = () => {
-    addWorkspace(workspaceInput);
-    setWorkspaceInput('');
-  };
 
   const handleRemoveWorkspace = (ws: string) => {
     removeWorkspace(ws);
@@ -279,117 +333,55 @@ const BioEngineWorkerList: React.FC = () => {
   }, [server, observedWorkspaces, fetchWorkspaceServices]);
 
   const navigateToDashboard = (serviceId: string) => {
-    navigate(`/bioengine/worker?service_id=${serviceId}`);
+    navigate(`/bioengine/worker-admin?service_id=${serviceId}`);
   };
 
-  const allServices = useMemo(() => {
-    return observedWorkspaces.flatMap(ws => {
+  // Per workspace, featured worker first within bioimage-io. The grouped view
+  // renders from this; allServices stays as the flat list the selection logic
+  // and the upward report already use, so both read from one ordering.
+  const servicesByWorkspace = useMemo(() => {
+    const out: Record<string, BioEngineService[]> = {};
+    observedWorkspaces.forEach(ws => {
       const services = workspaceServices[ws] || [];
-      if (ws === DEFAULT_PUBLIC_WORKSPACE) {
-        // Put the featured worker first within bioimage-io
-        const featured = services.filter(s => s.name === FEATURED_SERVICE_NAME);
-        const rest = services.filter(s => s.name !== FEATURED_SERVICE_NAME);
-        return [...featured, ...rest];
-      }
-      return services;
+      out[ws] = ws === DEFAULT_PUBLIC_WORKSPACE
+        ? [...services.filter(s => s.name === FEATURED_SERVICE_NAME),
+           ...services.filter(s => s.name !== FEATURED_SERVICE_NAME)]
+        : services;
     });
+    return out;
   }, [observedWorkspaces, workspaceServices]);
 
+  const allServices = useMemo(
+    () => observedWorkspaces.flatMap(ws => servicesByWorkspace[ws] ?? []),
+    [observedWorkspaces, servicesByWorkspace],
+  );
+
   const isAnyLoading = observedWorkspaces.some(ws => workspaceStatus[ws] === 'loading');
+
+  // Report the discovered set upward. Keyed on the id list rather than the
+  // array identity: the 10 s refresh rebuilds the objects every tick, so
+  // depending on `allServices` itself would fire this on every poll.
+  const serviceIdKey = allServices.map(s => s.id).join('|');
+  useEffect(() => {
+    onServicesChange?.(allServices);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [serviceIdKey]);
 
   return (
     <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6 hover:shadow-md transition-all duration-200">
 
-      {/* Workspace management */}
-      <div className="mb-6">
-        <div className="flex items-center justify-between mb-3">
-          <h3 className="text-base font-semibold text-gray-800">Observed Workspaces</h3>
-          <button
-            onClick={() => fetchAllWorkspaces(true)}
-            disabled={manualRefreshLoading || !server}
-            className="w-28 h-10 bg-gradient-to-r from-green-600 to-green-700 text-white rounded-lg hover:from-green-700 hover:to-green-800 disabled:from-gray-400 disabled:to-gray-500 disabled:cursor-not-allowed flex items-center justify-center shadow-sm hover:shadow-md active:scale-[0.98] transition-all duration-200"
-            title="Refresh services list"
-          >
-            {manualRefreshLoading ? (
-              <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin"></div>
-            ) : (
-              <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" />
-              </svg>
-            )}
-            <span className="ml-2 text-sm">Refresh</span>
-          </button>
-        </div>
-
-        {/* Add workspace input */}
-        <form
-          onSubmit={(e) => { e.preventDefault(); handleAddWorkspace(); }}
-          className="flex gap-2 mb-3"
-        >
-          <input
-            type="text"
-            value={workspaceInput}
-            onChange={(e) => setWorkspaceInput(e.target.value)}
-            placeholder="Add workspace name..."
-            className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-          />
-          <button
-            type="submit"
-            disabled={!workspaceInput.trim() || observedWorkspaces.includes(workspaceInput.trim())}
-            className="w-28 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium active:scale-[0.98] transition-all duration-200"
-          >
-            Add
-          </button>
-        </form>
-
-        {/* Workspace chips */}
-        <div className="flex flex-wrap gap-2">
-          {observedWorkspaces.map(ws => {
-            const isDefault = defaultWorkspaces.includes(ws);
-            const isUserWs = isLoggedIn && ws === userWorkspace;
-            const isPublicDefault = ws === DEFAULT_PUBLIC_WORKSPACE;
-            const status = workspaceStatus[ws];
-            const count = workspaceServices[ws]?.length ?? null;
-
-            return (
-              <div
-                key={ws}
-                className="group relative flex items-center gap-1.5 px-3 py-1.5 bg-gray-100 rounded-full text-sm text-gray-700 hover:bg-gray-200 transition-colors"
-              >
-                {status === 'loading' && (
-                  <div className="w-2.5 h-2.5 border border-gray-400 border-t-transparent rounded-full animate-spin flex-shrink-0" />
-                )}
-                {status === 'loaded' && (
-                  <div className={`w-2.5 h-2.5 rounded-full flex-shrink-0 ${count && count > 0 ? 'bg-green-500' : 'bg-gray-400'}`} />
-                )}
-                {status === 'error' && (
-                  <div className="w-2.5 h-2.5 rounded-full bg-red-400 flex-shrink-0" />
-                )}
-                {!status && (
-                  <div className="w-2.5 h-2.5 rounded-full bg-gray-300 flex-shrink-0" />
-                )}
-                <span className="font-mono">{ws}</span>
-                {isPublicDefault && <span className="text-xs text-gray-400">(public)</span>}
-                {isUserWs && !isPublicDefault && <span className="text-xs text-blue-500">(you)</span>}
-                {count !== null && status === 'loaded' && (
-                  <span className="text-xs text-gray-400">{count} worker{count !== 1 ? 's' : ''}</span>
-                )}
-                {!isDefault && (
-                  <button
-                    onClick={() => handleRemoveWorkspace(ws)}
-                    className="ml-0.5 opacity-0 group-hover:opacity-100 text-gray-400 hover:text-red-500 transition-all flex-shrink-0"
-                    title="Remove workspace"
-                  >
-                    <svg className="w-3.5 h-3.5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-                    </svg>
-                  </button>
-                )}
-              </div>
-            );
-          })}
-        </div>
-      </div>
+      <ObservedWorkspacesPanel
+        className="mb-6"
+        workspaces={observedWorkspaces}
+        pinned={defaultWorkspaces}
+        statusOf={ws => workspaceStatus[ws]}
+        countOf={ws => (workspaceStatus[ws] === 'loaded' ? (workspaceServices[ws]?.length ?? 0) : null)}
+        noun="worker"
+        onAdd={addWorkspace}
+        onRemove={handleRemoveWorkspace}
+        onRefresh={() => fetchAllWorkspaces(true)}
+        refreshing={isAnyLoading}
+      />
 
       {/* Services list */}
       <div className="border-t border-gray-200/50 pt-6">
@@ -401,8 +393,21 @@ const BioEngineWorkerList: React.FC = () => {
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                 </svg>
               </div>
-              <p className="text-gray-600 font-medium mb-1">Not connected</p>
-              <p className="text-gray-500 text-sm">Please log in to view BioEngine instances</p>
+              {/* Not an error: no session yet is the normal state for a first
+                  visit or an expired one. Say what logging in gets you, and put
+                  the action here rather than making the user hunt for the
+                  navbar button. */}
+              <p className="text-gray-700 font-medium mb-1">Log in to see BioEngine workers</p>
+              <p className="text-gray-500 text-sm mb-4">
+                Worker status is only available to users with access to a worker.
+              </p>
+              <button
+                type="button"
+                onClick={requestLogin}
+                className="px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-lg hover:bg-blue-700 transition-colors"
+              >
+                Log in
+              </button>
             </div>
           </div>
         ) : allServices.length === 0 && isAnyLoading ? (
@@ -427,15 +432,54 @@ const BioEngineWorkerList: React.FC = () => {
             <p className="text-gray-500 text-sm">No running workers found in any observed workspace</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 justify-items-center gap-8 lg:gap-10">
-            {allServices.map(service => (
-              <ServiceCard
-                key={service.id}
-                service={service}
-                onNavigate={navigateToDashboard}
-                featured={service.name === FEATURED_SERVICE_NAME}
-              />
-            ))}
+          /* Grouped per workspace, the same shape the apps page uses, so a
+             worker's owning workspace is visible without reading its service
+             id. Workspaces resolve independently, so each box reports its own
+             state rather than the page waiting on the slowest one. */
+          <div className="space-y-6">
+            {observedWorkspaces.map(ws => {
+              const status = workspaceStatus[ws];
+              const services = servicesByWorkspace[ws] ?? [];
+              return (
+                <div key={ws} className="border border-gray-200 rounded-xl p-4">
+                  <div className="flex items-center gap-2 mb-4">
+                    {/* No status dot here: the workspace pill above owns it. */}
+                    <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
+                    {ws === DEFAULT_PUBLIC_WORKSPACE && <span className="text-xs text-gray-400">(public)</span>}
+                    {isLoggedIn && ws === userWorkspace && ws !== DEFAULT_PUBLIC_WORKSPACE && (
+                      <span className="text-xs text-blue-500">(you)</span>
+                    )}
+                    {status === 'loaded' && (
+                      <span className="text-xs text-gray-500">
+                        {services.length} worker{services.length === 1 ? '' : 's'}
+                      </span>
+                    )}
+                  </div>
+
+                  {status === 'error' ? (
+                    <p className="text-xs text-red-600">Could not reach this workspace.</p>
+                  ) : services.length === 0 ? (
+                    <p className="text-xs text-gray-500">
+                      {status === 'loading' ? 'Looking for workers...' : 'No running workers found.'}
+                    </p>
+                  ) : (
+                    <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 justify-items-center gap-8 lg:gap-10">
+                      {services.map(service => (
+                        <ServiceCard
+                          key={service.id}
+                          service={service}
+                          onNavigate={navigateToDashboard}
+                          featured={service.name === FEATURED_SERVICE_NAME}
+                          selectable={selectable}
+                          selected={selectedIds?.includes(service.id)}
+                          onToggleSelect={onToggleSelect}
+                        />
+                      ))}
+                    </div>
+                  )}
+                </div>
+              );
+            })}
           </div>
         )}
       </div>

@@ -9,6 +9,8 @@ interface TestReportDialogProps {
   isLoading: boolean;
   rawErrorContent?: string | null;
   isInvalidJson?: boolean;
+  /** Published core version, set only when this staged report is behind it. See svamp #0017. */
+  staleAgainstCoreVersion?: string | null;
 }
 
 const TestReportDialog: React.FC<TestReportDialogProps> = ({
@@ -18,6 +20,7 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
   isLoading,
   rawErrorContent,
   isInvalidJson = false,
+  staleAgainstCoreVersion = null,
 }) => {
   return (
     <TestDetailsDialog
@@ -27,6 +30,7 @@ const TestReportDialog: React.FC<TestReportDialogProps> = ({
       isLoading={isLoading}
       rawErrorContent={rawErrorContent}
       isInvalidJson={isInvalidJson}
+      staleAgainstCoreVersion={staleAgainstCoreVersion}
       type="test-report"
     />
   );
