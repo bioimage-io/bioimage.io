@@ -27,13 +27,27 @@ export function exportGeoJSON(vectorSource: VectorSource, imageHeight?: number):
   return JSON.parse(geojsonFormat.writeFeatures(features));
 }
 
-/** Import features from a GeoJSON FeatureCollection */
+/**
+ * Import features from a GeoJSON FeatureCollection.
+ *
+ * `trimOverlaps` (default true) resolves each imported polygon against the
+ * ones already on the canvas, exactly as the drawing tool does. That is right
+ * for a user importing an outside file onto work in progress, and WRONG when
+ * reloading an annotation this app saved: trimming is not identity-preserving,
+ * so a round trip silently rewrites the user's masks. Measured on a 9-feature
+ * saved file, re-importing it produced 10 features on the canvas, because
+ * trimming split one mask whose edge touched another. Saving from that state
+ * would then store the drifted version. Pass `{ trimOverlaps: false }` to
+ * reproduce a stored annotation as-is.
+ */
 export function importGeoJSON(
   vectorSource: VectorSource,
   geojsonData: any,
   imageHeight: number,
-  defaultLabel?: { id: string; color: string }
+  defaultLabel?: { id: string; color: string },
+  options?: { trimOverlaps?: boolean }
 ): void {
+  const trimOverlaps = options?.trimOverlaps !== false;
   if (!geojsonData || geojsonData.type !== 'FeatureCollection' || !Array.isArray(geojsonData.features)) {
     throw new Error('Invalid format: file must be a GeoJSON FeatureCollection');
   }
@@ -73,7 +87,7 @@ export function importGeoJSON(
     vectorSource.addFeature(feature);
 
     // Trim existing masks so this new one overlays them correctly
-    if (geom && geom.getType() === 'Polygon') {
+    if (trimOverlaps && geom && geom.getType() === 'Polygon') {
       trimExistingMasks(geom as OlPolygon, vectorSource, feature);
     }
   }
