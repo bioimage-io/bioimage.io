@@ -67,6 +67,31 @@ bioengine call bioimage-io/my-app run --args '{"mode": "fast"}' --arg debug=true
 
 ## `bioengine apps` — deploy and manage applications
 
+### `bioengine apps validate`
+
+```
+Usage: bioengine apps validate [OPTIONS] APP_DIR
+
+Validate a local BioEngine app directory's manifest.yaml.
+
+Runs the v0.6.0 manifest validator locally — checks for required fields,
+rejects legacy `deployments:` lists with a migration hint, and verifies
+that `entry:` matches `package.module:ClassName`.
+
+Arguments:
+  APP_DIR   Directory with manifest.yaml and deployment .py file(s)
+
+Options:
+  (none — no --worker, no --token; this command opens no connection)
+```
+
+```bash
+bioengine apps validate ./my-app/
+# OK: /path/to/my-app/manifest.yaml is a valid v0.6.0 BioEngine app manifest.
+```
+
+> **A green `validate` is not clearance to upload, because it never looked at the workspace.** It takes no `--worker` and no `--token` and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading — and `id` is one of the required fields it *does* check, which is what makes the `OK:` read as covering it. If that id already exists there, `upload` does not reject it for existing; it refuses the bundle unless your `version` is strictly higher (PEP 440) than every version that id already carries, so the error you get talks about versions. Bump `version` above the existing lineage if continuing it is yours to do, or change `id` if it is not. `bioengine apps list` shows which ids the workspace already has — run it before you pick a name, not after the refusal.
+
 ### `bioengine apps deploy`
 
 ```
@@ -162,7 +187,7 @@ Arguments:
   APP_ID...   One or more app IDs (default: all running apps)
 
 Options:
-  --logs N   Log lines per replica [default: 30]
+  --logs N   Log lines per replica [default: 10]
   --json
 ```
 
@@ -173,7 +198,11 @@ Usage: bioengine apps logs [OPTIONS] APP_ID
 Options: -n/--tail N [default: 100], --json
 ```
 
-**Caveat:** this has been observed printing empty per-deployment sections while the replica had thousands of characters of logs. Prefer `bioengine apps status APP_ID --logs N --json`, where `deployments[<name>]["logs"]` is a dict keyed by replica id whose values are **lists of lines** (not a string — slicing it directly raises `TypeError: unhashable type: 'slice'`).
+**Use this, not `apps status`, after a crash.** Only `apps logs` requests a dead replica's logs (`n_previous_replica=1`); `apps status` fetches live replicas only, because every dead replica adds a GCS lookup to a command meant for polling. Measured on a live worker: per deployment `apps logs` returned 2 replicas, `apps status --logs N --json` returned 1.
+
+Clients **before 0.16.45** printed empty per-deployment sections here while the replica had thousands of characters of logs — they read `logs` off the replica projection, which never carries that key. Upgrade; `apps status --logs N --json` was the workaround and it is the wrong command for a crash.
+
+`--json` on either command returns the same shape — the full status dict keyed by app id — in which `deployments[<name>]["logs"]` is a dict keyed by replica id whose values are **dicts** — `creation_timestamp`, `timezone`, `stdout`, `stderr`, plus `death_cause` on a dead replica — with `stdout`/`stderr` the lists of lines. Slicing the outer dict as text raises `TypeError: unhashable type: 'slice'`; iterating a replica value yields its key names, which is the silent failure. See the logs section in `SKILL.md` for the loop.
 
 ### `bioengine apps stop`
 
@@ -241,6 +270,7 @@ Beware that a vGPU slice reports its *host card* as the label: a 16 GB A40 slice
 | `BIOENGINE_WORKER_SERVICE_ID` | Worker service ID (required for `apps` and `cluster` commands) |
 | `HYPHA_TOKEN` or `BIOENGINE_TOKEN` | Auth token |
 | `BIOENGINE_SERVER_URL` | Hypha server URL (default: `https://hypha.aicell.io`) |
+| `BIOENGINE_CLI_TRACEBACK` | Set to `1` to keep the full remote traceback on errors. By default the CLI prints only the exception a remote failure ended on, because a server-side traceback arrives doubled and buries the actionable line |
 
 ---
 
@@ -285,6 +315,9 @@ bioengine worker start -- --help                            # the worker process
 | `--workspace-dir DIRECTORY` | `~/.bioengine` | Host directory mounted as the worker workspace. |
 | `--name TEXT` | `bioengine-worker` | Container name — this is the handle `bioengine worker stop` and `logs` use. Override it if a worker is already running on this host that you must not disturb. |
 | `--shm-size TEXT` | `8g` | Shared memory size. |
+| `--memory LIMIT` | `auto` | Container memory limit, passed to the runtime as `--memory`. `auto` is 90% of this host's total memory; give a size (e.g. `32g`) to set it yourself, or `none` for no limit. It matters because Ray sizes its own memory monitor from the cgroup limit when there is one and from the host's total when there is not — so an uncapped worker only starts shedding its own tasks once the whole machine is nearly gone, by which point the kernel's OOM killer has usually already acted. **docker/podman only**: with `apptainer`, `singularity` or `native` an *explicit* limit is refused rather than silently dropped, while the `auto` default stays silent so those runtimes still start. |
+| `--census / --no-census` | `--census` | Join the host resource census: every worker on the host advertises what it was *promised* into a shared directory, so each can warn you at startup when this host has been handed out more memory than it has, or the same GPU twice. Advisory only — it adds startup warnings and a worker-status field and changes nothing about scheduling. It exists because a worker cannot read a sibling's cgroup or argv from inside its own container, so there is no other way for co-tenants to compare notes. Ignored for `--runtime native`, which reads the host directly and has nothing to bind. |
+| `--census-dir DIRECTORY` | `~/.bioengine-hosts` | Where that census is kept on the host. Shared by every worker on the machine, so workers only see each other if they agree on this path — the default is a sibling of `--workspace-dir`'s default precisely so that two workers with different workspaces still land in the same census. Mounted into the container at `/.bioengine-hosts`, and the container name reaches the worker alongside it so a co-tenancy warning names something you recognise instead of a container id. Created if absent. |
 | `--gpus / --no-gpus` | on when `nvidia-smi` is present | Request GPUs. |
 | `-d, --detach` |  | Run the container in the background. |
 | `--token TOKEN` | `$HYPHA_TOKEN` / `$BIOENGINE_TOKEN` | Hypha auth token. **Passed via the environment, not the command line**, so it does not land in the container's `/proc/<pid>/cmdline`. |
