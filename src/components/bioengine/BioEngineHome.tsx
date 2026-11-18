@@ -75,10 +75,10 @@ const STEPS: Step[] = [
 
 const FACTS = [
   {
-    dot: 'bg-purple-500',
-    title: 'Hypha is the hub',
+    dot: 'bg-orange-500',
+    title: 'One connection point',
     body:
-      'Browsers, desktop tools and AI agents all connect to the same public Hypha server, hosted at KTH in Stockholm, Sweden. Nothing has to reach a worker directly.',
+      'Browsers, desktop tools and AI agents all connect to the same BioEngine communication hub, which is built on Hypha. Nothing has to reach a worker directly.',
   },
   {
     dot: 'bg-blue-500',
@@ -202,8 +202,8 @@ const BioEngineHome: React.FC = () => {
         <div className="text-center mb-8">
           <h2 className="text-2xl font-semibold text-gray-800">How BioEngine works</h2>
           <p className="mt-2 max-w-2xl mx-auto text-sm text-gray-600 leading-relaxed">
-            One public hub, many workers. Clients do not talk to a worker directly. They call Hypha,
-            and Hypha routes the work to whichever machine is running the application.
+            Clients and agents talk to BioEngine, never to a worker directly. Its communication hub
+            routes every call to whichever worker is running the application.
           </p>
         </div>
 

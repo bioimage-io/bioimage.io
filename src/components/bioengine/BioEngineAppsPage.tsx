@@ -10,6 +10,7 @@ import {
   DeployedApp,
 } from './workerDiscovery';
 import { useWorkspaceToken } from './hooks/useWorkspaceToken';
+import ObservedWorkspacesPanel from './ObservedWorkspacesPanel';
 
 /**
  * `/bioengine/apps` — calling applications that are already deployed.
@@ -203,13 +204,24 @@ const BioEngineAppsPage: React.FC = () => {
   // Fan out over workspaces rather than awaiting them in sequence: each box
   // fills in on its own as soon as that workspace resolves. The order above
   // only decides who is asked first, not who is waited for.
-  useEffect(() => {
+  // Bumping the run id invalidates any in-flight response, so a refresh during
+  // a slow load cannot have the stale answer overwrite the fresh one.
+  const reloadAll = useCallback(() => {
     const runId = ++runIdRef.current;
     loadOrder.forEach(ws => { void loadWorkspace(ws, runId); });
-  }, [server, loadOrder, loadWorkspace]);
+  }, [loadOrder, loadWorkspace]);
+
+  useEffect(() => { reloadAll(); }, [server, reloadAll]);
 
   const allApps = useMemo(
     () => observedWorkspaces.flatMap(ws => byWorkspace[ws]?.apps ?? []),
+    [observedWorkspaces, byWorkspace],
+  );
+
+  // Any workspace still in flight. Drives the refresh button's spinner and
+  // disabled state, so a second click cannot stack another fan-out on top.
+  const anyLoading = useMemo(
+    () => observedWorkspaces.some(ws => byWorkspace[ws]?.status === 'loading'),
     [observedWorkspaces, byWorkspace],
   );
 
@@ -373,7 +385,6 @@ const BioEngineAppsPage: React.FC = () => {
     [selectedIds, includeToken, token],
   );
 
-  const [wsInput, setWsInput] = useState('');
 
   return (
     <div className="max-w-[1400px] mx-auto px-4 py-8">
@@ -434,26 +445,19 @@ const BioEngineAppsPage: React.FC = () => {
         {/* Workspace management, mirroring the worker list so the two screens
             share one set of observed workspaces. */}
         <div className="bg-white/80 backdrop-blur-sm rounded-2xl shadow-sm border border-white/20 p-6">
-          <h3 className="text-base font-semibold text-gray-800 mb-3">Observed Workspaces</h3>
-          <form
-            onSubmit={e => { e.preventDefault(); addWorkspace(wsInput); setWsInput(''); }}
-            className="flex gap-2 mb-3"
-          >
-            <input
-              type="text"
-              value={wsInput}
-              onChange={e => setWsInput(e.target.value)}
-              placeholder="Add workspace name..."
-              className="flex-1 px-3 py-2 border border-gray-200 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500 text-sm"
-            />
-            <button
-              type="submit"
-              disabled={!wsInput.trim() || observedWorkspaces.includes(wsInput.trim())}
-              className="w-28 h-10 flex items-center justify-center bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-40 disabled:cursor-not-allowed text-sm font-medium"
-            >
-              Add
-            </button>
-          </form>
+          <ObservedWorkspacesPanel
+            workspaces={observedWorkspaces}
+            pinned={defaultWorkspaces}
+            statusOf={ws => byWorkspace[ws]?.status}
+            countOf={ws => (byWorkspace[ws]?.status === 'loaded'
+              ? shortIdsFor(byWorkspace[ws]?.apps ?? []).length
+              : null)}
+            noun="app"
+            onAdd={addWorkspace}
+            onRemove={removeWorkspace}
+            onRefresh={reloadAll}
+            refreshing={anyLoading}
+          />
 
           <div className="space-y-4">
             {observedWorkspaces.map(ws => {
@@ -466,10 +470,8 @@ const BioEngineAppsPage: React.FC = () => {
                 <div key={ws} className="border border-gray-200 rounded-xl p-4">
                   <div className="flex items-center justify-between mb-3">
                     <div className="flex items-center gap-2">
+                      {/* No status dot here: the workspace pill above owns it. */}
                       <h4 className="text-sm font-semibold text-gray-800 font-mono">{ws}</h4>
-                      {state?.status === 'loading' && (
-                        <div className="w-3 h-3 border border-gray-400 border-t-transparent rounded-full animate-spin" />
-                      )}
                       {state?.status === 'loaded' && (
                         <span className="text-xs text-gray-500">
                           {shortIds.length} app{shortIds.length === 1 ? '' : 's'}
