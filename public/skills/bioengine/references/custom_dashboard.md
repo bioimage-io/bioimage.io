@@ -27,12 +27,14 @@ A custom dashboard mirrors the two public pages of the canonical BioEngine UI:
 
 | Include | Equivalent canonical page |
 |---|---|
-| **Worker discovery** — list available BioEngine workers in the workspace | `https://bioimage.io/#/bioengine` (BioEngineHome) |
-| **Worker dashboard** — per-worker view of cluster resources, deployed apps, app frontends | `https://bioimage.io/#/bioengine/worker?service_id=...` (BioEngineWorker) |
+| **Worker discovery** — list available BioEngine workers in the workspace | `https://bioimage.io/#/bioengine/worker-admin` (BioEngineWorkerAdmin) |
+| **Worker dashboard** — per-worker view of cluster resources, deployed apps, app frontends | `https://bioimage.io/#/bioengine/worker-admin?service_id=...` (BioEngineWorker) |
+
+`https://bioimage.io/#/bioengine` is the landing page that chooses between setting up a worker, administering one, and using deployed apps. The old `/#/bioengine/worker` route still redirects to `worker-admin`, keeping `?service_id=` intact, but link to the new path directly.
 
 Do **not** include:
 
-- **The BioEngine setup wizard** (`https://bioimage.io/#/bioengine/...` with the Docker/SLURM/Kubernetes installer flow). Facility admins use the canonical setup tool or the steps in `worker_onboarding.md` — a per-facility dashboard is not the right place to onboard new workers.
+- **The BioEngine setup wizard** (`https://bioimage.io/#/bioengine/worker-setup`, the Docker/SLURM/Kubernetes installer flow). Facility admins use the canonical setup tool or the steps in `worker_onboarding.md` — a per-facility dashboard is not the right place to onboard new workers.
 - Anything that asks an end user to install a worker. The dashboard's audience is users of an already-running worker.
 
 ---

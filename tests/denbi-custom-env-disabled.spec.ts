@@ -5,6 +5,13 @@ import { test, expect } from '@playwright/test';
 // disabled (its conda env builds fail on deNBI's unfixable clock skew), while
 // on the default KTH site it stays enabled.
 //
+// deNBI stopped hosting a model-runner on 2026-09-25, which leaves its radio
+// permanently disabled. The KTH half still asserts unconditionally; the deNBI
+// half SKIPS rather than fails when no deNBI runner is registered, so this
+// spec reports "nothing to check here" instead of a red that says nothing
+// about the guard — and picks its coverage back up by itself if deNBI ever
+// serves a model-runner again.
+//
 // Requires: HYPHA_TOKEN env var; dev server (pnpm start).
 
 const MODEL_ID = 'bioimage-io/affable-shark';
@@ -12,7 +19,7 @@ const MODEL_URL_ID = encodeURIComponent(MODEL_ID);
 const injectToken = (token: string) => ({ tok: token, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
 
 test.describe('deNBI disables custom environment', () => {
-  test('custom-env checkbox is disabled on deNBI, enabled on KTH', async ({ page }) => {
+  test('custom-env checkbox is disabled on deNBI, enabled on KTH', async ({ page }, testInfo) => {
     const token = process.env.HYPHA_TOKEN;
     if (!token) {
       test.skip();
@@ -46,7 +53,21 @@ test.describe('deNBI disables custom environment', () => {
     // --- Switch to deNBI via Advanced Options ---
     await page.getByRole('button', { name: 'Advanced Options' }).click();
     const denbi = page.getByRole('radio', { name: 'deNBI' });
-    await expect(denbi).toBeEnabled({ timeout: 30000 });
+    await expect(denbi).toBeVisible({ timeout: 30000 });
+
+    // An unavailable site stays visible but disabled (RunnerSiteToggle renders
+    // it that way on purpose, so the user can see the choice exists). That is
+    // exactly the state when deNBI has no model-runner, and there is then no
+    // deNBI dialog to inspect.
+    if (await denbi.isDisabled()) {
+      testInfo.annotations.push({
+        type: 'skip-reason',
+        description: 'deNBI has no model-runner registered, so its site option is disabled and the custom-env guard cannot be exercised.',
+      });
+      test.skip();
+      return;
+    }
+
     await denbi.click();
     await expect(denbi).toHaveAttribute('aria-checked', 'true');
     // Close the popover so it does not overlap the dialog trigger.

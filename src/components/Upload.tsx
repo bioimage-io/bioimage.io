@@ -19,6 +19,7 @@ import { updateManifestSha256 } from '../utils/sha-handling';
 import { BIOIMAGEIO_YAML, RDF_YAML, isRdfFileName, endsWithRdfFileName, findRdfFile } from '../utils/rdfFile';
 import { isInternalArtifactFile } from '../utils/internalFiles';
 import { buildReviewerPermissions, buildContributorPermissions } from '../utils/roles';
+import { logFailure } from '../utils/failureLog';
 
 // Helper function to extract weight file paths from manifest
 const extractWeightFiles = (manifest: any): string[] => {
@@ -466,7 +467,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
         });
       }
     } catch (error) {
-      console.error('Error processing files:', error);
+      logFailure(error, { operation: 'upload', step: 'process-files' });
       setUploadStatus({
         message: 'Error processing files',
         severity: 'error'
@@ -746,7 +747,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       });
       return; // Stop here and wait for user agreement
     } catch (error) {
-      console.error('Upload failed:', error);
+      logFailure(error, { operation: 'upload', step: 'submit' });
       setUploadStatus({
         message: error instanceof Error ? error.message : 'Unknown error occurred',
         severity: 'error'
@@ -1274,7 +1275,7 @@ const Upload: React.FC<UploadProps> = ({ artifactId }) => {
       navigate(`/edit/${encodeURIComponent(artifact.id)}/stage`);
 
     } catch (error) {
-      console.error('Upload failed:', error);
+      logFailure(error, { operation: 'upload', step: 'submit' });
       // If the artifact was already created before the error, navigate to the Edit
       // page so the user can inspect what was uploaded and retry from there instead
       // of being stranded on the Upload page with no path forward.

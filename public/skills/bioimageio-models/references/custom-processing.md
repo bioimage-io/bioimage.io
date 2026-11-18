@@ -89,23 +89,40 @@ extra security review that a custom `.py` requires.
 
 ## Security Model
 
-Custom processing source files are security-reviewed before a model is accepted into the public Zoo:
+*Verified against `bioimageio.core` 0.11.0 / `bioimageio.spec` 0.5.12.0.*
 
-1. **SHA256 verification** — the `.py` file hash is checked on every load; tampered files are rejected.
-2. **Explicit opt-in** — `bioimageio.core` requires `allow_custom_postprocessing=True` to execute custom ops; the default is `False`.
-3. **Curator gate** — models with custom processing receive additional scrutiny before publication.
-4. **Import sandbox** — only pre-installed packages may be imported (no `subprocess`, `os.system`, network calls, etc.).
+**Be clear about what is and is not enforced by code.** A custom `.py` is imported and executed by
+whoever runs the model. There is exactly one technical control, and it is an integrity check, not a
+sandbox:
 
-### Running locally with allow_custom_postprocessing
+1. **SHA256 verification (enforced in code).** The declared `sha256` is checked before the module is
+   imported — `import_callable` in `bioimageio/core/digest_spec.py` passes it to
+   `_import_from_file_impl`. A tampered or substituted file is rejected. This guarantees you execute
+   *the reviewed bytes*; it does not constrain what those bytes do.
+2. **Curator gate (process, not code).** Models with custom processing get extra scrutiny before
+   publication. Since the hash check is the only mechanical control, **this review is the control**
+   that actually decides whether the code is safe to run.
+
+Two things this document previously claimed, which are **not** true and should not be relied on:
+
+- There is **no execution opt-in**. `allow_custom_postprocessing` does not exist anywhere in current
+  `bioimageio.core` or `bioimageio.spec`; neither `test_model` nor `create_prediction_pipeline`
+  accepts it, and there is no `--allow-custom-postprocessing` CLI flag. Custom ops run
+  unconditionally (`proc_ops.py` dispatches `CustomProcessingDescr` straight to
+  `CustomProcessing.from_proc_descr`). Code written against the old flag raises `TypeError`.
+- There is **no import sandbox**. Nothing prevents a custom callable from importing `subprocess`,
+  touching the filesystem, or opening a network connection. The "allowed imports" list above is a
+  *portability* constraint (what will actually be present on the runtime), not a security boundary.
+
+### Running locally
+
+No flag is needed:
 
 ```python
 from bioimageio.core import load_model_description, create_prediction_pipeline
 
 model = load_model_description("model_package/rdf.yaml")
-pipeline = create_prediction_pipeline(
-    model,
-    allow_custom_postprocessing=True,   # required — explicit opt-in
-)
+pipeline = create_prediction_pipeline(model)
 ```
 
 ---
@@ -374,9 +391,9 @@ python public/skills/bioimageio-models/scripts/compute_sha256.py model_package/
 [ ] Source file is self-contained (no local imports, no forbidden packages)
 [ ] SHA256 hash computed for source file and added to rdf.yaml
 [ ] Callable does not change tensor shape
-[ ] Tested locally with allow_custom_postprocessing=True
+[ ] Tested locally (custom ops execute with no opt-in flag)
 [ ] Noted in README that model uses custom postprocessing
 [ ] Verified with bioimageio test:
       pip install "bioimageio.spec>=0.5.10" "bioimageio.core>=0.10"
-      bioimageio test model_package/rdf.yaml --allow-custom-postprocessing
+      bioimageio test model_package/rdf.yaml
 ```

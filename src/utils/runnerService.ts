@@ -3,13 +3,9 @@
 // and `get_infer_status(request_id)` is polled until its `result` field is
 // populated (or holds `{error}` on failure).
 //
-// Both runners the website talks to expose that contract identically:
-//   * `bioimage-io/model-runner`     — every zoo model except Cellpose-3,
-//                                      including the Cellpose-SAM / micro-SAM
-//                                      foundation models.
-//   * `bioimage-io/cellpose3-runner` — the Cellpose-3 models, whose
-//                                      architecture needs a Cellpose 3.x
-//                                      runtime.
+// One runner serves every zoo model: `bioimage-io/model-runner`. From 2.11.2 it
+// runs Cellpose-3 from a separate internal environment, so the Cellpose-SAM /
+// micro-SAM foundation models and the older Cellpose-3 ones share a service id.
 //
 // Like micro-sam (see utils/microSamService.ts) and unlike cellpose-finetuning
 // (whose retired UI pinned one replica), neither runner keeps per-session state on

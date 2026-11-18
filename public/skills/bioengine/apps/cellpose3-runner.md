@@ -1,5 +1,12 @@
 # BioEngine Cellpose-3 Runner
 
+
+> **SUPERSEDED.** From **model-runner 2.11.2** the main runner serves Cellpose-3 from its own
+> internal environment, so `bioimage-io/model-runner` is the only service id you need and this app
+> is not part of the normal path. This page is kept because workers are pinned and roll
+> independently: if you are targeting a worker below 2.11.2, the behaviour below still applies.
+> Check the worker's deployed version before relying on either.
+
 **Service ID**: `bioimage-io/cellpose3-runner` · **Server**: `https://hypha.aicell.io`
 
 Inference-only service for the **Cellpose-3-and-earlier bioimage.io models** via [`bioimageio.core`](https://github.com/bioimage-io/core-bioimage-io-python). A small CPU companion to `model-runner`, whose runtime ships Cellpose 4 and therefore **cannot** load the Cellpose-3 architectures. Everything else — including Cellpose-4 / Cellpose-SAM, Cellpose-DINO and micro-SAM — runs natively on [model-runner](model-runner/model-runner.md).

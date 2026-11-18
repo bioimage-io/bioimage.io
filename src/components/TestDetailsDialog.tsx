@@ -16,11 +16,14 @@ import {
   Tooltip,
 } from '@mui/material';
 import CloseIcon from '@mui/icons-material/Close';
+import ContentCopyIcon from '@mui/icons-material/ContentCopy';
+import yaml from 'js-yaml';
 import ExpandMoreIcon from '@mui/icons-material/ExpandMore';
 import CheckCircleIcon from '@mui/icons-material/CheckCircle';
 import CancelIcon from '@mui/icons-material/Cancel';
 import WarningIcon from '@mui/icons-material/Warning';
 import ErrorIcon from '@mui/icons-material/Error';
+import RemoveCircleOutlineIcon from '@mui/icons-material/RemoveCircleOutline';
 import StepTimeline, { TimelineStep } from './StepTimeline';
 import { RunnerStages, RunnerState, resolveStage, isTerminalRunnerState } from '../types/runStatus';
 
@@ -67,6 +70,14 @@ interface TestDetailsDialogProps {
   partnerName?: string; // For compatibility reports
   partnerVersion?: string; // For compatibility reports
   /**
+   * svamp #0017/#0059. The core version of the model's PUBLISHED report, set
+   * ONLY when the report being shown is a staged one produced by an older core.
+   * The caller owns the comparison; absent means "make no claim", which is not
+   * the same as "current". A reviewer can already see which core produced a
+   * staged verdict, so what this adds is that the version is behind.
+   */
+  staleAgainstCoreVersion?: string | null;
+  /**
    * When false (default true), a finished test keeps showing the step timeline
    * with a "View Test Report" button instead of jumping straight to the report,
    * letting the user review the steps first. Clicking the button calls
@@ -85,6 +96,79 @@ interface TestDetailsDialogProps {
   canCancel?: boolean;
 }
 
+/**
+ * Renders `ValidationDetail.recommended_env` as a conda environment.yaml.
+ *
+ * The payload is a `CondaEnv` (spec-bioimage-io `conda_env.py:32`): `name`,
+ * `channels`, and `dependencies`, where a dependency is either a spec string
+ * or a `{pip: [...]}` block. That is exactly the content of an
+ * environment.yaml, so YAML is both the more readable rendering and one the
+ * user can paste straight into `conda env create -f`. It used to be shown as
+ * JSON, which conda cannot consume.
+ *
+ * lineWidth: -1 disables line folding. At the default width js-yaml wraps a
+ * long dependency into a `>-` block, e.g. a git+https pip URL split across two
+ * indented lines. That still parses back to the same string, so it is not a
+ * correctness problem, but it is unreadable and it stops the block from
+ * looking like an environment.yaml anyone would recognise.
+ *
+ * js-yaml throws on values it cannot represent (a cycle, a function). The
+ * payload is server-sent and typed `any`, so we fall back to JSON rather than
+ * let a malformed report take the whole dialog down.
+ */
+const RecommendedEnv: React.FC<{ env: any }> = ({ env }) => {
+  const [copied, setCopied] = React.useState(false);
+
+  const { text, isYaml } = React.useMemo(() => {
+    try {
+      return { text: yaml.dump(env, { lineWidth: -1, noRefs: true }), isYaml: true };
+    } catch {
+      return { text: JSON.stringify(env, null, 2), isYaml: false };
+    }
+  }, [env]);
+
+  const handleCopy = () => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <Box sx={{ mb: 2 }}>
+      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1 }}>
+        <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
+          Recommended Environment:
+        </Typography>
+        <Tooltip title={copied ? 'Copied' : 'Copy as environment.yaml'} placement="top">
+          <IconButton onClick={handleCopy} size="small" sx={{ padding: '2px' }}>
+            <ContentCopyIcon sx={{ fontSize: 16 }} />
+          </IconButton>
+        </Tooltip>
+        {copied && (
+          <Typography variant="caption" sx={{ color: 'success.main' }}>
+            Copied
+          </Typography>
+        )}
+      </Box>
+      <Paper
+        sx={{
+          p: 2,
+          backgroundColor: 'rgba(249, 250, 251, 0.8)',
+          border: '1px solid rgba(255, 255, 255, 0.5)',
+          borderRadius: '8px',
+        }}
+      >
+        <pre style={{ margin: 0, fontSize: '0.875rem', overflow: 'auto' }}>{text}</pre>
+      </Paper>
+      {!isYaml && (
+        <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+          This environment could not be shown as YAML, so it is shown as JSON.
+        </Typography>
+      )}
+    </Box>
+  );
+};
+
 const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   open,
   onClose,
@@ -97,6 +181,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   type,
   partnerName,
   partnerVersion,
+  staleAgainstCoreVersion = null,
   showReport = true,
   onViewReport,
   onCancel,
@@ -139,31 +224,75 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
   }, [open, isLoading, isInvalidJson, data, rawErrorContent, type]);
   
   // Helper function to parse saved_conda_list
-  const parseSavedCondaList = (condaListString?: string): string => {
-    if (!condaListString) return '';
-    
-    // Find the start of "# packages in environment at"
-    const startMarker = '# packages in environment at';
-    const startIndex = condaListString.indexOf(startMarker);
-    
-    if (startIndex === -1) return '';
-    
-    // Get everything from this marker onwards
-    const relevantPart = condaListString.substring(startIndex);
-    
-    // Split into lines and process each line
-    const lines = relevantPart.split('\n');
-    const processedLines = lines.map(line => {
-      // Remove leading hashtags and spaces
-      return line.replace(/^[#\s]+/, '');
-    }).filter(line => line.length > 0); // Remove empty lines
-    
-    return processedLines.join('\n');
+  /**
+   * Render the recorded package list, whatever tool produced it.
+   *
+   * `conda list` writes its stderr into the same stream, so a real list can be
+   * preceded by WARNING noise. Seeking the conda header skips that, which is
+   * why this used to REQUIRE the header and return empty without it.
+   *
+   * That was too strict. The field is not necessarily conda: a standard-env run
+   * records the serving venv as a pip freeze list, which has no such header, and
+   * the old rule rendered nothing at all for it. Worse, it pushed the producer
+   * toward synthesising a fake conda header purely to satisfy this function.
+   * The header is now a hint used when present, not a precondition.
+   *
+   * IF THIS EVER RENDERS SECTIONS: a model can have one environment per weight
+   * format, and model-runner joins them with a blank line.
+   *
+   * The section marker is NOT conda's "# packages in environment at". The runner
+   * swaps conda for mamba to get the libmamba solver, and mamba prints its own
+   * header. Measured on the live 2.10.5 report for stupendous-sheep: zero
+   * occurrences of the conda form, one of the mamba form.
+   *
+   *     List of packages in environment: "/home/.../envs/<hash>"
+   *     <blank>
+   *       Name            Version   Build     Channel
+   *       ...
+   *
+   * So split on `List of packages in environment:`, and note the path is quoted
+   * rather than colon-terminated. Never split on the blank line: mamba output
+   * contains blank lines of its own, the marker does not. Treating whatever
+   * precedes the first marker as its own unlabelled section also covers the pip
+   * case (standard-env runs record a pip freeze list with no header at all).
+   *
+   * DELIBERATELY NOT IMPLEMENTED, and do not implement it on spec. The shape
+   * does not occur. Measured across the collection (2026-09-26, 155 models whose
+   * rdf.yaml could be read): 34 models declare two or more weight formats, and
+   * of those, ZERO declare dependencies on more than one. Six declare them on
+   * exactly one format and 28 on none. The control matters: the zero is not
+   * because nothing has two formats, it is because nothing that has two formats
+   * uses them this way. Treat 34 and the zero as lower bounds, since a handful
+   * of rdf fetches failed and were excluded.
+   *
+   * The producer side is correspondingly defensive and unexercised: model-runner
+   * 2.10.5 does build one env per weight format and record all of them, but no
+   * published model reaches that branch, so it has never run in production.
+   *
+   * Consequence: a renderer written today could only be verified against a
+   * description of a shape nothing emits. If a genuine two-environment model
+   * ever appears, build it then, against that report.
+   */
+  const parseSavedCondaList = (packageListString?: string): string => {
+    if (!packageListString) return '';
+
+    const lines = packageListString.split('\n');
+    const headerIdx = lines.findIndex(line => line.includes('# packages in environment at'));
+    const body = headerIdx >= 0
+      ? lines.slice(headerIdx)
+      : lines.filter(line => !/^\s*(WARNING|ERROR)\b/.test(line));
+
+    return body
+      .map(line => line.replace(/^[#\s]+/, ''))
+      .filter(line => line.length > 0)
+      .join('\n');
   };
   
   const getStatusIcon = (status: string) => {
     return status === 'passed' ? (
       <CheckCircleIcon sx={{ color: '#22c55e', fontSize: 20 }} />
+    ) : status === 'skipped' ? (
+      <RemoveCircleOutlineIcon sx={{ color: '#6b7280', fontSize: 20 }} />
     ) : status === 'valid-format' ? (
       <CancelIcon sx={{ color: '#f97316', fontSize: 20 }} />
     ) : (
@@ -171,8 +300,13 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
     );
   };
 
+  // A skipped check is NOT a failure and must not be painted as one. The runner
+  // skips the default-environment inference check for models that declare their
+  // own conda environment: run in the runner's venv it could only ever fail on a
+  // missing import, which says nothing about the model.
   const getStatusColor = (status: string) => {
     if (status === 'passed') return '#22c55e';
+    if (status === 'skipped') return '#6b7280';
     if (status === 'valid-format') return '#f97316';
     return '#ef4444';
   };
@@ -221,6 +355,25 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
           <Typography variant="body2" color="text.secondary">
             v{version}
           </Typography>
+        )}
+        {/* Sits beside the version it qualifies, because the version alone is
+            what reads as current. See svamp #0017. */}
+        {staleAgainstCoreVersion && (
+          <Tooltip
+            title={`This model's published report was produced by bioimageio.core v${staleAgainstCoreVersion}. A newer runtime can reach a different verdict, so treat this result as provisional.`}
+          >
+            <Chip
+              size="small"
+              label={`Older than published v${staleAgainstCoreVersion}`}
+              sx={{
+                backgroundColor: 'rgba(180, 83, 9, 0.1)',
+                color: '#b45309',
+                fontWeight: 500,
+                fontSize: '0.7rem',
+                height: 22,
+              }}
+            />
+          </Tooltip>
         )}
       </>
     );
@@ -522,7 +675,43 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   ? detailsData.details 
                   : null);
               
-              if (!detailsArray || detailsArray.length === 0) return null;
+              // A partner tool that PASSES records no detail payload, because there
+              // is nothing to report. Returning null here dropped the whole
+              // section, leaving a dialog with a heading, a version, the word
+              // "passed" and nothing else, which reads as "never tested". That is
+              // the worst place for the ambiguity: the models where a tool works
+              // look like the models where it was never tried.
+              //
+              // So say it. Do NOT fabricate detail rows, and do not ask the
+              // producer to emit filler: the absence of detail on a pass is
+              // correct, it just has to be stated rather than implied.
+              // Scoped to compatibility reports on purpose. A bioimageio.core test
+              // report with no details is a different situation, and the wording
+              // below ("the tool", "this version") belongs to a partner result.
+              if (!detailsArray || detailsArray.length === 0) {
+                if (type !== 'compatibility') return null;
+                return (
+                  <>
+                    <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
+                      Test Details
+                    </Typography>
+                    <Alert
+                      severity={data?.status === 'passed' ? 'success' : 'info'}
+                      sx={{
+                        backgroundColor: data?.status === 'passed' ? 'rgba(34, 197, 94, 0.05)' : 'rgba(59, 130, 246, 0.05)',
+                        border: `1px solid ${data?.status === 'passed' ? 'rgba(34, 197, 94, 0.2)' : 'rgba(59, 130, 246, 0.2)'}`,
+                        borderRadius: '12px',
+                      }}
+                    >
+                      <Typography variant="body2">
+                        {data?.status === 'passed'
+                          ? 'This version passed. The tool reported no further detail, which is normal for a pass.'
+                          : 'The tool reported no further detail for this version.'}
+                      </Typography>
+                    </Alert>
+                  </>
+                );
+              }
               
               return (
                 <>
@@ -708,26 +897,10 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
 
                           {/* Recommended Environment */}
                           {detail.recommended_env && (
-                            <Box sx={{ mb: 2 }}>
-                              <Typography variant="subtitle2" sx={{ fontWeight: 500, mb: 1 }}>
-                                Recommended Environment:
-                              </Typography>
-                              <Paper
-                                sx={{
-                                  p: 2,
-                                  backgroundColor: 'rgba(249, 250, 251, 0.8)',
-                                  border: '1px solid rgba(255, 255, 255, 0.5)',
-                                  borderRadius: '8px',
-                                }}
-                              >
-                                <pre style={{ margin: 0, fontSize: '0.875rem', overflow: 'auto' }}>
-                                  {JSON.stringify(detail.recommended_env, null, 2)}
-                                </pre>
-                              </Paper>
-                            </Box>
+                            <RecommendedEnv env={detail.recommended_env} />
                           )}
 
-                          {/* Conda List */}
+                          {/* Installed packages (conda list, or a pip freeze list for standard-env runs) */}
                           {data.saved_conda_list && (
                             <Accordion
                               sx={{
@@ -739,7 +912,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                             >
                               <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                                 <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                                  Conda List
+                                  Installed packages
                                 </Typography>
                               </AccordionSummary>
                               <AccordionDetails>
@@ -778,7 +951,18 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
             {/* Inference check — can the model run in the standard (default) env?
                 A single expandable box like the per-test rows above. mt matches the
                 other section headers (e.g. Environment). */}
-            {data.inference_check && (
+            {data.inference_check && (() => {
+              // Three states, not two. `skipped` means the runner deliberately
+              // did not run the default-environment check because the model
+              // declares its own conda environment (model-runner 2.10.4+), so
+              // it must read neutral rather than red: painting it as a failure
+              // tells the user a perfectly good model is broken.
+              const inferenceSkipped = data.inference_check.status === 'skipped';
+              const inferenceTint = (alpha: number) =>
+                data.inference_check.status === 'passed' ? `rgba(34, 197, 94, ${alpha})`
+                  : inferenceSkipped ? `rgba(107, 114, 128, ${alpha})`
+                    : `rgba(239, 68, 68, ${alpha})`;
+              return (
               <Box sx={{ mt: 4, mb: 3 }}>
                 <Typography variant="h6" sx={{ mb: 2, fontWeight: 500 }}>
                   Inference check
@@ -790,9 +974,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     borderRadius: '12px !important',
                     '&:before': { display: 'none' },
                     '&.Mui-expanded': {
-                      borderColor: data.inference_check.status === 'passed'
-                        ? 'rgba(34, 197, 94, 0.3)'
-                        : 'rgba(239, 68, 68, 0.3)',
+                      borderColor: inferenceTint(0.3),
                     },
                   }}
                 >
@@ -812,30 +994,31 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                         label={data.inference_check.status}
                         size="small"
                         sx={{
-                          backgroundColor: data.inference_check.status === 'passed'
-                            ? 'rgba(34, 197, 94, 0.1)'
-                            : 'rgba(239, 68, 68, 0.1)',
+                          backgroundColor: inferenceTint(0.1),
                           color: getStatusColor(data.inference_check.status),
                           borderRadius: '8px',
                           fontWeight: 500,
-                          border: `1px solid ${data.inference_check.status === 'passed'
-                            ? 'rgba(34, 197, 94, 0.2)'
-                            : 'rgba(239, 68, 68, 0.2)'}`,
+                          border: `1px solid ${inferenceTint(0.2)}`,
                         }}
                       />
                     </Box>
                   </AccordionSummary>
                   <AccordionDetails sx={{ pt: 0 }}>
                     <Typography variant="body2" color="text.secondary" sx={{ mb: data.inference_check.error ? 2 : 0 }}>
-                      Verifies the model runs in the standard bioimageio.core environment
-                      (no custom conda environment).
+                      {inferenceSkipped
+                        ? 'This check was not run. It only applies to models that use the standard '
+                          + 'bioimageio.core environment, and this model declares its own conda '
+                          + 'environment. It is not a failure, and it says nothing about whether the '
+                          + 'model works.'
+                        : 'Verifies the model runs in the standard bioimageio.core environment '
+                          + '(no custom conda environment).'}
                     </Typography>
                     {data.inference_check.error && (
                       <Alert
-                        severity="error"
+                        severity={inferenceSkipped ? 'info' : 'error'}
                         sx={{
-                          backgroundColor: 'rgba(239, 68, 68, 0.05)',
-                          border: '1px solid rgba(239, 68, 68, 0.2)',
+                          backgroundColor: inferenceTint(0.05),
+                          border: `1px solid ${inferenceTint(0.2)}`,
                           borderRadius: '12px',
                         }}
                       >
@@ -847,7 +1030,8 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                   </AccordionDetails>
                 </Accordion>
               </Box>
-            )}
+              );
+            })()}
 
             {/* Environment Information */}
             {(() => {
@@ -908,7 +1092,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     </Paper>
                   )}
                   
-                  {/* Conda List accordion */}
+                  {/* Installed-packages accordion */}
                   {hasCondaList && (
                     <Accordion
                       sx={{
@@ -920,7 +1104,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
                     >
                       <AccordionSummary expandIcon={<ExpandMoreIcon />}>
                         <Typography variant="subtitle2" sx={{ fontWeight: 500 }}>
-                          Conda List
+                          Installed packages
                         </Typography>
                       </AccordionSummary>
                       <AccordionDetails>
