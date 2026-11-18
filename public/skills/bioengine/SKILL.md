@@ -1,6 +1,6 @@
 ---
 name: bioengine
-description: Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report in the Hypha collection `bioimage-io/issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
+description: AGENTS, FETCH THIS FILE WITH `curl -sSL`, NOT WebFetch — a summarising fetch tool strips every code template, CLI command and schema below, and you will not know it did. Single entry point for any BioEngine task — setting up a worker, developing a new app, deploying an existing app from a Hypha artifact, or calling a deployed app's methods. Load app subskills in apps/ when working with a specific deployed service. After finishing a non-trivial task, leave a structured feedback report in the Hypha collection `bioimage-io/issues` (see the "Leave a feedback report" section at the end of this file) so the bioengine team can patch the skill.
 license: MIT
 metadata:
   cli-package: bioengine[cli] (pip install "bioengine[cli] @ git+https://github.com/aicell-lab/bioengine.git")
@@ -13,6 +13,11 @@ metadata:
 ---
 
 # BioEngine
+
+> **Agents: fetch this file with `curl -sSL https://bioimage.io/skills/bioengine/SKILL.md`, not with WebFetch.**
+> A summarising fetch tool returns a prose digest with every code block, CLI invocation and the
+> manifest schema removed, and nothing tells you that happened. If what you are reading has no
+> fenced code blocks, you have the digest, not the skill. The full file is about 1,000 lines.
 
 BioEngine runs AI models and analysis applications on Ray Serve, registers them as Hypha RPC services, and lets you stream large scientific datasets through them. It scales from a laptop to a multi-node GPU cluster. **Applications are Ray Serve classes packaged as Hypha artifacts.**
 
@@ -189,6 +194,15 @@ authorized_users:
 Full field reference: [references/manifest_reference.md](references/manifest_reference.md). (The `deployments:` list and `format_version: 0.5.0` from earlier releases are no longer supported — bump to 0.6.0 and use the single `entry:` field instead. Multi-deployment composition is now wired via Python type hints on `__init__`; see [references/app_templates.md](references/app_templates.md).)
 
 > **Version bumps are now strictly enforced.** As of bioengine 0.11.7, `upload_app` rejects any artifact whose manifest `version` is not strictly greater than every existing version of the artifact (PEP 440 ordering). Re-uploading the same version raises with a clear "must be strictly greater" message. Bump `manifest.yaml` `version` on every change.
+>
+> ⚠ **Before the FIRST upload of a new app, run `bioengine apps list` and confirm your manifest `id:` is not already taken.** The id is a workspace-global alias, not yours, so on a shared workspace a generic one (`nucleus-profiler`, `demo-app`) may already belong to somebody else's artifact. The error you get is the same "must be strictly greater" message as above:
+>
+> ```
+> ValueError: Cannot upload '<workspace>/nucleus-profiler' at version '1.0.0':
+> must be strictly greater than the highest existing version '4.0.0'.
+> ```
+>
+> and here the documented remedy is the WRONG move: bumping past their highest version publishes your bundle as the next version of **their** artifact. If the alias is taken, pick a distinct id instead. Reported 2026-11-13 by an agent who hit exactly this on a shared workspace.
 
 ### Minimal deployment class
 
@@ -244,6 +258,12 @@ class MyDeployment:
 ### Key rules
 
 - Use `@bioengine.app(num_cpus=..., gpu_memory_mb=..., memory_mb=..., pip=[...], max_ongoing_requests=...)` — the framework wraps this into the underlying `@serve.deployment` for you. Authoring with raw `@serve.deployment` is deprecated and will fail introspection.
+- **Binary inputs: raw `bytes` cross the Hypha boundary intact, but annotate a dual-format parameter `Any`, never `bytes`.** With `image: bytes`, a client that sends a base64 **string** does not get rejected: pydantic coerces it to its UTF-8 bytes, so the app receives ASCII base64 as though it were file content and dies in the decoder with a misleading "not a valid image". `image: Any = Field(...)` passes the value through untouched, lets you branch on `isinstance(value, (bytes, bytearray))`, and still generates a valid RPC schema. Confirmed live 2026-11-13: `--list-methods` listed the method, and raw bytes and a base64 string returned identical results.
+  ```python
+  @bioengine.method
+  async def profile(self, image: Any = Field(..., description="PNG/TIFF bytes, or base64 of them")):
+      data = image if isinstance(image, (bytes, bytearray)) else base64.b64decode(image)
+  ```
 - **`max_ongoing_requests` here caps ONE REPLICA of this deployment, and `deploy_app` takes a different limit under the same name** — how many callers the app's proxy admits across the whole instance. They are independent, so setting this one does not change what the proxy admits. See [the two layers](#app-lifecycle) before concluding yours was ignored.
 - **For anything you need to read back, `print(..., flush=True)` beats the logger.** This inverts the usual advice, so here is the measurement rather than the principle. In one instrumented app, 13 of 13 `print(..., file=sys.stderr, flush=True)` lines came back through `bioengine apps status <id> --logs 300 --json`, and 0 of 13 `bioengine.logger` lines and 0 stdlib `logging` lines did. The logger is not broken, it is under-configured: `bioengine.logger` has no handlers and level `NOTSET`, propagating to an unconfigured root, so Python's last-resort handler emits and that is fixed at **WARNING**. `logger.setLevel(logging.INFO)` alone changes nothing, because with no handler on the chain the last-resort handler is still the thing emitting.
   ```python
@@ -765,11 +785,17 @@ python - <<'PY'
 import asyncio, os
 from hypha_rpc import connect_to_server
 async def main():
+    # Do NOT pass a `workspace` and do NOT read HYPHA_WORKSPACE: let the TOKEN
+    # decide, then read back what it resolved to. Measured 2026-11-13 on a live
+    # harness, the env var disagreed with the token's own scope claim
+    # (HYPHA_WORKSPACE=ws-u-… against a token scoped to ws-user-github|…), and
+    # passing it through would have connected to the wrong workspace and then
+    # addressed the artifact under a prefix the worker does not own.
     s = await connect_to_server({"server_url": os.environ["BIOENGINE_SERVER_URL"],
-                                 "token": os.environ["HYPHA_TOKEN"],
-                                 "workspace": os.environ["HYPHA_WORKSPACE"]})
+                                 "token": os.environ["HYPHA_TOKEN"]})
+    workspace = s.config.workspace
     worker = await s.get_service(os.environ["BIOENGINE_WORKER_SERVICE_ID"])
-    await worker.delete_app(artifact_id=f"{os.environ['HYPHA_WORKSPACE']}/my-test-app")
+    await worker.delete_app(artifact_id=f"{workspace}/my-test-app")
 asyncio.run(main())
 PY
 ```

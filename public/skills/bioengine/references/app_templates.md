@@ -83,6 +83,23 @@ class MyDeployment:
         result = await self.ping()
         assert result["status"] == "ok"
 
+    # A LIFECYCLE HOOK, not an RPC method. The name is free, it must be async,
+    # and it marks the replica unhealthy by RAISING — a falsy return says
+    # nothing. It is subject to the same FieldInfo rule as every other hook, so
+    # give it no parameters beyond self.
+    #
+    # Distinct from any public `health()` you expose via @bioengine.method: that
+    # one is for callers, this one is for the worker deciding whether to keep
+    # the replica in rotation. An app can have both, and they are not the same
+    # function.
+    @bioengine.health_check
+    async def check(self) -> None:
+        # Assert whatever makes THIS replica serviceable. In a real app that is
+        # usually "the model loaded"; this template has no model, so it checks
+        # the state async_init was supposed to establish.
+        if not self.greeting:
+            raise RuntimeError("greeting missing; async_init did not complete")
+
     @bioengine.method
     async def ping(self) -> Dict[str, Union[str, float]]:
         """Ping the service."""
