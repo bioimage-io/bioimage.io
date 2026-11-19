@@ -776,9 +776,10 @@ export class ModelRunnerEngine {
         "fixed extent:",
         minShape
       );
-      reportFunc(
-        "Image is larger than this model's fixed input size, running it in tiles..."
-      );
+      // Keep the reason visible: the per-tile progress messages would otherwise replace it.
+      const innerReport = reportFunc;
+      reportFunc = (msg) =>
+        innerReport(`Image is larger than this model's fixed input size, so it runs in tiles. ${msg}`);
     }
 
     // Check if tiling is disabled or if tensor is small enough to process without tiling
@@ -791,8 +792,21 @@ export class ModelRunnerEngine {
     }
 
     // Tiling enabled - proceed with original tiling logic
-    const tileSize = inputAxes.split("").map((a) => effectiveTileSizes[a]);
-    const overlap = inputAxes.split("").map((a) => effectiveTileOverlaps[a]);
+    // Only space axes are tiled. A batch or channel axis is passed whole: a tile of the
+    // model's minimum channel count would run an RGB image once per colour channel and
+    // stack the results, instead of letting the model reject the channel mismatch.
+    const tileSize = inputAxes
+      .split("")
+      .map((a, i) => (SPACE_AXES.includes(a) ? effectiveTileSizes[a] : tensor.shape[i]));
+    // An overlap of half the tile or more leaves almost nothing new per tile (and one of
+    // the full tile or more cannot advance at all), so cap it at half the tile size.
+    const overlap = inputAxes
+      .split("")
+      .map((a, i) =>
+        SPACE_AXES.includes(a)
+          ? Math.min(effectiveTileOverlaps[a] || 0, Math.floor(tileSize[i] / 2))
+          : 0
+      );
 
     console.log("Input tensor shape:", tensor.shape, "tile size:", tileSize, "overlap:", overlap);
     const tiler = new ImgTiler(tensor.shape, tileSize, overlap);

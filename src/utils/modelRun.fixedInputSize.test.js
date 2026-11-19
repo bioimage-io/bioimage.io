@@ -17,7 +17,7 @@ import {
   createInputPadder,
   ModelRunnerEngine,
 } from './modelRun';
-import { parseAxes, tfjsToImJoy } from './imgProcess';
+import { ImgTiler, parseAxes, tfjsToImJoy } from './imgProcess';
 import * as tf from '@tensorflow/tfjs-core';
 
 // --- fixtures: real specs, fetched 2026-11-06 ------------------------------------------
@@ -84,6 +84,26 @@ const OLD_FORMAT_OUTPUT = { axes: 'bcyx', halo: [0, 0, 8, 8] };
 
 // The v0.4 explicit-shape spelling: a plain list is a fixed shape.
 const OLD_FORMAT_PLAIN_LIST = { axes: 'bcyx', shape: [1, 1, 256, 256] };
+
+// A small fixed model with one channel and a halo as large as half its tile.
+const FIXED_64_1CH_INPUT = {
+  shape: null,
+  axes: [
+    { type: 'batch', size: 1 },
+    { type: 'channel', channel_names: ['c0'] },
+    { size: 64, id: 'y', type: 'space' },
+    { size: 64, id: 'x', type: 'space' },
+  ],
+};
+const FIXED_64_OUTPUT = (halo) => ({
+  halo: null,
+  axes: [
+    { type: 'batch', size: 1 },
+    { type: 'channel', channel_names: ['c0'] },
+    { halo, size: { tensor_id: 'input0', axis_id: 'y', offset: 0 }, id: 'y', type: 'space', scale: 1 },
+    { halo, size: { tensor_id: 'input0', axis_id: 'x', offset: 0 }, id: 'x', type: 'space', scale: 1 },
+  ],
+});
 
 const engineWith = (input, output) => {
   const engine = new ModelRunnerEngine();
@@ -300,6 +320,28 @@ describe('runTiles on a fixed-size model, with the tiling checkbox OFF (the UI d
     expect(shape).toEqual([1, 1, 300, 300]);
   });
 
+  test('forced tiling passes the channel axis whole, never one run per colour channel', async () => {
+    // RGB into a fixed 1-channel model: the model gets all 3 channels and rejects them,
+    // rather than being run per channel with the stacked result shown as a success.
+    const { submitted } = await runWith(FIXED_64_1CH_INPUT, FIXED_64_OUTPUT(0), [1, 3, 100, 100]);
+    expect(submitted.length).toBe(4);
+    submitted.forEach((s) => expect(s).toEqual([1, 3, 64, 64]));
+  });
+
+  test('a halo as large as half the tile does not crash the tiler', async () => {
+    // 2*halo = 64 = the whole tile; overlap is capped at half the tile.
+    const { submitted, shape } = await runWith(FIXED_64_1CH_INPUT, FIXED_64_OUTPUT(32), [1, 1, 100, 100]);
+    expect(submitted.length).toBeGreaterThan(1);
+    submitted.forEach((s) => expect(s).toEqual([1, 1, 64, 64]));
+    expect(shape).toEqual([1, 1, 100, 100]);
+  });
+
+  test('an image just over the fixed extent takes 2 tiles per long axis, not 4', async () => {
+    const { submitted, shape } = await runWith(FIXED_INPUT, FIXED_OUTPUT, [1, 3, 256, 300]);
+    expect(submitted.length).toBe(2);
+    expect(shape).toEqual([1, 3, 256, 300]);
+  });
+
   test('control: a flexible model whose size is not a step multiple is padded, still once', async () => {
     // 100 -> 112, i.e. min 64 + 3*16, then cropped back to 100.
     const { submitted, shape } = await runWith(FLEXIBLE_INPUT, FLEXIBLE_OUTPUT, [1, 1, 100, 100]);
@@ -315,5 +357,35 @@ describe('getHalo', () => {
     // pushes 0 for every non-space axis, so the result is full length and correctly aligned.
     expect(getHalo(FIXED_OUTPUT)).toEqual([0, 0, 32, 32]);
     expect(getHalo(FLEXIBLE_OUTPUT)).toEqual([0, 0, 16, 16]);
+  });
+});
+
+describe('ImgTiler tile count', () => {
+  const n = (img, tile, ov) => new ImgTiler([img], [tile], [ov]).getNTiles()[0];
+
+  test('takes the fewest tiles that still reach the image edge', () => {
+    expect(n(256, 256, 64)).toBe(1);
+    expect(n(200, 256, 64)).toBe(1);
+    expect(n(300, 256, 64)).toBe(2);
+    expect(n(448, 256, 64)).toBe(2);
+    expect(n(449, 256, 64)).toBe(3);
+    expect(n(512, 256, 0)).toBe(2);
+  });
+
+  test('every tiling covers the image exactly once at its end', () => {
+    for (const [img, tile, ov] of [[300, 256, 64], [449, 256, 64], [1000, 128, 32], [7, 4, 1]]) {
+      // a 1-long leading axis, because cartesian() needs at least two axes to yield arrays
+      const tiles = new ImgTiler([1, img], [1, tile], [0, ov]).getTiles();
+      expect(tiles[0].starts[1]).toBe(0);
+      expect(tiles[tiles.length - 1].ends[1]).toBe(img);
+      for (let i = 1; i < tiles.length; i++) {
+        expect(tiles[i].starts[1]).toBeLessThan(tiles[i - 1].ends[1]);
+        expect(tiles[i].ends[1]).toBeGreaterThan(tiles[i - 1].ends[1]);
+      }
+    }
+  });
+
+  test('an overlap that cannot advance fails with a clear message', () => {
+    expect(() => n(100, 64, 64)).toThrow(/must be smaller than the tile size/);
   });
 });

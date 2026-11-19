@@ -355,7 +355,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         // actually has freedom, and say so rather than silently ignoring what was typed.
         const fixedAxes = runner.getFixedAxes();
         const ignored: string[] = [];
-        for (const axis of ['x', 'y']) {
+        for (const axis of ['y', 'x']) {
           if (!(axis in tileSizes)) continue;
           if (fixedAxes.includes(axis)) {
             ignored.push(axis);

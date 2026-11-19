@@ -619,9 +619,18 @@ export class ImgTiler {
     const overlap = this.overlap;
     const tileShape = this.tileShape;
     const imgShape = this.imgShape;
+    // The fewest tiles whose last one still reaches the image edge: tile i starts at
+    // i * (s - overlap), so n tiles cover (n - 1) * (s - overlap) + s pixels. The old
+    // ceil(img / (s - overlap)) added a redundant tile whenever the image was longer than
+    // s - overlap, e.g. 2 tiles for an image no larger than one tile.
     const nTiles = tileShape.map((s, i) => {
-      const n = Math.ceil(imgShape[i] / (s - overlap[i]));
-      return n;
+      const stride = s - overlap[i];
+      if (stride <= 0) {
+        throw new Error(
+          `Tile overlap (${overlap[i]}) must be smaller than the tile size (${s}) on axis ${i}.`
+        );
+      }
+      return Math.max(1, Math.ceil((imgShape[i] - overlap[i]) / stride));
     });
     return nTiles;
   }
