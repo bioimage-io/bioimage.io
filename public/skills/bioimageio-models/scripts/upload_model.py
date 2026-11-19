@@ -127,13 +127,37 @@ async def upload_model(package_dir: str, token: str) -> str:
         # Read the collection to resolve the reviewer set for the permission grant.
         collection = await am.read(artifact_id=PARENT_ID)
         reviewer_permissions = build_reviewer_permissions(collection.get("config") or {})
+        permissions = dict(reviewer_permissions)
+        # Grant the uploader's ACCOUNT, by email, at `rd+` and nothing more.
+        #
+        # Why a grant is needed at all: `create()` gives `*` to the id of the
+        # token that made the call, and a token minted by `generate_token` has
+        # its own random id that expires with it. Without a second key the
+        # account loses all access to its own submission once that token is
+        # gone, typically after 12 hours.
+        #
+        # Why the email and not the account id: permission checks match on the
+        # email, and the email is what survives the account changing how it
+        # signs in.
+        #
+        # Why `rd+` and not `*`: `rd+` expands to read, get_file, get_status,
+        # list, list_files, edit, put_file, remove_file, discard_changes and
+        # draft. It does NOT include `commit`, `detach` or `mutate`. So the
+        # uploader can keep working on their submission but cannot publish it
+        # themselves, which is what keeps the curator review in the path. A `*`
+        # grant here would let any contributor commit their own model and skip
+        # review entirely.
+        user = server.config.get("user") or {}
+        email = user.get("email")
+        if email:
+            permissions[email] = "rd+"
 
         artifact = await am.create(
             parent_id=PARENT_ID,
             alias=alias_pattern,
             type=model_type,
             manifest={**manifest, "status": "draft"},  # app-level manifest only
-            config={"permissions": reviewer_permissions},
+            config={"permissions": permissions},
             stage=True,           # staged = not publicly visible; awaits curator review
             overwrite=False,
         )
