@@ -56,7 +56,9 @@ Keep it in the agent's own private location.
 
 Before every push, read the diff and the commit messages you are about to publish, looking for
 those identifiers, and stop if one is there. Deleting it afterwards does not retract it: a closed
-pull request and a deleted branch still leave their commits reachable on GitHub.
+pull request and a deleted branch still leave their commits reachable on GitHub. **The rule is forward-looking:
+history published before 2026-11-18 is accepted as it is.** Do not rewrite history, force-push, or delete
+branches or pull requests just to comply. Only stop adding new instances.
 
 ---
 
