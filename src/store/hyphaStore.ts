@@ -19,7 +19,7 @@ const RECONNECT_COOLDOWN_MS = 8000;    // ignore repeat triggers within this win
 // Read the cached login token, honoring its stored expiry. Mirrors
 // LoginButton.getSavedToken so reconnection uses the same credential the
 // initial auto-login used.
-export const getSavedToken = (): string | null => {
+const getSavedToken = (): string | null => {
   const token = localStorage.getItem('token');
   if (token) {
     const expiry = localStorage.getItem('tokenExpiry');

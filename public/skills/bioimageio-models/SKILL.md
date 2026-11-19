@@ -39,7 +39,7 @@ The public model grid on bioimage.io is ordered by a **score** the BioEngine tes
 2. **Standard-runtime compatibility.** The model can be *served* on the shared BioEngine runtime via `infer()` — i.e. a TorchScript/ONNX export, or a `pytorch_state_dict` whose architecture imports only the fixed runtime packages. Test-only models that require a custom conda environment (`dependencies: environment.yaml`) still validate and can be published, but they cannot be served on the shared runtime, so they rank below servable models.
 3. **Metadata completeness (0..1).** Authors, license, documentation, tags, covers, citations, and the other RDF fields filled in with real information.
 
-> **Do not chase a completeness of 1.0: it is not reachable, and for a single-weight-format model roughly 0.5 is the ceiling.** `bioimageio.spec` computes it as `len(given_keys) / len(full_keys)` over a full dump of the schema (`_internal/common_nodes.py:_get_metadata_completeness`). The denominator therefore contains one slot for *every* weight format (`pytorch_state_dict`, `onnx`, `torchscript`, `keras_hdf5`, `keras_v3`, `tensorflow_js`, `tensorflow_saved_model_bundle`) plus server-managed fields you cannot set yourself (`parent`, `id`, `id_emoji`, `version`, `uploader`). A model that ships one weight format is counted as missing the other six. One contributor filled in every meaningful `config.bioimageio.*` field (modality, task, training data, bias and limitations, parameter count, out-of-scope use) and moved the number from 0.262 to 0.476. That is a good score. Fill the fields because the next reader needs them, not to move this number, and **never add a redundant converted weight format purely to raise it**.
+> **Do not chase a completeness of 1.0: it is not reachable, and for a single-weight-format model roughly 0.5 is the ceiling.** `bioimageio.spec` computes it as `len(given_keys) / len(full_keys)` over a full dump of the schema (`_internal/common_nodes.py:_get_metadata_completeness`). The denominator therefore contains one slot for *every* weight format (`pytorch_state_dict`, `onnx`, `torchscript`, `keras_hdf5`, `keras_v3`, `tensorflow_js`, `tensorflow_saved_model_bundle`) plus fields assigned at upload rather than by you (`parent`, `id`, `id_emoji`, `version`, `uploader`). A model that ships one weight format is counted as missing the other six. One contributor filled in every meaningful `config.bioimageio.*` field (modality, task, training data, bias and limitations, parameter count, out-of-scope use) and moved the number from 0.262 to 0.476. That is a good score. Fill the fields because the next reader needs them, not to move this number, and **never add a redundant converted weight format purely to raise it**.
 
 Raise all three **honestly** (see the integrity rules above). The score is a proxy for "will this model be useful and trustworthy to the next person" — gaming it produces a model that ranks high but disappoints its first real user.
 
@@ -207,7 +207,7 @@ files individually — so a large model works, with two caveats worth knowing be
   ([spec #769](https://github.com/bioimage-io/spec-bioimage-io/issues/769)). If you need an
   archive, force ZIP64 on write-mode members yourself and delete any previous output first.
 - **Uploading needs roughly as much free RAM as the largest file.** `upload_model.py` (and the
-  re-upload snippet in Step 6a-fix) do `content=fobj.read()`, buffering the whole file before the
+  re-upload snippet in Step 6a-fix) read each file fully into memory, buffering it before the
   PUT — a 3.15 GiB weight file measured 3.19 GiB peak RSS. Submit from a host with headroom.
 
 There is no published per-model size limit. The mechanical ceiling is about 48 GiB (10 000 S3
@@ -262,7 +262,7 @@ remote URL" above).
 
 ### Architecture file rules (pytorch_state_dict only)
 
-If the model ships `pytorch_state_dict` weights, the architecture `.py` must be self-contained and use only the fixed set of packages pre-installed on the BioEngine model runner (`torch==2.5.1`, `torchvision==0.20.1`, `numpy==1.26.4`, `bioimageio.core==0.10.4`, `onnxruntime==1.20.1`, `timm`, plus a few others). See [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the full list, the rules on imports / constructor args / self-containment, and Bad/Good examples. When the architecture can't be rewritten into that runtime (e.g. Cellpose backbones), you have two sanctioned options — **do not bundle the missing library into the package**: export to TorchScript/ONNX and skip the `.py` (fully servable), or declare a conda environment file via the weights entry's `dependencies` field for a test-only submission (not servable via `infer()`). Both are detailed in the reference.
+If the model ships `pytorch_state_dict` weights, the architecture `.py` must be self-contained and use only the fixed set of packages pre-installed on the BioEngine model runner. See [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md) for the list (and the authoritative `requirements-runtime.txt` it comes from), the rules on imports / constructor args / self-containment, and Bad/Good examples. When the architecture can't be rewritten into that runtime (e.g. Cellpose backbones), you have two sanctioned options — **do not bundle the missing library into the package**: export to TorchScript/ONNX and skip the `.py` (fully servable), or declare a conda environment file via the weights entry's `dependencies` field for a test-only submission (not servable via `infer()`). Both are detailed in the reference.
 
 Full field reference and annotated example:
 - [references/model-spec-reference.md](https://bioimage.io/skills/bioimageio-models/references/model-spec-reference.md)
@@ -294,10 +294,10 @@ Fix errors and retry. Common issues:
 
 ## Phase 4 — Dynamic Testing
 
-> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, `bioimageio.core==0.9.0` works on Python 3.8/3.9 without downgrading. On Python 3.8/3.9 with `pytorch_state_dict`, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, use current versions from conda-forge or `pip install "bioimageio.spec>=0.5.11" "bioimageio.core>=0.10"`.
+> **Python version requirement:** `bioimageio.core >= 0.8` requires **Python 3.10+** for `pytorch_state_dict` models (uses `TemporaryDirectory(ignore_cleanup_errors=True)`). For `torchscript` and `onnx` models, `bioimageio.core==0.9.0` works on Python 3.8/3.9 without downgrading. On Python 3.8/3.9 with `pytorch_state_dict`, pin to an older version: `pip install "bioimageio.core==0.6.9" "bioimageio.spec==0.5.3.2"`. On Python 3.10+, install the same core/spec pins as the BioEngine runtime (see [references/architecture-rules.md](https://bioimage.io/skills/bioimageio-models/references/architecture-rules.md)), so the local test matches the remote one.
 
 ```bash
-pip install -q "bioimageio.spec>=0.5.11" "bioimageio.core>=0.10"
+pip install -q "bioimageio.core==0.11.0" "bioimageio.spec==0.5.12.0"
 bioimageio test model_package/generated/rdf.yaml
 ```
 
@@ -489,8 +489,9 @@ TorchScript/ONNX export if it must be runnable via `infer()`.
 > ```
 >
 > Every key in the shipped file must match the record. The record legitimately carries a few extra
-> keys that never appear in `rdf.yaml` (`status`, `id`, `id_emoji`), which is why this checks one
-> direction rather than comparing the two dicts outright.
+> keys that never appear in your local `rdf.yaml` (`status`, plus `id` / `id_emoji`, which
+> `upload_model.py` adds only to the uploaded copy), which is why this checks one direction rather
+> than comparing the two dicts outright.
 
 If the remote test fails, update the staged artifact (no need to re-create it):
 
@@ -498,6 +499,7 @@ If the remote test fails, update the staged artifact (no need to re-create it):
 import asyncio, yaml, hashlib, httpx
 from pathlib import Path
 from hypha_rpc import connect_to_server
+from upload_model import set_rdf_ids  # scripts/upload_model.py: run from that folder or add it to sys.path
 
 async def reupload_files(artifact_id: str, token: str, package_dir: str):
     package = Path(package_dir)
@@ -509,15 +511,16 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
         am = await server.get_service("public/artifact-manager")
 
         # Re-sync the stored manifest from the regenerated rdf.yaml.
-        # Read the CURRENT staged record and merge on top of it, so server-side
-        # fields that never appear in rdf.yaml (status, id, id_emoji) survive.
+        # Read the CURRENT staged record and merge on top of it, so fields that
+        # never appear in the local rdf.yaml (status, id, id_emoji) survive.
         # Passing the bare rdf.yaml here would clobber them.
         with open(package / "rdf.yaml") as f:
             rdf = yaml.safe_load(f)
         staged = await am.read(artifact_id=artifact_id, stage=True)
+        current = staged.get("manifest") or {}
         await am.edit(
             artifact_id=artifact_id,
-            manifest={**(staged.get("manifest") or {}), **rdf},
+            manifest={**current, **rdf},
             stage=True,
         )
 
@@ -528,8 +531,12 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
                     continue
                 rel = str(file_path.relative_to(package))
                 put_url = await am.put_file(artifact_id=artifact_id, file_path=rel)
-                with open(file_path, "rb") as fobj:
-                    await client.put(put_url, content=fobj.read(), headers={"Content-Type": ""})
+                content = file_path.read_bytes()
+                if rel == "rdf.yaml" and current.get("id"):
+                    # Keep the id / id_emoji that upload_model.py set: the web editor
+                    # rejects RDF edits when the uploaded rdf.yaml lacks them.
+                    content = set_rdf_ids(content.decode("utf-8"), current["id"], current["id_emoji"]).encode("utf-8")
+                await client.put(put_url, content=content, headers={"Content-Type": ""})
                 print(f"  ✓ re-uploaded {rel}")
 
 asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/generated/"))

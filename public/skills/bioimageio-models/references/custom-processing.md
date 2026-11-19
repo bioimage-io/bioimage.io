@@ -394,6 +394,6 @@ python public/skills/bioimageio-models/scripts/compute_sha256.py model_package/
 [ ] Tested locally (custom ops execute with no opt-in flag)
 [ ] Noted in README that model uses custom postprocessing
 [ ] Verified with bioimageio test:
-      pip install "bioimageio.spec>=0.5.10" "bioimageio.core>=0.10"
+      pip install "bioimageio.core==0.11.0" "bioimageio.spec==0.5.12.0"
       bioimageio test model_package/rdf.yaml
 ```

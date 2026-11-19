@@ -21,17 +21,44 @@ The thread is a live record that people read and add to. There is no fix-it-afte
 a stray comment, or an edit is visible to every subscriber the moment it lands, and reverting it
 does not unsend the notification. If a task seems to require touching #3, stop and ask.
 
-### A PR stays a DRAFT until the issue is cleared to land
+### Agent work lands from a local branch, not a pull request
 
-Ready does not mean "the code is finished"; it means "this goes to production now". Open as draft,
-iterate in draft, and mark ready only once the change is cleared — then merge in the same sitting.
+Work each issue on its own local branch. When the work is cleared to land, squash-merge the branch
+into an up-to-date `main` and push `main` once. Do not push the branch to GitHub and do not open a
+pull request for it.
 
-Clearance is the whole of the rule here: **everything user-facing on these pages needs the user's go,
-on top of an independent reviewer agent's APPROVE.** A reviewer's APPROVE alone is enough only for a
-fix, a test or a doc change that users do not see.
+A pull request is for work that involves other people: a human asked for one, or someone outside
+the agent team has to read, review or contribute to the change. Agents opening pull requests for
+each other to review produce a queue that nobody reads, and every one of them publishes its branch,
+its commits and its description to a public repository. Before you start, look at the open pull
+requests: if one already covers your issue, finish that one instead of starting a second.
+
+Clearance is the same either way: **everything user-facing on these pages needs the user's go, on
+top of an independent reviewer agent's APPROVE.** A reviewer's APPROVE alone is enough only for a
+fix, a test or a doc change that users do not see. The agent that did the work never merges it on
+its own judgement.
 
 This repo has no `check-version` and no version file, so the bump-last sequencing in
 `../bioengine/CLAUDE.md` does not apply — do not go looking for a version gate here.
+
+### Nothing about the agent environment goes into this public repository
+
+This repository is public, and so is everything pushed to it: files, commit messages, branch names,
+pull-request descriptions, issues and comments. None of them may contain anything about the
+environment the agent works in: agent session ids or names, workspace ids, the agent's own
+backlog or issue numbers, the names and commands of the agent tooling, machine names, or absolute
+paths on a developer's machine. Write commit messages and code comments for a contributor who has
+only this repository in front of them.
+
+Tooling that only makes sense inside the agent environment (backlog filing, sweeps that feed an
+agent's tracker, watchers, routing to named sessions) does not belong in this repository at all.
+Keep it in the agent's own private location.
+
+Before every push, read the diff and the commit messages you are about to publish, looking for
+those identifiers, and stop if one is there. Deleting it afterwards does not retract it: a closed
+pull request and a deleted branch still leave their commits reachable on GitHub. **The rule is forward-looking:
+history published before 2026-11-18 is accepted as it is.** Do not rewrite history, force-push, or delete
+branches or pull requests just to comply. Only stop adding new instances.
 
 ---
 

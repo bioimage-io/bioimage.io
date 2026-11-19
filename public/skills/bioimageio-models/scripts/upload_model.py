@@ -10,10 +10,12 @@ Usage:
 What it does (and deliberately does NOT do):
   1. Loads the package's rdf.yaml as the manifest.
   2. Creates a STAGED artifact under bioimage-io/bioimage.io with status "draft".
-     - The packaged rdf.yaml is uploaded verbatim; `status` is an app-level review
-       field kept only in the Hypha manifest, never written into the RDF file
-       (bioimageio.spec's ModelDescr is a closed schema and rejects unknown
-       top-level fields).
+     - Sets `id` / `id_emoji` from the generated alias in the manifest and in the
+       uploaded rdf.yaml (the local file is not changed); the website editor
+       rejects RDF edits until both match. Otherwise rdf.yaml is uploaded verbatim.
+     - `status` is an app-level review field kept only in the Hypha manifest,
+       never written into the RDF file (bioimageio.spec's ModelDescr is a closed
+       schema and rejects unknown top-level fields).
      - Reviewers are granted `rw+` on the model FROM CREATION via config.permissions.
        create() writes config straight into the enforced base config while the
        artifact stays staged/versionless, so reviewers can edit the model at every
@@ -29,6 +31,7 @@ Prints the artifact id — you need it for submit_for_review.py.
 """
 import argparse
 import asyncio
+import json
 import os
 import sys
 from pathlib import Path
@@ -44,6 +47,34 @@ REVIEWER_GRANT = "rw+"  # read/write, NOT delete — what each reviewer gets on 
 # File extensions that count as model weights (higher download weight = ranks
 # higher in the popularity sort).
 WEIGHT_EXTS = (".pt", ".pth", ".onnx", ".h5", ".pb", ".zip")
+
+
+def find_id_emoji(collection_config: dict, model_type: str, short_id: str) -> str:
+    """Emoji for a generated id like "naked-rabbit" (port of Upload.tsx findEmoji)."""
+    category = {"model": "animal", "application": "object", "dataset": "fruit"}.get(model_type)
+    id_parts = collection_config.get("id_parts") or {}
+    nouns = id_parts.get(category) or []
+    noun = short_id.split("-")[-1]
+    return id_parts[f"{category}_emoji"][nouns.index(noun)] if noun in nouns else "🦒"
+
+
+def set_rdf_ids(rdf_text: str, short_id: str, id_emoji: str) -> str:
+    """Return rdf.yaml text with top-level `id` / `id_emoji` set, all other lines unchanged.
+
+    A line edit, not a PyYAML load/dump: RDFs are YAML 1.2 and a PyYAML round
+    trip silently rewrites some fields (timestamps, booleans, null forms).
+    ponytail: assumes any existing top-level id / id_emoji is a one-line scalar.
+    """
+    lines = [
+        line for line in rdf_text.splitlines(keepends=True)
+        if not line.startswith(("id:", "id_emoji:"))
+    ]
+    if lines and not lines[-1].endswith("\n"):
+        lines[-1] += "\n"
+    # JSON strings are valid YAML double-quoted scalars.
+    lines.append(f"id: {json.dumps(short_id)}\n")
+    lines.append(f"id_emoji: {json.dumps(id_emoji, ensure_ascii=False)}\n")
+    return "".join(lines)
 
 
 def build_reviewer_permissions(collection_config: dict) -> dict:
@@ -97,13 +128,29 @@ async def upload_model(package_dir: str, token: str) -> str:
         collection = await am.read(artifact_id=PARENT_ID)
         reviewer_permissions = build_reviewer_permissions(collection.get("config") or {})
         permissions = dict(reviewer_permissions)
-        # A token minted by generate_token has a random user id and carries the
-        # account in `parent`. create() grants `*` only to that random id, so the
-        # account itself could not edit or delete the draft once the token expired.
-        # Grant the account too. (Login tokens have no parent: nothing changes.)
-        owner = (server.config.get("user") or {}).get("parent")
-        if owner:
-            permissions[owner] = "*"
+        # Grant the uploader's ACCOUNT, by email, at `rd+` and nothing more.
+        #
+        # Why a grant is needed at all: `create()` gives `*` to the id of the
+        # token that made the call, and a token minted by `generate_token` has
+        # its own random id that expires with it. Without a second key the
+        # account loses all access to its own submission once that token is
+        # gone, typically after 12 hours.
+        #
+        # Why the email and not the account id: permission checks match on the
+        # email, and the email is what survives the account changing how it
+        # signs in.
+        #
+        # Why `rd+` and not `*`: `rd+` expands to read, get_file, get_status,
+        # list, list_files, edit, put_file, remove_file, discard_changes and
+        # draft. It does NOT include `commit`, `detach` or `mutate`. So the
+        # uploader can keep working on their submission but cannot publish it
+        # themselves, which is what keeps the curator review in the path. A `*`
+        # grant here would let any contributor commit their own model and skip
+        # review entirely.
+        user = server.config.get("user") or {}
+        email = user.get("email")
+        if email:
+            permissions[email] = "rd+"
 
         artifact = await am.create(
             parent_id=PARENT_ID,
@@ -117,6 +164,19 @@ async def upload_model(package_dir: str, token: str) -> str:
         artifact_id = artifact["id"]
         print(f"Created staged artifact: {artifact_id}")
         print(f"  granted rw+ to {len(reviewer_permissions)} reviewer(s)")
+
+        # The alias is only known now, so set id / id_emoji after create(), in both
+        # the manifest and the uploaded rdf.yaml, as Upload.tsx does. The editor
+        # (Edit.tsx validateRdfContent) rejects any RDF edit until both match.
+        short_id = artifact_id.split("/")[-1]
+        id_emoji = find_id_emoji(collection.get("config") or {}, model_type, short_id)
+        await am.edit(
+            artifact_id=artifact_id,
+            manifest={**manifest, "id": short_id, "id_emoji": id_emoji, "status": "draft"},
+            stage=True,
+        )
+        rdf_bytes = set_rdf_ids(rdf_path.read_text(encoding="utf-8"), short_id, id_emoji).encode("utf-8")
+        print(f"  id: {short_id}  id_emoji: {id_emoji}")
 
         # Upload every file in the package (skip build junk).
         files = [
@@ -132,10 +192,8 @@ async def upload_model(package_dir: str, token: str) -> str:
                     file_path=rel_path,
                     download_weight=weight,
                 )
-                with open(file_path, "rb") as fobj:
-                    resp = await client.put(
-                        put_url, content=fobj.read(), headers={"Content-Type": ""}
-                    )
+                content = rdf_bytes if file_path == rdf_path else file_path.read_bytes()
+                resp = await client.put(put_url, content=content, headers={"Content-Type": ""})
                 resp.raise_for_status()
                 print(f"  uploaded {rel_path}")
 

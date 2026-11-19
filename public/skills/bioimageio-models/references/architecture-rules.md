@@ -33,14 +33,26 @@ The BioEngine model runner **serves inference** from a Ray Serve
 deployment with a **fixed set of pre-installed packages**. For the
 `infer()` path there is no per-model install and no way to add
 packages — your architecture file must run against only this set
-(kept in sync with
-`apps/model-runner/requirements-runtime.txt`):
+(as of 2026-11-14):
 
 ```
-torch==2.5.1          torchvision==0.20.1   numpy==1.26.4
-tensorflow==2.16.1    bioimageio.core==0.10.4  onnxruntime==1.20.1
-careamics==0.0.16     cellpose==3.1.1.2     stardist==0.9.1
-xarray==2025.1.2      timm==1.0.27
+torch==2.7.1          torchvision==0.22.1   numpy==1.26.4
+bioimageio.core==0.11.0  bioimageio.spec==0.5.12.0
+tensorflow==2.16.1    onnxruntime==1.20.1   timm==1.0.27
+careamics==0.0.16     cellpose==4.2.1.1     stardist==0.9.1
+xarray==2025.1.2      scikit-image==0.25.2
+segment-anything, MobileSAM, dinov3  (pinned git commits)
+```
+
+The authoritative list is
+[`apps/model-runner/requirements-runtime.txt`](https://github.com/aicell-lab/bioengine/blob/main/apps/model-runner/requirements-runtime.txt)
+in `aicell-lab/bioengine`. If it differs from the block above, the file
+wins. Build your local test env from the same core/spec/torch pins, so
+the local `bioimageio test` validates and runs the package the way the
+remote one does:
+
+```bash
+pip install "bioimageio.core==0.11.0" "bioimageio.spec==0.5.12.0" "torch==2.7.1" "numpy==1.26.4"
 ```
 
 (The **test** path can additionally build a per-model conda env — see
@@ -130,7 +142,7 @@ library into the package instead.
      - python=3.11
      - pip
      - pip:
-         - bioimageio.core==0.10.4
+         - bioimageio.core==0.11.0
          - torch==2.7.1
          - torchvision==0.22.1
          - cellpose==4.2.1.1
