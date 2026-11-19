@@ -103,14 +103,38 @@ export const getStepShape = (inputSpec) => {
     });
   }
   
-  // Format where axes is a string and shape is a direct array
+  // Format where axes is a string and shape is a direct array: an explicit shape is a
+  // fixed one, so every axis gets step 0. Only space axes are then treated as fixed (see
+  // SPACE_AXES), so batch and channel keep whatever extent the image has.
   if (typeof inputSpec.axes === 'string' && Array.isArray(inputSpec.shape)) {
-    // Return array of 1s (default step size) with same length as shape
-    return inputSpec.shape.map(() => 1);
+    return inputSpec.shape.map(() => 0);
   }
   
   return null;
 };
+
+// Axis letters that carry a spatial extent. Only these can be FIXED in the sense the tiler
+// and padder act on: v0.4 RDFs also put step 0 on batch and channel, and that means "take
+// what the image has", not "force this extent".
+const SPACE_AXES = 'xyz';
+
+/** Per-axis booleans: true where the input axis is a space axis with a fixed extent. */
+export const getFixedAxisMask = (inputSpec) => {
+  const axes = parseAxes(inputSpec);
+  const stepShape = getStepShape(inputSpec);
+  if (!axes || !stepShape) return null;
+  return axes.split('').map((a, i) => SPACE_AXES.includes(a) && stepShape[i] === 0);
+};
+
+/** The padder that brings an input tensor to a shape the model accepts. */
+export const createInputPadder = (inputSpec) =>
+  new ImgPadder(
+    undefined,
+    getMinShape(inputSpec),
+    getStepShape(inputSpec),
+    0,
+    getFixedAxisMask(inputSpec)
+  );
 
 // Get the data type from spec in both old and new formats
 export const getDataType = (inputSpec) => {
@@ -509,10 +533,10 @@ export class ModelRunnerEngine {
     }, {});
   }
 
-  /** Axis letters the model accepts at exactly one size, e.g. ["y", "x"]. */
+  /** Space axis letters the model accepts at exactly one size, e.g. ["y", "x"]. */
   getFixedAxes() {
     const stepShape = this.getInputStepShape();
-    return Object.keys(stepShape).filter((a) => stepShape[a] === 0);
+    return Object.keys(stepShape).filter((a) => SPACE_AXES.includes(a) && stepShape[a] === 0);
   }
 
   getInputMaxShape() {
@@ -572,22 +596,13 @@ export class ModelRunnerEngine {
     
     let overlaps = {};
     const halo = getHalo(outputSpec); // Use the new helper
-    const fixedAxes = this.getFixedAxes();
-
+    
     if (halo) {
+      // Fixed axes keep the 2*halo overlap too: overlap only shifts tile starts, never a
+      // tile's shape, and ImgTile.merge splits each overlap at its midpoint, so the halo
+      // pixels at every tile edge are discarded and the merged mask has no seams.
       axes.split("").forEach((a, i) => {
-        if (
-          i < halo.length &&
-          parseAxes(outputSpec)?.includes(a) &&
-          a !== "z" &&
-          // On a FIXED axis the tile cannot be enlarged to cover the halo, so every
-          // overlapped pixel is one the model is paid to compute twice while the tile still
-          // only yields its reliable centre. Take no overlap and accept the seam; the merged
-          // mask covers the whole image either way. If seams become a problem this is the
-          // one line to revisit, and it is safe to: overlap shifts tile starts only, it
-          // never changes the tile's shape (see ImgTiler.getTiles).
-          !fixedAxes.includes(a)
-        ) {
+        if (i < halo.length && parseAxes(outputSpec)?.includes(a) && a !== "z") {
           overlaps[a] = 2 * halo[i];
         } else {
           overlaps[a] = 0;
@@ -733,7 +748,7 @@ export class ModelRunnerEngine {
       throw new Error("Invalid input specification");
     }
 
-    let padder = new ImgPadder(undefined, minShape, stepShape, 0);
+    let padder = createInputPadder(inputSpec);
 
     // A fixed axis (step 0) accepts exactly one extent, and padding can only grow an axis,
     // never shrink it. So an image larger than that extent can be run ONLY by tiling it,
@@ -741,7 +756,9 @@ export class ModelRunnerEngine {
     // model used to fail outright on any image bigger than its own input.
     const oversizedFixedAxes = inputAxes
       .split("")
-      .filter((a, i) => stepShape[i] === 0 && tensor.shape[i] > minShape[i]);
+      .filter(
+        (a, i) => SPACE_AXES.includes(a) && stepShape[i] === 0 && tensor.shape[i] > minShape[i]
+      );
     const forceTiling = !enableTiling && oversizedFixedAxes.length > 0;
 
     // Only a flexible model can honour a caller's custom tile geometry; when tiling is

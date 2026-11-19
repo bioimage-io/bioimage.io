@@ -14,9 +14,10 @@ import {
   getMinShape,
   getStepShape,
   getHalo,
+  createInputPadder,
   ModelRunnerEngine,
 } from './modelRun';
-import { ImgPadder, parseAxes, tfjsToImJoy } from './imgProcess';
+import { parseAxes, tfjsToImJoy } from './imgProcess';
 import * as tf from '@tensorflow/tfjs-core';
 
 // --- fixtures: real specs, fetched 2026-11-06 ------------------------------------------
@@ -69,6 +70,21 @@ const OLD_FORMAT_FIXED_INPUT = {
   shape: { min: [1, 1, 256, 256], step: [0, 0, 0, 0] },
 };
 
+// A typical v0.4 FLEXIBLE spec: step 0 on batch and channel means "take what the image
+// has", NOT "this axis is fixed". Only space axes may be treated as fixed.
+const OLD_FORMAT_FLEXIBLE_1CH = {
+  axes: 'bcyx',
+  shape: { min: [1, 1, 64, 64], step: [0, 0, 16, 16] },
+};
+const OLD_FORMAT_FLEXIBLE_3CH = {
+  axes: 'bcyx',
+  shape: { min: [1, 3, 64, 64], step: [0, 0, 16, 16] },
+};
+const OLD_FORMAT_OUTPUT = { axes: 'bcyx', halo: [0, 0, 8, 8] };
+
+// The v0.4 explicit-shape spelling: a plain list is a fixed shape.
+const OLD_FORMAT_PLAIN_LIST = { axes: 'bcyx', shape: [1, 1, 256, 256] };
+
 const engineWith = (input, output) => {
   const engine = new ModelRunnerEngine();
   engine.rdf = { inputs: [input], outputs: [output] };
@@ -105,8 +121,7 @@ describe('getMinShape / getStepShape on a fixed integer axis size', () => {
 // --- the padder, which is what actually has to produce a 256 px tensor ----------------
 
 describe('ImgPadder on a fixed-size model', () => {
-  const padderFor = (input) =>
-    new ImgPadder(undefined, getMinShape(input), getStepShape(input), 0);
+  const padderFor = (input) => createInputPadder(input);
 
   test('pads an undersized image UP to the fixed extent', () => {
     expect(padderFor(FIXED_INPUT).getPaddedShape([1, 3, 200, 200]))
@@ -130,6 +145,23 @@ describe('ImgPadder on a fixed-size model', () => {
   test('old-format fixed model gets the same treatment', () => {
     expect(padderFor(OLD_FORMAT_FIXED_INPUT).getPaddedShape([1, 1, 300, 300]))
       .toEqual([1, 1, 256, 256]);
+  });
+
+  test('v0.4 step 0 on the CHANNEL axis does not force a channel count', () => {
+    // A grayscale image into a 3-channel model must reach the model as 1 channel (and fail
+    // there with a clear error), not be zero-padded to 3 channels.
+    expect(padderFor(OLD_FORMAT_FLEXIBLE_3CH).getPaddedShape([1, 1, 100, 100]))
+      .toEqual([1, 1, 112, 112]);
+    expect(padderFor(OLD_FORMAT_FLEXIBLE_1CH).getPaddedShape([1, 3, 100, 100]))
+      .toEqual([1, 3, 112, 112]);
+  });
+
+  test('v0.4 plain-list shape is fixed on its space axes only', () => {
+    expect(getStepShape(OLD_FORMAT_PLAIN_LIST)).toEqual([0, 0, 0, 0]);
+    expect(padderFor(OLD_FORMAT_PLAIN_LIST).getPaddedShape([1, 1, 200, 300]))
+      .toEqual([1, 1, 256, 256]);
+    expect(padderFor(OLD_FORMAT_PLAIN_LIST).getPaddedShape([1, 3, 200, 200]))
+      .toEqual([1, 3, 256, 256]);
   });
 
   test('control: a flexible model still rounds up to min + k*step', () => {
@@ -161,13 +193,17 @@ describe('default tile geometry', () => {
     expect(tiles.x).toBe(256);
   });
 
-  test('a fixed-size model takes no tile overlap, because the tile cannot grow', () => {
-    // 2*halo would be 64 here. Overlap only shifts tile starts, so it does not break the
-    // fixed extent, but it makes neighbouring tiles overlap for no reachable benefit: the
-    // model's halo cannot be honoured when the tile size is already pinned to the input size.
+  test('a fixed-size model keeps 2*halo overlap, so tile seams fall outside the halo', () => {
+    // Overlap only shifts tile starts, never a tile's shape, and ImgTile.merge splits each
+    // overlap at its midpoint, discarding the unreliable halo pixels at every tile edge.
     const overlaps = engineWith(FIXED_INPUT, FIXED_OUTPUT).getDefaultTileOverlaps();
-    expect(overlaps.y).toBe(0);
-    expect(overlaps.x).toBe(0);
+    expect(overlaps).toEqual({ b: 0, c: 0, y: 64, x: 64 });
+  });
+
+  test('only space axes are reported fixed, never v0.4 step-0 batch or channel', () => {
+    expect(engineWith(FIXED_INPUT, FIXED_OUTPUT).getFixedAxes()).toEqual(['y', 'x']);
+    expect(engineWith(OLD_FORMAT_FLEXIBLE_1CH, OLD_FORMAT_OUTPUT).getFixedAxes()).toEqual([]);
+    expect(engineWith(OLD_FORMAT_PLAIN_LIST, OLD_FORMAT_OUTPUT).getFixedAxes()).toEqual(['y', 'x']);
   });
 
   test('control: a flexible model still gets 2*halo overlap on its space axes only', () => {
@@ -241,6 +277,27 @@ describe('runTiles on a fixed-size model, with the tiling checkbox OFF (the UI d
     const { submitted, shape } = await runWith(FLEXIBLE_INPUT, FLEXIBLE_OUTPUT, [1, 1, 320, 320]);
     expect(submitted).toEqual([[1, 1, 320, 320]]);
     expect(shape).toEqual([1, 1, 320, 320]);
+  });
+
+  test('a large oversized image is tiled at 256 with overlap and merges back to full size', async () => {
+    const { submitted, shape } = await runWith(FIXED_INPUT, FIXED_OUTPUT, [1, 3, 600, 500]);
+    expect(submitted.length).toBeGreaterThan(1);
+    submitted.forEach((s) => expect(s).toEqual([1, 3, 256, 256]));
+    expect(shape).toEqual([1, 3, 600, 500]);
+  });
+
+  test('v0.4 RGB into a 1-channel model is sent once as 3 channels, NOT split per channel', async () => {
+    // Reviewer's case: treating step-0 channel as fixed forced tiling with a channel tile of
+    // 1, ran the model once per colour channel, and showed the stacked result as a success.
+    const { submitted } = await runWith(OLD_FORMAT_FLEXIBLE_1CH, OLD_FORMAT_OUTPUT, [1, 3, 112, 112]);
+    expect(submitted).toEqual([[1, 3, 112, 112]]);
+  });
+
+  test('v0.4 plain-list fixed model: an oversized image is tiled at exactly 256', async () => {
+    const { submitted, shape } = await runWith(OLD_FORMAT_PLAIN_LIST, OLD_FORMAT_OUTPUT, [1, 1, 300, 300]);
+    expect(submitted.length).toBeGreaterThan(1);
+    submitted.forEach((s) => expect(s).toEqual([1, 1, 256, 256]));
+    expect(shape).toEqual([1, 1, 300, 300]);
   });
 
   test('control: a flexible model whose size is not a step multiple is padded, still once', async () => {

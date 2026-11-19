@@ -345,6 +345,9 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
       let tileSizes = runner.getDefaultTileSizes();
       const tileOverlaps = runner.getDefaultTileOverlaps();
       
+      // Shown ahead of every progress message, so the progress updates do not replace it.
+      let tileSizeNote = '';
+
       // Override tile sizes if tiling is enabled and custom size is set
       if (tilingEnabled && tileSize > 0) {
         // A fixed axis accepts exactly one extent, so a custom tile size on it produces a
@@ -361,10 +364,10 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
           }
         }
         if (ignored.length > 0) {
-          setInfoPanel(
-            `This model only accepts a fixed input size, so the custom tile size was not applied. Tiles of ${tileSizes.y} by ${tileSizes.x} pixels will be used instead.`,
-            true
-          );
+          const applied = ['y', 'x'].filter(a => a in tileSizes && !ignored.includes(a));
+          tileSizeNote = applied.length > 0
+            ? `This model has a fixed size along ${ignored.join(' and ')}, so the custom tile size was applied only along ${applied.join(' and ')}. Tiles are ${tileSizes.y} by ${tileSizes.x} pixels.`
+            : `This model only accepts a fixed input size, so the custom tile size was not applied. Tiles are ${tileSizes.y} by ${tileSizes.x} pixels.`;
         }
       }
       
@@ -383,7 +386,7 @@ const ModelRunner: React.FC<ModelRunnerProps> = ({
         parametersStore.tileSizes,
         parametersStore.tileOverlaps,
         parametersStore.additionalParameters,
-        (msg: string) => setInfoPanel(msg, true),
+        (msg: string) => setInfoPanel(tileSizeNote ? `${tileSizeNote} ${msg}` : msg, true),
         tilingEnabled,
         (status: InferProgress) => {
           setInferProgress({

@@ -447,11 +447,17 @@ export async function getNpyEndianness(url) {
 }
 
 export class ImgPadder {
-  constructor(fixedPaddedShape, padMin, padStep, padValue = 0) {
+  /**
+   * @param fixedAxisMask optional per-axis booleans. A step-0 axis marked true is a FIXED
+   *   space axis and is padded to exactly padMin[d]. A step-0 axis NOT marked (v0.4 RDFs put
+   *   step 0 on batch and channel too) keeps the tensor's own extent, as it always did.
+   */
+  constructor(fixedPaddedShape, padMin, padStep, padValue = 0, fixedAxisMask = undefined) {
     this.fixedPaddedShape = fixedPaddedShape;
     this.padMin = padMin;
     this.padStep = padStep;
     this.padValue = padValue;
+    this.fixedAxisMask = fixedAxisMask;
   }
 
   getPaddedShape(shape) {
@@ -465,13 +471,18 @@ export class ImgPadder {
       const min = this.padMin;
       const step = this.padStep;
       for (let d = 0; d < shape.length; d++) {
-        if (step[d] === 0) {
-          // A step of 0 means the axis is FIXED, so min[d] is the only extent the model
-          // accepts and therefore the only legal padded shape. Pushing shape[d] here made
-          // the padder an exact no-op on every fixed axis: an undersized tensor was never
-          // padded up, and an oversized one was handed to the model untouched, which is
-          // what produced "Input height (N) doesn't match model (256)".
+        if (step[d] === 0 && this.fixedAxisMask && this.fixedAxisMask[d]) {
+          // A FIXED space axis: min[d] is the only extent the model accepts and therefore
+          // the only legal padded shape. Pushing shape[d] here made the padder an exact no-op
+          // on every fixed axis: an undersized tensor was never padded up, and an oversized
+          // one was handed to the model untouched, which is what produced
+          // "Input height (N) doesn't match model (256)".
           paddedShape.push(min[d]);
+        } else if (step[d] === 0) {
+          // Step 0 on a batch or channel axis (the v0.4 convention) is not a size the
+          // padder may impose: padding a grayscale image to 3 channels, or splitting an RGB
+          // one per channel, would hand the model something the user never supplied.
+          paddedShape.push(shape[d]);
         } else {
           const pad = Math.max(
             0,
