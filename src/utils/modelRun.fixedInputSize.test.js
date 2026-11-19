@@ -1,4 +1,4 @@
-// Regression tests for #0259: every fixed-input-size model in the Zoo fails its own
+// Regression tests: every fixed-input-size model in the Zoo failed its own
 // "Test Run Model" in the browser.
 //
 // The discriminator is NOT fixed-vs-flexible and NOT old-vs-new RDF format. It is whether a
@@ -385,8 +385,8 @@ describe('runTiles on a fixed-size model, with the tiling checkbox OFF (the UI d
 
 describe('getHalo', () => {
   test('returns one entry per axis, zero-filled on non-space axes', () => {
-    // Recorded because a peer diagnosis held that getHalo returns one entry per SPACE axis
-    // (length 2) and is therefore misindexed by its caller. It does not: the new-format branch
+    // Pins that getHalo does NOT return one entry per SPACE axis (length 2), which would be
+    // misindexed by its caller: the new-format branch
     // pushes 0 for every non-space axis, so the result is full length and correctly aligned.
     expect(getHalo(FIXED_OUTPUT)).toEqual([0, 0, 32, 32]);
     expect(getHalo(FLEXIBLE_OUTPUT)).toEqual([0, 0, 16, 16]);

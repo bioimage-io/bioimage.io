@@ -1,7 +1,7 @@
 import { test, expect } from '@playwright/test';
 import { BASE_URL } from './baseUrl';
 
-// Verifies the fix for #0259: a model declaring a FIXED input extent (`size: 256` as a plain
+// Verifies that a model declaring a FIXED input extent (`size: 256` as a plain
 // integer on its space axes, rather than `{min, step}`) can be run from "Test Run Model".
 //
 // Before the fix, getMinShape/getStepShape read that integer as a min of 1 and a step of 1,
