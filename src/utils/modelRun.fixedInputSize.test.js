@@ -342,6 +342,39 @@ describe('runTiles on a fixed-size model, with the tiling checkbox OFF (the UI d
     expect(shape).toEqual([1, 3, 256, 300]);
   });
 
+  test('a fixed-size CLASSIFIER refuses an oversized image instead of answering for one tile', async () => {
+    const classOut = { axes: [{ type: 'batch' }, { type: 'channel', channel_names: ['a', 'b'] }] };
+    const engine = engineWith(FIXED_INPUT, classOut);
+    let calls = 0;
+    engine.submitTensor = async (t) => { calls++; return tfjsToImJoy(t, false, 'float32'); };
+    await expect(
+      engine.runTiles(tf.ones([1, 3, 500, 500]), FIXED_INPUT, classOut,
+        engine.getDefaultTileSizes(), engine.getDefaultTileOverlaps(), undefined, () => {}, false)
+    ).rejects.toThrow('This model only accepts images of 256 by 256 pixels.');
+    expect(calls).toBe(0);
+  });
+
+  test('forced tiling keeps a flexible z axis whole and tiles only the fixed axes', async () => {
+    const input3d = {
+      shape: null,
+      axes: [
+        { type: 'batch', size: 1 },
+        { type: 'channel', channel_names: ['c0'] },
+        { size: { min: 8, step: 4 }, id: 'z', type: 'space' },
+        { size: 128, id: 'y', type: 'space' },
+        { size: 128, id: 'x', type: 'space' },
+      ],
+    };
+    const output3d = {
+      halo: null,
+      axes: input3d.axes.map((a) => (a.type === 'space' ? { ...a, halo: 0, size: { tensor_id: 'input0', axis_id: a.id, offset: 0 } } : a)),
+    };
+    const { submitted, shape } = await runWith(input3d, output3d, [1, 1, 20, 200, 200]);
+    expect(submitted.length).toBe(4);
+    submitted.forEach((s) => expect(s).toEqual([1, 1, 20, 128, 128]));
+    expect(shape).toEqual([1, 1, 20, 200, 200]);
+  });
+
   test('control: a flexible model whose size is not a step multiple is padded, still once', async () => {
     // 100 -> 112, i.e. min 64 + 3*16, then cropped back to 100.
     const { submitted, shape } = await runWith(FLEXIBLE_INPUT, FLEXIBLE_OUTPUT, [1, 1, 100, 100]);

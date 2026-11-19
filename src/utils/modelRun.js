@@ -759,6 +759,18 @@ export class ModelRunnerEngine {
       .filter(
         (a, i) => SPACE_AXES.includes(a) && stepShape[i] === 0 && tensor.shape[i] > minShape[i]
       );
+    // Tiles can only be stitched back together when the output is an image. A classifier
+    // with a fixed input would merge to the result of one tile, so refuse instead.
+    if (!enableTiling && oversizedFixedAxes.length > 0 && !checkImg2Img(outputSpec)) {
+      const fixedSize = inputAxes
+        .split("")
+        .map((a, i) => (SPACE_AXES.includes(a) && stepShape[i] === 0 ? minShape[i] : null))
+        .filter((v) => v !== null)
+        .join(" by ");
+      throw new Error(
+        `This model only accepts images of ${fixedSize} pixels. Crop or resize the image to that size and run it again.`
+      );
+    }
     const forceTiling = !enableTiling && oversizedFixedAxes.length > 0;
 
     // Only a flexible model can honour a caller's custom tile geometry; when tiling is
@@ -766,7 +778,13 @@ export class ModelRunnerEngine {
     let effectiveTileSizes = tileSizes;
     let effectiveTileOverlaps = tileOverlaps;
     if (forceTiling) {
-      effectiveTileSizes = this.getDefaultTileSizes();
+      // Tile only the fixed axes. A flexible space axis (e.g. z on a 3D model) stays whole,
+      // so the model still sees the full extent there rather than minimum-size slabs.
+      const defaults = this.getDefaultTileSizes();
+      effectiveTileSizes = {};
+      inputAxes.split("").forEach((a, i) => {
+        effectiveTileSizes[a] = stepShape[i] === 0 ? defaults[a] : tensor.shape[i];
+      });
       effectiveTileOverlaps = this.getDefaultTileOverlaps();
       console.log(
         "Tiling forced, fixed input axes exceeded:",
