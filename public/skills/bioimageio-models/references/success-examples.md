@@ -482,8 +482,8 @@ weights:
    pre-change files). Reviewers read the manifest. Always follow a file change with an
    `am.edit(…, stage=True, manifest=…)` that **merges** the regenerated `rdf.yaml` onto
    the current staged record (`{**staged["manifest"], **rdf}`) rather than replacing it,
-   since the record also carries server-assigned fields such as `status`, `id` and
-   `id_emoji` that never appear in `rdf.yaml`. Then assert the shipped RDF is a
+   since the record also carries fields such as `status`, `id` and `id_emoji` that
+   never appear in the local `rdf.yaml` (`id` / `id_emoji` are set at upload). Then assert the shipped RDF is a
    *subset* of the stored manifest before requesting review — not equality, which those
    same extra fields would always fail.
 

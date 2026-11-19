@@ -45,7 +45,7 @@ async def submit_for_review(artifact_id: str, token: str) -> None:
 
         # Read the CURRENT staged manifest so we preserve any edits and only
         # touch `status`. (Reading from Hypha, not from a local rdf.yaml, avoids
-        # clobbering server-side manifest fields like id/id_emoji.)
+        # clobbering manifest fields set at upload, like id/id_emoji.)
         artifact = await am.read(artifact_id=artifact_id, stage=True)
         manifest = dict(artifact.get("manifest") or {})
         current = manifest.get("status")
