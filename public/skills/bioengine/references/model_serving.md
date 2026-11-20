@@ -78,10 +78,20 @@ it at deploy time via `deploy_app(scaling={...})`.
 > in fact, which is why the numbers in `bioengine cluster status` are capacity planning rather
 > than truth — read `nvidia-smi` on the node when it matters.
 >
-> **Over-requesting VRAM hangs instead of failing.** CPU and RAM over-requests reach
-> `DEPLOY_FAILED` in about 9 seconds. A VRAM over-request is unschedulable rather than
-> invalid, so the replica sits in `DEPLOYING` with no timeout (measured at 10.8 minutes).
-> Put a wall-clock deadline on every GPU deploy wait.
+> **A GPU over-request may hang or may be refused, and which one depends on the CLUSTER.**
+> CPU and RAM over-requests reach `DEPLOY_FAILED` in about 9 seconds. For VRAM, `builder.py`
+> branches on whether the cluster advertises a `VRAM_MB` resource. If it does, your
+> `gpu_memory_mb` becomes a `VRAM_MB` request with **no deploy-time check**, and an
+> over-request pends — that is the 10.8-minute `DEPLOYING` hang recorded here, still
+> reachable. If it does not, sizing falls back to a GPU fraction and that path refuses up
+> front since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster
+> (M MB)"*. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and so do
+> **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node; a multi-GPU
+> node deliberately does not, because a node-level sum would let a replica claim more than
+> any one device has. And on an elastic (SLURM) cluster **before any GPU node has reported
+> in**, no smallest-GPU size is known, so that also skips the check and the request pends. From worker 0.16.121, `get_app_status` reports a replica no node can
+> hold as `deployments.<name>.unschedulable` with a `placement_shortfall` naming the
+> resource. Put a wall-clock deadline on every GPU deploy wait regardless.
 
 ### Sizing the number
 

@@ -663,7 +663,47 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 
 **That state machine describes a *first* deploy only.** An app you are updating is already `RUNNING`, so a "poll until terminal state" loop exits on the first poll and reports success on whatever replica is live — stale or not. For updates, ignore `status` and confirm behaviourally (see [Live test cycle](#live-test-cycle)).
 
-**And `DEPLOYING` is not guaranteed to be transient.** A replica asking for more VRAM than any device can give is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` (measured at 10.8 minutes before manual intervention), while the same over-request on CPU or RAM fails in about 9 seconds. Every wait loop needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
+**And `DEPLOYING` is not guaranteed to be transient.** A replica Ray cannot place is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` — measured at 10.8 minutes before manual intervention. **Whether an over-request is refused or queues depends on the cluster, not on the mode**, and every outcome below is live. `builder.py`'s GPU sizing has **three** cases, and only the last one checks anything at deploy time:
+
+* **`VRAM_MB` advertised** — your `gpu_memory_mb` becomes a `VRAM_MB` resource request and there is **no deploy-time check**. An over-request pends in Ray, which is the 10.8-minute `DEPLOYING` hang above: still reachable. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and so do **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node. A **multi-GPU** node deliberately does not — a node-level sum would let a replica claim more than any one device has.
+* **No GPU node has reported in yet on an elastic (SLURM) cluster** — no smallest-GPU size is known, so this also takes the no-check path. Submitting before the first GPU worker starts means an impossible request pends rather than being refused.
+* **`VRAM_MB` not advertised**, with a smallest-GPU size known — sizing falls back to a GPU fraction, and *that* path refuses at deploy time since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster (M MB)"*.
+
+A CPU or RAM over-request fails in about 9 seconds either way. And what queues indefinitely on any cluster is a requirement that **does** fit some node and that no node can satisfy right now — contention, a node lost, or a cluster still growing. Since 0.16.121 `get_app_status` names that directly: see [unschedulable and placement_shortfall](#unschedulable-and-placement_shortfall). Every wait loop still needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
+
+#### `unschedulable` and `placement_shortfall`
+
+Per deployment in `get_app_status`, from worker 0.16.121:
+
+```jsonc
+"deployments": {
+  "MyApp": {
+    "status": "UPSCALING",          // identical for a stuck deployment and one waking up
+    "replica_states": {},           // also identical — so neither field separates them
+    "unschedulable": true,
+    "placement_shortfall": { "VRAM_MB": { "required": 80000, "largest_node": 24000 } }
+  }
+}
+```
+
+Both keys are always present, so you never have to tell an absent key from a `false` one.
+
+**Why it exists.** A deployment whose replicas cannot be placed and one waking from
+`min_replicas: 0` are *both* `UPSCALING` at zero `RUNNING` replicas, with identical
+`replica_states`. Before this there was nothing to read.
+
+**Two limits, both deliberate.**
+
+- `unschedulable: false` is **not** a guarantee of placeability. A requirement in a resource
+  with no counterpart in the node status — an accelerator label — is reported as no shortfall
+  rather than guessed at.
+- On a cluster that can grow a **bigger node** than any it currently has, a replica the
+  autoscaler would eventually place reads `unschedulable: true` while it grows. The comparison
+  is against the largest node that exists now.
+
+`placement_shortfall` compares against the largest **single** node, because a replica is one
+actor and has to fit on one node: two 24 GB cards on two nodes do not serve one 40 GB replica.
+
 
 > **`bioengine apps status --json` response shape.** The top-level dict is keyed by **app id** (not flat). The real payload carries about 27 keys per app; these are the ones worth knowing:
 > ```json
@@ -855,7 +895,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `ModuleNotFoundError` at import | Add to `runtime_env.pip`; import inside method |
 | numpy array over RPC error | Call `.tolist()` before returning |
 | `ModuleNotFoundError: No module named 'torch'` **on the client**, not the worker | You returned a third-party type across the Hypha boundary (classically `torch.__version__`, a `str` subclass). Coerce to a builtin at the return statement: `str(...)`, `float(...)`, `.tolist()` |
-| App stuck in `DEPLOYING` for minutes with no error | You asked for more `gpu_memory_mb` than any device has. It is unschedulable, not invalid, so it never reaches `DEPLOY_FAILED`. Lower the request; put a deadline on the wait loop |
+| App stuck in `DEPLOYING` for minutes with no error | Two causes, and `get_app_status` tells them apart. If the cluster advertises `VRAM_MB`, an over-request is **not** refused at deploy time and simply pends — lower `gpu_memory_mb`. If it does not, `deploy_app` would have refused it up front, so a hang means a requirement that **does** fit some node and that no node can satisfy right now. Either way read `deployments.<name>.unschedulable` and `placement_shortfall`, which name the resource falling short against the largest single node. Put a deadline on the wait loop regardless |
 | `Insufficient resources` printing the whole request dict | It does not name which resource was short. Change one of `num_cpus` / `memory_mb` / `gpu_memory_mb` at a time and re-read `bioengine cluster status` |
 | GPU utilisation reads 0% during a call that clearly ran | NVML averages over ~1 s, so a sub-second call is invisible. Assert on `tensor.device.type == "cuda"` instead of on utilisation |
 | First request far slower than steady state with weights already loaded | CUDA context + kernel autotuning, not model loading. Run one throwaway forward pass at a realistic shape in `async_init` |
