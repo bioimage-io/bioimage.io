@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useCallback, useRef } from 'react';
 import { Link } from 'react-router-dom';
 
 const footerLinks = [
@@ -19,6 +19,12 @@ const footerLinks = [
     href: "https://forms.gle/CA1yK4pUKMqBPtso8",
     icon: "/static/img/feedback-icon.png",
     caption: "Feedback Form"
+  },
+  {
+    label: "This is an approved de.NBI service. Please help us improve by taking our short user survey.",
+    href: "https://de.surveymonkey.com/r/denbi-service?sc=hd-hub&tool=bioimage.io",
+    icon: "/static/img/denbi-logo-color.svg",
+    caption: "de.NBI Survey"
   },
   {
     label: "Join our weekly community meetings every Wednesday 4PM CET",
@@ -44,6 +50,53 @@ const footerLinks = [
 const Footer: React.FC = () => {
   const [showMeetingDialog, setShowMeetingDialog] = React.useState(false);
 
+  // WHICH hover text is visible, as one value rather than as a CSS coincidence.
+  //
+  // Two CSS variants were tried here and both leaked a second hover text.
+  // group-focus-within fired on a mouse click, and group-has-[:focus-visible]
+  // looked right until you notice that :focus-visible is not a property of how
+  // focus ARRIVED: Chromium turns it on for the already-focused element the
+  // moment any key is pressed. So clicking a card, pressing a scroll key, then
+  // pointing at a second card showed both.
+  //
+  // One index, or null, makes "exactly one" true by construction instead of
+  // emergent from several independent selectors. Pointing at a card always wins
+  // over focus, because setting the index is the last thing that happens.
+  const [activeTip, setActiveTip] = React.useState<number | null>(null);
+
+  const showTip = useCallback((index: number) => {
+    setActiveTip(index);
+  }, []);
+
+  const hideTip = useCallback((index: number) => {
+    setActiveTip((current) => (current === index ? null : current));
+  }, []);
+
+  // Keep a hover text inside the viewport.
+  //
+  // The tooltip is centred on its own card, so a wide one over a card near the
+  // screen edge hangs off it. No max-width alone fixes that: at 375 the cards
+  // sit two to a row, and a tooltip centred on the left card overflows to the
+  // left however narrow it is. So measure the rendered box and shift it back by
+  // however much it sticks out, which is the only thing that holds at every
+  // width and for every label length.
+  const tipRefs = useRef<Array<HTMLDivElement | null>>([]);
+
+  const clampTip = useCallback((index: number) => {
+    const tip = tipRefs.current[index];
+    if (!tip) return;
+    tip.style.transform = "translateX(-50%)";      // start from centred
+    const margin = 8;
+    const box = tip.getBoundingClientRect();
+    let shift = 0;
+    if (box.left < margin) {
+      shift = margin - box.left;
+    } else if (box.right > window.innerWidth - margin) {
+      shift = (window.innerWidth - margin) - box.right;
+    }
+    tip.style.transform = `translateX(calc(-50% + ${Math.round(shift)}px))`;
+  }, []);
+
   const handleLinkClick = (link: typeof footerLinks[0], event: React.MouseEvent) => {
     if (link.isDialog) {
       event.preventDefault();
@@ -59,12 +112,19 @@ const Footer: React.FC = () => {
           <div className="flex flex-wrap justify-center items-start gap-6 mb-12">
             {footerLinks.map((link, index) => (
               <div key={index} className="w-36 sm:w-44 text-center flex-shrink-0">
-                <div className="group relative h-full" title={link.label}>
+                <div
+                  className="group relative h-full"
+                  onMouseEnter={() => { showTip(index); clampTip(index); }}
+                  onMouseLeave={() => hideTip(index)}
+                  onFocus={() => { showTip(index); clampTip(index); }}
+                  onBlur={() => hideTip(index)}
+                >
                   <a
                     href={link.href}
                     target={link.isDialog ? undefined : "_blank"}
                     rel={link.isDialog ? undefined : "noopener noreferrer"}
                     onClick={(event) => handleLinkClick(link, event)}
+                    aria-describedby={`footer-tip-${index}`}
                     className="block w-full h-full p-4 rounded-2xl bg-white/60 backdrop-blur-sm border border-white/50 hover:bg-white/80 hover:border-blue-200/60 hover:shadow-lg transition-all duration-300 hover:scale-105 hover:-translate-y-1 cursor-pointer"
                   >
                     <figure className="flex flex-col items-center">
@@ -78,8 +138,14 @@ const Footer: React.FC = () => {
                       </figcaption>
                     </figure>
                   </a>
-                  <div className="opacity-0 group-hover:opacity-100 transition-opacity absolute bottom-full left-1/2 -translate-x-1/2 mb-3 px-4 py-3 bg-gray-900/90 backdrop-blur-sm text-white text-xs rounded-xl shadow-xl whitespace-nowrap z-10 border border-gray-700/50">
-                    {link.label}
+                  <div
+                    ref={(node) => { tipRefs.current[index] = node; }}
+                    id={`footer-tip-${index}`}
+                    role="tooltip"
+                    style={{ transform: "translateX(-50%)" }}
+                    className={`${activeTip === index ? "opacity-100" : "opacity-0"} transition-opacity pointer-events-none absolute bottom-full left-1/2 mb-3 px-4 py-3 bg-gray-900/90 backdrop-blur-sm text-white text-xs rounded-xl shadow-xl w-max max-w-[min(20rem,calc(100vw-2rem))] whitespace-normal text-left leading-snug z-10 border border-gray-700/50`}
+                  >
+                    <span data-tip-text>{link.label}</span>
                     <div className="absolute top-full left-1/2 transform -translate-x-1/2 border-4 border-transparent border-t-gray-900/90"/>
                   </div>
                 </div>
