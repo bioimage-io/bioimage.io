@@ -85,8 +85,11 @@ it at deploy time via `deploy_app(scaling={...})`.
 > over-request pends — that is the 10.8-minute `DEPLOYING` hang recorded here, still
 > reachable. If it does not, sizing falls back to a GPU fraction and that path refuses up
 > front since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster
-> (M MB)"*. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and SLURM
-> workers advertise it. From worker 0.16.121, `get_app_status` reports a replica no node can
+> (M MB)"*. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and so do
+> **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node; a multi-GPU
+> node deliberately does not, because a node-level sum would let a replica claim more than
+> any one device has. And on an elastic (SLURM) cluster **before any GPU node has reported
+> in**, no smallest-GPU size is known, so that also skips the check and the request pends. From worker 0.16.121, `get_app_status` reports a replica no node can
 > hold as `deployments.<name>.unschedulable` with a `placement_shortfall` naming the
 > resource. Put a wall-clock deadline on every GPU deploy wait regardless.
 
