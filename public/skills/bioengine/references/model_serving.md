@@ -100,7 +100,10 @@ it at deploy time via `deploy_app(scaling={...})`.
 > `VRAM_MB` request with no deploy-time check, and it pends. When a worker joins it is
 > compared against that worker's GPU: a request that fits starts, and one that does not
 > hangs indefinitely with a non-zero `largest_node` in the shortfall. The cold-start wait
-> and the permanent over-request look identical until that field is non-zero.
+> and the permanent over-request are told apart by `largest_node`: before any worker joins,
+> SLURM excludes the head from node status so both fields read `false` and `{}`; a worker
+> that advertises no `VRAM_MB` reads `true` with `largest_node: 0`; and an over-request
+> against a worker that did advertise reads `true` with that worker's size.
 > From worker 0.16.121, `get_app_status` reports a replica no node can
 > hold as `deployments.<name>.unschedulable` with a `placement_shortfall` naming the
 > resource. Put a wall-clock deadline on every GPU deploy wait regardless.
