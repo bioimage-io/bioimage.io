@@ -100,7 +100,7 @@ it at deploy time via `deploy_app(scaling={...})`.
 > `VRAM_MB` request with no deploy-time check, and it pends. When a worker joins it is
 > compared against that worker's GPU: a request that fits starts, and one that does not
 > hangs indefinitely with a non-zero `largest_node` in the shortfall. The cold-start wait
-> and the permanent over-request are told apart by `largest_node`: before any worker joins,
+> and the permanent over-request are told apart by the two fields together, not by `largest_node` alone: before any worker joins,
 > SLURM excludes the head from node status so both fields read `false` and `{}`; a worker
 > that advertises no `VRAM_MB` reads `true` with `largest_node: 0`; and an over-request
 > against a worker that did advertise reads `true` with that worker's size.
