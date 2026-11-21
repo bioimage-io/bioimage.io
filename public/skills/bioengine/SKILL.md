@@ -709,6 +709,9 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > Two ways to get this wrong, and the second is the dangerous one. Slicing the outer dict as if it were text raises `TypeError: unhashable type: 'slice'`, which at least tells you. Iterating a replica value directly yields its **keys** — you print `creation_timestamp`, `timezone`, `stdout`, `stderr`, and on a dead replica `death_cause` too, and read them as log lines, with no error at all. Count on the key *names*, never on how many there are: the set grew by one in 0.16.65 and may grow again. Reach the lists explicitly:
 > ```python
 > for replica_id, rec in dep.get("logs", {}).items():
+>     if not isinstance(rec, dict):      # the `error` entry is a plain string
+>         print(f"--- {replica_id}: {rec}")
+>         continue
 >     lines = rec.get("stdout", []) + rec.get("stderr", [])
 >     print(f"--- {replica_id}")
 >     print("\n".join(lines[-50:]))
@@ -725,6 +728,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > ```python
 > for replica_id, rec in dep.get("logs", {}).items():
+>     if not isinstance(rec, dict):
+>         continue
 >     cause = rec.get("death_cause")          # absent or None on a live replica
 >     if cause:
 >         print(f"{replica_id} died: {cause['reason']} — {cause['message']}")
@@ -732,17 +737,37 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > `None` and absent both mean "no cause to report", and they are **not** the same as healthy: Ray returns no cause for a live actor *and* for a dead one the GCS has already evicted, so a dead replica you ask about too late looks exactly like a live one. Use the replica's presence in `get_deployment_replicas` to tell those apart, not `death_cause`. Against a worker older than 0.16.65 the key is simply absent, so `rec.get("death_cause")` is the safe read and a `KeyError` means you indexed it instead.
 >
-> **The timestamps inside those log lines are not UTC — and `timezone`, which tells you the zone, is NOT always there.** When a replica record carries `timezone` (e.g. `"CET"`) it names the zone of the timestamps *within* `stdout`/`stderr`, not UTC. Apply it before comparing them to a clock: the shift is the offset, and its direction follows the offset's sign, so for a zone ahead of UTC the lines land in the future and an "age" computed from them can come out **negative** — which any `age >= threshold` check then reports as "nothing happened recently". Measured: a line two minutes old read as minus 52 minutes against `datetime.utcnow()`, and a 30-minute quiet check passed on it. Prefer `creation_timestamp` when you want arithmetic; it is a plain epoch value.
+> **The timestamps inside those log lines are not UTC — and `timezone`, which tells you the zone, is NOT always there.** When a replica record carries `timezone` (e.g. `"CET"`) it names the zone of the timestamps *within* `stdout`/`stderr`, not UTC. Apply it before comparing them to a clock: the shift is the offset, and its direction follows the offset's sign. Measured on a de.NBI replica logging in `CET`: a line about 9 minutes old gave an age of **minus 51.9 minutes** against `datetime.utcnow()`.
 >
-> **The key is conditional, so do not default it to UTC.** It is attached only when the replica's zone is known. Two entries never carry it, and the second needs no unusual arguments: the `{"error": "<message>"}` entry when log retrieval failed, and every abnormally dead replica at the default `n_previous_replica=0`, which is `{"stdout": [], "stderr": [], "death_cause": ..., "logs_omitted": True}`. So any deployment with a crashed replica hands you a zone-less entry on default arguments.
+> **Both directions are wrong, and only one of them is loud.** A zone *ahead* of UTC puts the lines in the future, so the age goes negative and an `age >= threshold` test is simply False — the check reports "something happened recently" and refuses to proceed. Annoying, but safe. A zone *behind* UTC inflates the age instead, and that is the dangerous one: the check reports "quiet" for traffic that is minutes old. **So treat a negative age as a could-not-run rather than a verdict** — it is the signal that the zone was never applied, and the same bug is silently inflating ages the other way for any replica west of UTC. Prefer `creation_timestamp` when you want arithmetic; it is a plain epoch value.
 >
-> **And not every value under `logs` is a replica record.** The `error` entry above is a plain string, so a loop that indexes every value as a dict raises on it — guard with `isinstance(rec, dict)` as the snippet does.
+> **The key is conditional, so do not default it to UTC.** The worker attaches it only `if timezone is not None`, and **four** shapes arrive without it — none of them needing unusual arguments:
 >
-> **Two fields sit BESIDE `logs`, not inside it, and BOTH are conditional:** `deployments[<name>]["deliberately_stopped_replicas"]` and `deployments[<name>]["death_causes_unavailable"]`. Read both with `.get`. The worker lifts the first out of the logs map before returning, precisely so a caller iterating `logs` never meets an int where a record belongs — so look for it as a sibling, not as an entry. (The proxy's own `get_deployment_logs` does still carry it inside the map as `_deliberately_stopped_replicas`, but `bioengine apps status` / `get_app_status` never shows you that form.) `death_causes_unavailable` exists so "no deaths shown" cannot be read as "nothing died": an empty answer and an unanswered question are different, and this key is the only thing that tells them apart. **Be precise about what is missing when it is set**, because the plausible reading is the wrong one: the lookup failure returns before anything is counted or listed, so the dead replicas are **absent from `logs` altogether** rather than listed without a reason. Hunting for entries with no cause finds nothing and reads as "no dead replicas".
+> | zone-less shape | when |
+> |---|---|
+> | `{"stdout": [], "stderr": [], "death_cause": ..., "logs_omitted": True}` | every abnormally dead replica at the default `n_previous_replica=0` |
+> | `{"stdout": [], "stderr": ["Error retrieving logs: ..."]}` | a replica whose log fetch raised — live or dead |
+> | a normal record with no `timezone` | a replica registered with no zone in its metadata |
+> | `{"error": "<message>"}` | see below: this one is **not** an entry |
 >
-> **An ABSENT count does not mean "none stopped".** It is a summary produced only on the DEFAULT `--logs`/`n_previous_replica=0` query, and only when the death-cause lookup succeeded. Ask for previous replicas — `n_previous_replica` at the top level or as a per-deployment override — and no count is emitted at all; stopped replicas may instead turn up as `logs` entries carrying `death_cause` with reason `RAY_KILL`. So read an absent count as **"none, or not counted on this query"**. A deployment scaled down thirty times, queried with `n_previous_replica=3`, reports no count whatsoever.
+> So any deployment with a crashed replica hands you a zone-less entry on default arguments, and "it has `stdout`, so it must have `timezone`" is false.
 >
-> **And do not count those `RAY_KILL` entries to make up for it.** What `n_previous_replica` bounds is a **page over ALL dead replicas, of any cause** — crashes included — taken in reverse order of *registration* (which is not death order; Ray's `ActorState` carries no death timestamp, so death order is not available). Two consequences. The page size is not a total: thirty stops at `n_previous_replica=3` show three entries. And a crash takes up room in the same page, so with `n_previous_replica=3` and two recent crashes a single `RAY_KILL` entry can be all that is left of those thirty — or none at all. Only the default query counts them, and only there is the number the real one.
+> **And not every value under `logs` is a replica record.** `{"error": "<message>"}` **replaces the whole map** rather than sitting in it, and its value is a plain string, so a loop that indexes every value as a dict raises `AttributeError: 'str' object has no attribute 'get'` on it. Both snippets above guard with `isinstance(rec, dict)` for exactly that reason — keep the guard if you adapt them.
+>
+> **Two fields sit BESIDE `logs`, not inside it, and BOTH are conditional:** `deployments[<name>]["deliberately_stopped_replicas"]` and `deployments[<name>]["death_causes_unavailable"]`. Read both with `.get`. The worker lifts the first out of the logs map before returning, precisely so a caller iterating `logs` never meets an int where a record belongs — so look for it as a sibling, not as an entry. (The proxy's own `get_deployment_logs` does still carry it inside the map as `_deliberately_stopped_replicas`, but `bioengine apps status` / `get_app_status` never shows you that form.) `deliberately_stopped_replicas` exists from worker **0.16.120** and is simply absent on anything older, so `.get` is the only safe read there too.
+>
+> `death_causes_unavailable` exists so "no deaths shown" cannot be read as "nothing died": an empty answer and an unanswered question are different, and this key is the only thing that tells them apart. **What is missing when it is set depends on the query, and the two cases are opposites:**
+>
+> - **On the default `n_previous_replica=0` query** the lookup failure returns before anything is counted or listed, so the dead replicas are **absent from `logs` altogether** rather than listed without a reason. Hunting for entries with no cause finds nothing and reads as "no dead replicas".
+> - **On any `n_previous_replica > 0` query — which includes `bioengine apps logs`, the command this section tells you to reach for after a crash** — the dead replicas ARE still listed, each with a cause looked up per actor. The flag is set regardless of `n_previous_replica` (the worker runs one hoisted cluster-wide query before asking any deployment), so here it means "the bulk query failed", not "the replicas are gone".
+>
+> Do not carry the first reading onto the second path. It is the mistake this paragraph previously made.
+>
+> **An ABSENT count does not mean "none stopped".** It is a summary produced only on the default `n_previous_replica=0` query, and only when the death-cause lookup succeeded. Ask for previous replicas — `n_previous_replica` at the top level or as a per-deployment override — and no count is emitted at all; stopped replicas may instead turn up as `logs` entries carrying `death_cause` with reason `RAY_KILL`. So read an absent count as **"none, or not counted on this query"**. A deployment scaled down thirty times, queried with `n_previous_replica=3`, reports no count whatsoever.
+>
+> ⚠ **`--logs` is NOT `n_previous_replica`, and `bioengine apps logs` never shows you the count at all.** `apps status --logs N` sets `logs_tail` — how many log *lines* per replica — and leaves `n_previous_replica` at its default, so that is the command that can carry the count. `apps logs` passes `n_previous_replica=1` to get a dead replica's output, which is precisely the query that suppresses the count. So the two commands differ in which half of this you can see: reach for `apps logs` for a crashed replica's lines, and `apps status --json` for the deliberate-stop count.
+>
+> **And do not count those `RAY_KILL` entries to make up for it.** What `n_previous_replica` bounds is a **page over ALL dead replicas, of any cause** — crashes included — taken in reverse order of *registration* (which is not death order; Ray's `ActorState` carries no death timestamp, so death order is not available). Two consequences. The page size is not a total: thirty stops at `n_previous_replica=3` show three entries. And a crash takes up room in the same page, so with `n_previous_replica=3` and two recent crashes a single `RAY_KILL` entry can be all that is left of those thirty — or none at all. **The real number comes only from the default query's count; the entries are a sample.**
 >
 > **Read both channels.** Which one your own lines land in depends on how you emitted them (see the logging note under [Key rules](#key-rules)), and the framework writes to `stderr` regardless. Reading only one hides half the picture, and if you read only `stderr` you will see the worker's own INFO lines and conclude your code never ran.
 >
