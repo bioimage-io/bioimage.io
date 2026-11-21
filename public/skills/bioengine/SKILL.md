@@ -737,9 +737,18 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > `None` and absent both mean "no cause to report", and they are **not** the same as healthy: Ray returns no cause for a live actor *and* for a dead one the GCS has already evicted, so a dead replica you ask about too late looks exactly like a live one. Use the replica's presence in `get_deployment_replicas` to tell those apart, not `death_cause`. Against a worker older than 0.16.65 the key is simply absent, so `rec.get("death_cause")` is the safe read and a `KeyError` means you indexed it instead.
 >
-> **The timestamps inside those log lines are not UTC — and `timezone`, which tells you the zone, is NOT always there.** When a replica record carries `timezone` (e.g. `"CET"`) it names the zone of the timestamps *within* `stdout`/`stderr`, not UTC. Apply it before comparing them to a clock: the shift is the offset, and its direction follows the offset's sign. Measured on a de.NBI replica logging in `CET`: a line about 9 minutes old gave an age of **minus 51.9 minutes** against `datetime.utcnow()`.
+> **The timestamps inside those log lines are not UTC — and `timezone`, which tells you the zone, is NOT always there.** When a replica record carries `timezone` (e.g. `"CET"`) it names the zone of the timestamps *within* `stdout`/`stderr`, not UTC. Apply it before comparing them to a clock: **not applying it shifts every age by the offset**, in whichever direction the offset's sign gives. Measured on a de.NBI replica logging in `CET` (UTC+1): a line **8.1 minutes** old gave an age of **minus 51.9 minutes** against `datetime.utcnow()`.
 >
-> **Both directions are wrong, and only one of them is loud.** A zone *ahead* of UTC puts the lines in the future, so the age goes negative and an `age >= threshold` test is simply False — the check reports "something happened recently" and refuses to proceed. Annoying, but safe. A zone *behind* UTC inflates the age instead, and that is the dangerous one: the check reports "quiet" for traffic that is minutes old. **So treat a negative age as a could-not-run rather than a verdict** — it is the signal that the zone was never applied, and the same bug is silently inflating ages the other way for any replica west of UTC.
+> **Neither direction is safe in general. Which one hurts you depends on what your threshold guards:**
+>
+> | your check | zone AHEAD of UTC (age too small) | zone BEHIND UTC (age too large) |
+> |---|---|---|
+> | **gate on quiet** — "proceed only if nothing for 30 min" | refuses to proceed. Noisy, not harmful | **proceeds while traffic is live.** Silent |
+> | **alarm on silence** — "alert if newest line older than 30 min" | **never alerts.** A line 90 min old reads as 30 | alerts early. Noisy, not harmful |
+>
+> So an ahead-of-UTC zone is not the harmless one — it is exactly what makes a staleness watchdog report "everything is fine" about an app that stopped logging an hour ago.
+>
+> **And a negative age is a sufficient but NOT a necessary sign that the zone was missed.** It only appears for lines *younger than the offset*: under `CET`, a line 90 minutes old reads as 30 minutes old — positive, plausible, and wrong, with no signal at all. Treating a negative age as a could-not-run is worth doing and catches only part of it; the whole fix is to apply the zone, and to refuse when a record does not carry one.
 >
 > **And `creation_timestamp` is not the escape hatch it looks like.** It is a plain epoch value, so the arithmetic is easy — but it is `time.time()` taken when the replica **registered**, not when any line was written, so it dates the replica and cannot date a log line. It is conditional too, on the same `if ... is not None` as `timezone`. Use it for "how long has this replica been up", and for a line's age apply the zone or admit you cannot compute one.
 >
@@ -766,6 +775,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > - **On any `n_previous_replica > 0` query — which includes `bioengine apps logs`, the command this section tells you to reach for after a crash** — the dead replicas ARE still listed, each with a cause looked up per actor. The flag is set regardless of `n_previous_replica` (the worker runs one hoisted cluster-wide query before asking any deployment), so here it means "the bulk query failed", not "the replicas are gone".
 >
 > Do not carry the first reading onto the second path. It is the mistake this paragraph previously made.
+>
+> ⚠ **AND NONE OF THE THREE REACHES AN UNAUTHORIZED CALLER AT ALL — read this before you read an absence as a value.** For a caller outside the application's roster, the worker returns a public view keeping only `status`, `message`, `replica_states`, `replicas` and `max_ongoing_requests`. So `logs`, `deliberately_stopped_replicas` and `death_causes_unavailable` are **absent**, and there their absence means **WITHHELD** — not "no logs", not "none stopped", not "no deaths". Both snippets above then print nothing and raise nothing: `dep.get("logs", {})` is `{}` and the loop simply does not run. **Check whether you are an admin or named in the app's `authorized_users` before concluding anything from an absence.** A client that cannot tell withheld from empty reports a healthy application as having no logs and no stopped replicas when it was merely not entitled to see them.
 >
 > **An ABSENT count does not mean "none stopped".** It is a summary produced only on the default `n_previous_replica=0` query, and only when the death-cause lookup succeeded. Ask for previous replicas — `n_previous_replica` at the top level or as a per-deployment override — and no count is emitted at all; stopped replicas may instead turn up as `logs` entries carrying `death_cause` with reason `RAY_KILL`. So read an absent count as **"none, or not counted on this query"**. A deployment scaled down thirty times, queried with `n_previous_replica=3`, reports no count whatsoever.
 >
