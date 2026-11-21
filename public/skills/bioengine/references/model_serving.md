@@ -83,13 +83,19 @@ it at deploy time via `deploy_app(scaling={...})`.
 > branches on whether the cluster advertises a `VRAM_MB` resource. If it does, your
 > `gpu_memory_mb` becomes a `VRAM_MB` request with **no deploy-time check**, and an
 > over-request pends — that is the 10.8-minute `DEPLOYING` hang recorded here, still
-> reachable. If it does not, sizing falls back to a GPU fraction and that path refuses up
-> front since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster
-> (M MB)"*. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and so do
+> reachable. If it does not, what happens next depends on whether a smallest-GPU size is
+> known. **With** one, sizing falls back to a GPU fraction and that path refuses up front
+> since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster (M MB)"*.
+> **Without** one — not elastic, no `VRAM_MB`, and no node has reported GPU memory — sizing
+> falls through to a whole-GPU reservation with a logged warning and no check at all: your
+> number never enters the request, so an over-request is neither refused nor queued, and the
+> replica runs or runs out of memory on whichever GPU it lands on. A single-GPU head
+> advertises `VRAM_MB` when VRAM detection succeeds, and so do
 > **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node. A multi-GPU
 > node deliberately does not, because a node-level sum would let a replica claim more than
 > any one device has. And on an elastic (SLURM) cluster **before any GPU node has reported
-> in**, no smallest-GPU size is known, so that also skips the check and the request pends. From worker 0.16.121, `get_app_status` reports a replica no node can
+> in**, no smallest-GPU size is known, so that also skips the check and the request pends.
+> From worker 0.16.121, `get_app_status` reports a replica no node can
 > hold as `deployments.<name>.unschedulable` with a `placement_shortfall` naming the
 > resource. Put a wall-clock deadline on every GPU deploy wait regardless.
 
