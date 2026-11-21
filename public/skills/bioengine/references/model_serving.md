@@ -89,12 +89,18 @@ it at deploy time via `deploy_app(scaling={...})`.
 > **Without** one — not elastic, no `VRAM_MB`, and no node has reported GPU memory — sizing
 > falls through to a whole-GPU reservation with a logged warning and no check at all: your
 > number never enters the request, so an over-request is neither refused nor queued, and the
-> replica runs or runs out of memory on whichever GPU it lands on. A single-GPU head
+> replica runs or runs out of memory on whichever GPU it lands on — or, on a cluster with no GPU at all, the `num_gpus=1.0` reservation simply pends and reads `unschedulable: true` with GPU `largest_node: 0`. A single-GPU head
 > advertises `VRAM_MB` when VRAM detection succeeds, and so do
 > **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node. A multi-GPU
 > node deliberately does not, because a node-level sum would let a replica claim more than
 > any one device has. And on an elastic (SLURM) cluster **before any GPU node has reported
-> in**, no smallest-GPU size is known, so that also skips the check and the request pends.
+> in**, no smallest-GPU size is known — but that case does **not** fall through to the whole-GPU
+> arm. `builder.py` enters the **same branch as a `VRAM_MB` cluster**
+> (`if vram_advertised or (elastic_gpu_cluster and not min_gpu_mb)`), so the request is a
+> `VRAM_MB` request with no deploy-time check, and it pends. When a worker joins it is
+> compared against that worker's GPU: a request that fits starts, and one that does not
+> hangs indefinitely with a non-zero `largest_node` in the shortfall. The cold-start wait
+> and the permanent over-request look identical until that field is non-zero.
 > From worker 0.16.121, `get_app_status` reports a replica no node can
 > hold as `deployments.<name>.unschedulable` with a `placement_shortfall` naming the
 > resource. Put a wall-clock deadline on every GPU deploy wait regardless.
