@@ -739,7 +739,9 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 >
 > **The timestamps inside those log lines are not UTC — and `timezone`, which tells you the zone, is NOT always there.** When a replica record carries `timezone` (e.g. `"CET"`) it names the zone of the timestamps *within* `stdout`/`stderr`, not UTC. Apply it before comparing them to a clock: the shift is the offset, and its direction follows the offset's sign. Measured on a de.NBI replica logging in `CET`: a line about 9 minutes old gave an age of **minus 51.9 minutes** against `datetime.utcnow()`.
 >
-> **Both directions are wrong, and only one of them is loud.** A zone *ahead* of UTC puts the lines in the future, so the age goes negative and an `age >= threshold` test is simply False — the check reports "something happened recently" and refuses to proceed. Annoying, but safe. A zone *behind* UTC inflates the age instead, and that is the dangerous one: the check reports "quiet" for traffic that is minutes old. **So treat a negative age as a could-not-run rather than a verdict** — it is the signal that the zone was never applied, and the same bug is silently inflating ages the other way for any replica west of UTC. Prefer `creation_timestamp` when you want arithmetic; it is a plain epoch value.
+> **Both directions are wrong, and only one of them is loud.** A zone *ahead* of UTC puts the lines in the future, so the age goes negative and an `age >= threshold` test is simply False — the check reports "something happened recently" and refuses to proceed. Annoying, but safe. A zone *behind* UTC inflates the age instead, and that is the dangerous one: the check reports "quiet" for traffic that is minutes old. **So treat a negative age as a could-not-run rather than a verdict** — it is the signal that the zone was never applied, and the same bug is silently inflating ages the other way for any replica west of UTC.
+>
+> **And `creation_timestamp` is not the escape hatch it looks like.** It is a plain epoch value, so the arithmetic is easy — but it is `time.time()` taken when the replica **registered**, not when any line was written, so it dates the replica and cannot date a log line. It is conditional too, on the same `if ... is not None` as `timezone`. Use it for "how long has this replica been up", and for a line's age apply the zone or admit you cannot compute one.
 >
 > **The key is conditional, so do not default it to UTC.** The worker attaches it only `if timezone is not None`, and **four** shapes arrive without it — none of them needing unusual arguments:
 >
@@ -751,6 +753,8 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 > | `{"error": "<message>"}` | see below: this one is **not** an entry |
 >
 > So any deployment with a crashed replica hands you a zone-less entry on default arguments, and "it has `stdout`, so it must have `timezone`" is false.
+>
+> The first three are **dicts**, which is what makes them dangerous: they pass an `isinstance(rec, dict)` guard, they carry `stdout`/`stderr`, and they look exactly like ordinary replica records. Only the fourth is a string, and only the fourth raises. A zone-less dict raises nothing and quietly gets whatever offset you defaulted to.
 >
 > **And not every value under `logs` is a replica record.** `{"error": "<message>"}` **replaces the whole map** rather than sitting in it, and its value is a plain string, so a loop that indexes every value as a dict raises `AttributeError: 'str' object has no attribute 'get'` on it. Both snippets above guard with `isinstance(rec, dict)` for exactly that reason — keep the guard if you adapt them.
 >
