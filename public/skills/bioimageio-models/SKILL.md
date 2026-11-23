@@ -526,7 +526,7 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
             stage=True,
         )
 
-        # Re-upload changed files through upload_model.py's own helper, so this takes the
+        # Re-upload the whole package through upload_model.py's own helper, so this takes the
         # same path as a first upload: files of 16 MiB or more go up in parts, each part is
         # retried on its own, and a failure raises instead of printing a tick. That matters
         # most for weights, which are usually what you are re-uploading after a failed test
