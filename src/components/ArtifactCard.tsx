@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { useNavigate } from 'react-router-dom';
+import { useNavigate, Link } from 'react-router-dom';
 
 import { Card, CardMedia, CardContent, IconButton, Button, Tooltip, Box, Typography, Stack, Chip, Skeleton } from '@mui/material';
 import DownloadIcon from '@mui/icons-material/Download';
@@ -74,23 +74,10 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
     checkEditPermissions();
   }, [isLoggedIn, user, artifactManager]);
 
-  const nextImage = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent Link navigation
-    setCurrentImageIndex((prev) => (prev + 1) % covers.length);
-  };
-
-  const previousImage = (e: React.MouseEvent) => {
-    e.preventDefault(); // Prevent Link navigation
-    setCurrentImageIndex((prev) => (prev - 1 + covers.length) % covers.length);
-  };
-
-  const handleClick = (e: React.MouseEvent) => {
-    // Only navigate if the click target is the card itself, not children
-    // if (e.target === e.currentTarget) {
-      const id = artifact.id.split('/').pop();
-      navigate(`/artifacts/${id}`);
-    // }
-  };
+  // The card's destination, as a route rather than a handler. A div with an onClick offers the
+  // browser nothing to open, which is why middle click, ctrl or cmd click and the browser's own
+  // "open link in new tab" all did nothing (GitHub #167).
+  const artifactUrl = `/artifacts/${artifact.id.split('/').pop()}`;
 
   const handleDownload = (e: React.MouseEvent) => {
     e.stopPropagation(); // Prevent card click/navigation
@@ -185,6 +172,16 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         boxShadow: '0 4px 6px rgba(0, 0, 0, 0.05)',
         cursor: 'pointer',
         position: 'relative',
+        // The title link's `::after` is stretched over the whole card, so anything a user can
+        // click has to paint above it or the overlay swallows the click. Statically positioned
+        // controls get both the positioning and the layer from this rule.
+        '& .card-control': { position: 'relative', zIndex: 2, pointerEvents: 'auto' },
+        // A control cannot climb out of an ancestor's stacking context. The ID row uses
+        // backdrop-blur, which makes one, so the Copy ID button inside it painted below the
+        // overlay however high its own zIndex went. The row itself has to be lifted, and then
+        // made transparent to the pointer so only the button inside it takes clicks and the
+        // rest of the row still belongs to the card's link.
+        '& .card-control-layer': { position: 'relative', zIndex: 2, pointerEvents: 'none' },
         transition: 'all 0.3s ease',
         '&:hover': {
           backgroundColor: 'rgba(255, 255, 255, 0.9)',
@@ -214,7 +211,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           position: 'absolute',
           top: 8,
           left: 8,
-          zIndex: 1,
+          zIndex: 2,
           backgroundColor: 'rgba(255, 255, 255, 0.9)',
           backdropFilter: 'blur(8px)',
           border: '1px solid rgba(255, 255, 255, 0.5)',
@@ -239,7 +236,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
             position: 'absolute',
             top: 8,
             left: 56, // Position next to preview button
-            zIndex: 1,
+            zIndex: 2,
             backgroundColor: 'rgba(255, 255, 255, 0.9)',
             backdropFilter: 'blur(8px)',
             border: '1px solid rgba(255, 255, 255, 0.5)',
@@ -266,7 +263,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               position: 'absolute',
               top: 8,
               left: canEdit ? 104 : 56, // Position next to edit button if it exists, otherwise next to preview
-              zIndex: 1,
+              zIndex: 2,
               backgroundColor: 'rgba(255, 255, 255, 0.9)',
               backdropFilter: 'blur(8px)',
               border: '1px solid rgba(255, 255, 255, 0.5)',
@@ -308,7 +305,6 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
               />
             )}
             <CardMedia
-              onClick={handleClick}
               component="img"
               image={getCurrentCoverUrl()}
               onLoad={() => setImgLoaded(true)}
@@ -374,7 +370,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
         )}
 
       </div>
-      <CardContent sx={{ flexGrow: 1, p: 2 }} onClick={handleClick}>
+      <CardContent sx={{ flexGrow: 1, p: 2 }}>
         <div className="space-y-2">
           <div className="flex items-center gap-2">
             <div className="flex-shrink-0 w-6">
@@ -390,13 +386,40 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 <div className="w-6 h-6 bg-gradient-to-br from-blue-100 to-purple-100 rounded-full" />
               )}
             </div>
+            {/* ONE anchor for the whole card.
+
+                Its `::after` is stretched over the entire card, so every part of the card that
+                already behaved as clickable is part of a real link: middle click, ctrl or cmd
+                click, the right-click menu and the URL in the status bar all work anywhere on
+                it, not only on the title and the cover. Measured on the previous shape, the
+                links covered about 44% of the card at 1400px, which left the reported problem
+                reproducing on the rest of it.
+
+                One anchor rather than two also means a screen reader announces each model once,
+                so there is no second link to hide from the accessibility tree.
+
+                The overlay sits at z-index 1 and every control at 2. The explicit layer matters:
+                with `z-index: auto` the overlay is painted in DOM order, so anything after the
+                title wins, and the ID row wins twice over because `backdrop-blur` gives it its
+                own stacking context. Three points per card landed on the ID chip instead of the
+                link before this was set.
+
+                Anything interactive must paint ABOVE this overlay. The `.card-control` rule on
+                the Card does that for statically positioned controls; the absolutely positioned
+                ones carry their own zIndex. A control that gets neither stops responding, which
+                is loud rather than silent. */}
             <h3 className="text-base font-medium text-gray-900 break-words flex-grow truncate max-w-[calc(100%-2rem)]">
-              {artifact.manifest.name}
+              <Link
+                to={artifactUrl}
+                className="text-inherit no-underline hover:underline focus-visible:underline after:absolute after:inset-0 after:z-[1] after:content-['']"
+              >
+                {artifact.manifest.name}
+              </Link>
             </h3>
           </div>
 
           <div className="flex items-center gap-1 text-xs text-gray-500">
-            <div className="flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg py-1 border border-white/50">
+            <div className="card-control-layer flex items-center gap-1 bg-white/70 backdrop-blur-sm rounded-lg py-1 border border-white/50">
               <span className="font-medium">ID:</span>
               <code className="font-mono bg-gray-100/80 text-gray-800 px-2 py-1 rounded-md border border-gray-200/60 text-xs">
                 {artifact.id.split('/').pop()}
@@ -405,7 +428,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 <IconButton
                   onClick={handleCopyId}
                   size="small"
-                  className="ml-1 text-gray-400 hover:text-blue-600"
+                  className="card-control ml-1 text-gray-400 hover:text-blue-600"
                   sx={{ 
                     padding: '2px',
                     borderRadius: '8px',
@@ -448,7 +471,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
                 target="_blank"
                 rel="noopener noreferrer"
                 onClick={(e) => e.stopPropagation()}
-                className="px-2 py-0.5 bg-gradient-to-r from-blue-50/80 to-blue-100/80 backdrop-blur-sm text-blue-600 text-xs rounded-lg border border-blue-200/50 flex items-center gap-1 hover:from-blue-100/90 hover:to-blue-200/90 hover:border-blue-300/60 transition-all duration-300"
+                className="card-control px-2 py-0.5 bg-gradient-to-r from-blue-50/80 to-blue-100/80 backdrop-blur-sm text-blue-600 text-xs rounded-lg border border-blue-200/50 flex items-center gap-1 hover:from-blue-100/90 hover:to-blue-200/90 hover:border-blue-300/60 transition-all duration-300"
               >
                 {badge.icon && <img src={badge.icon} alt="" className="h-4" />}
                 {badge.label}
@@ -468,6 +491,7 @@ export const ArtifactCard: React.FC<ResourceCardProps> = ({ artifact }) => {
           position: 'absolute',
           bottom: 16,
           right: 16,
+          zIndex: 2,
           opacity: 0,
           transform: 'translateY(10px)',
           transition: 'all 0.3s ease',
