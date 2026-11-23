@@ -206,14 +206,16 @@ files individually — so a large model works, with two caveats worth knowing be
   behind** — which is easy to mistake for a good one. Still present in 0.5.14.1
   ([spec #769](https://github.com/bioimage-io/spec-bioimage-io/issues/769)). If you need an
   archive, force ZIP64 on write-mode members yourself and delete any previous output first.
-- **Uploading needs roughly as much free RAM as the largest file.** `upload_model.py` (and the
-  re-upload snippet in Step 6a-fix) read each file fully into memory, buffering it before the
-  PUT — a 3.15 GiB weight file measured 3.19 GiB peak RSS. Submit from a host with headroom.
+- **Uploading streams large files in parts, so memory does not track file size.** A file of
+  16 MiB or more goes up in parts, four at a time, and `upload_model.py` holds at most four
+  parts at once: 64 MiB for any file up to 156 GiB, rising only as the part size grows for
+  files larger than that. An 85 MiB upload measures about 64 MiB peak.
 
-There is no published per-model size limit. The mechanical ceiling is about 48 GiB (10 000 S3
-parts x 5 MiB minimum part size). If the weights are already published somewhere stable, prefer
-referencing them by URL instead of packaging the bytes at all (see "A weights `source` may be a
-remote URL" above).
+There is no published per-model size limit. The mechanical ceiling comes from the 10 000-part
+maximum, and the uploader grows the part size to stay under it: 16 MiB parts cover files to
+about 156 GiB, and larger files get larger parts rather than more of them. If the weights are
+already published somewhere stable, prefer referencing them by URL instead of packaging the
+bytes at all (see "A weights `source` may be a remote URL" above).
 
 ### Spec 0.5.11+ packaging notes
 
@@ -524,19 +526,31 @@ async def reupload_files(artifact_id: str, token: str, package_dir: str):
             stage=True,
         )
 
-        # Re-upload changed files
-        async with httpx.AsyncClient(timeout=300) as client:
+        # Re-upload changed files through upload_model.py's own helper, so this takes the
+        # same path as a first upload: files of 16 MiB or more go up in parts, each part is
+        # retried on its own, and a failure raises instead of printing a tick. That matters
+        # most for weights, which are usually what you are re-uploading after a failed test
+        # and are usually the largest file in the package.
+        from upload_model import _upload_file, _timeout_for, PART_SIZE, WEIGHT_EXTS
+
+        async with httpx.AsyncClient(timeout=_timeout_for(PART_SIZE)) as client:
             for file_path in package.rglob("*"):
                 if not file_path.is_file() or "__pycache__" in file_path.parts:
                     continue
                 rel = str(file_path.relative_to(package))
-                put_url = await am.put_file(artifact_id=artifact_id, file_path=rel)
-                content = file_path.read_bytes()
                 if rel == "rdf.yaml" and current.get("id"):
                     # Keep the id / id_emoji that upload_model.py set: the web editor
                     # rejects RDF edits when the uploaded rdf.yaml lacks them.
-                    content = set_rdf_ids(content.decode("utf-8"), current["id"], current["id_emoji"]).encode("utf-8")
-                await client.put(put_url, content=content, headers={"Content-Type": ""})
+                    patched = set_rdf_ids(
+                        file_path.read_text("utf-8"), current["id"], current["id_emoji"]
+                    ).encode("utf-8")
+                    await _upload_file(client, am, artifact_id, rel, patched, 0)
+                else:
+                    # Weight files are marked as the download, the same as a first upload.
+                    # WEIGHT_EXTS is imported rather than retyped, so this cannot drift from
+                    # the uploader's own list.
+                    weight = 1 if rel.endswith(WEIGHT_EXTS) else 0
+                    await _upload_file(client, am, artifact_id, rel, file_path, weight)
                 print(f"  ✓ re-uploaded {rel}")
 
 asyncio.run(reupload_files("bioimage-io/affable-shark", token="YOUR_TOKEN", package_dir="model_package/generated/"))
