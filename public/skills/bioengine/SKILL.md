@@ -351,7 +351,7 @@ class MyDeployment:
 
 ### GPU apps
 
-`gpu_memory_mb` is one number and getting it wrong is the most expensive mistake in this document, because too high does not fail — it hangs. Read this section before your first GPU deploy.
+`gpu_memory_mb` is one number and getting it wrong is the most expensive mistake in this document, because on the cluster where it matters most too high does not fail — it hangs. Of the four sizing outcomes, one refuses an over-request up front, one hangs on it, one pends until a worker joins **and then behaves exactly like the hanging one** — same `VRAM_MB` request, so an over-request still hangs, now forever — and one ignores the number entirely and reserves a whole GPU; see [App status](#app-status) for which cluster gives you which. Read this section before your first GPU deploy.
 
 **Measure the number, do not guess it.** There is no sizing guidance in a model card and guessing overshoots badly: an app that guessed `8192` measured a **1180 MB** peak, 7× over. Reserving 8 GB on a 24 GB card when you need 1.2 GB costs six other replicas their slot. Measure it once, in the app itself, and read it out of the logs:
 
@@ -368,14 +368,14 @@ Deploy once with `gpu_memory_mb=-1` (whole device, schedulable on an idle GPU �
 
 **It is a scheduling reservation, not a cap.** Nothing enforces it at runtime. A replica declaring `gpu_memory_mb=8192` was observed allocating **12 GiB** and continuing to run. So the number does not protect you from your own OOM, and it does not protect co-tenants from you either. Two consequences: your headroom estimate has to be right, because the runtime will not clip you at the boundary, and a card that looks half-free by reservation can be full in fact.
 
-**Over-requesting VRAM hangs with no terminal state.** This is the failure you must recognise, because the skill's usual "poll until terminal state" advice deadlocks on it.
+**Over-requesting VRAM hangs with no terminal state on the path where your number becomes a `VRAM_MB` request** — a cluster that advertises it. That is the failure you must recognise, because the skill's usual "poll until terminal state" advice deadlocks on it. The other three paths do something else: with a smallest-GPU size known, `deploy_app` raises up front and you get an error rather than a wait; on an elastic cluster with no GPU worker yet, the request pends until one joins — but it is **the same `VRAM_MB` request**, entered through the same branch, so once a worker is there it is compared against that worker's GPU exactly as above. A request that fits starts; one that does not goes back to hanging with no terminal state, and now nothing else is coming. `placement_shortfall` then reads a non-zero `largest_node`, which is how you tell this from a worker that advertises no `VRAM_MB` (`largest_node: 0`) and from the true cold start before anything has joined (`false` with an empty shortfall, since SLURM excludes the head from node status); and where nothing is known, `gpu_memory_mb` never enters the request at all — the replica reserves a whole GPU and then runs or runs out of memory, so an over-request shows up as a crash, not a hang.
 
 | You over-request | What happens |
 |---|---|
 | CPU or RAM | `DEPLOY_FAILED` in ~9 s, with `Insufficient resources` |
 | VRAM | stays `DEPLOYING` indefinitely — measured at **10.8 minutes** before it was killed by hand |
 
-Ray has nothing to schedule the replica onto, so it queues forever rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm) and treat "still `DEPLOYING` at the deadline" as the diagnosis *over-requested VRAM*, not as slowness. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
+On the `VRAM_MB` path Ray has nothing to schedule the replica onto, so it queues rather than failing. Put a wall-clock deadline on every GPU deploy loop (3 minutes is generous for an app whose image is warm), and at the deadline **ask `unschedulable` rather than assuming**. This is the one path where that field answers the question cleanly: your number became a `VRAM_MB` request, so an over-request exceeds the node's own `total_vram_mb` and reports `true` with the shortfall naming it. A `false` here means the opposite diagnosis — contention, or a reading taken before Ray Serve wrote its slow-start message — and the fix for that is waiting or capacity, not a smaller number. `bioengine cluster status` will show the request pending against a device that cannot satisfy it.
 
 **On a SLURM worker this diagnosis is invalid** — pending is the designed cold-start path there, and the wait includes the site's own queue. Read [references/hpc_apps.md](references/hpc_apps.md#2-a-deploy-is-a-queue-submission-so-still-deploying-is-not-a-diagnosis) before putting a deadline on anything.
 
@@ -663,7 +663,57 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 
 **That state machine describes a *first* deploy only.** An app you are updating is already `RUNNING`, so a "poll until terminal state" loop exits on the first poll and reports success on whatever replica is live — stale or not. For updates, ignore `status` and confirm behaviourally (see [Live test cycle](#live-test-cycle)).
 
-**And `DEPLOYING` is not guaranteed to be transient.** A replica asking for more VRAM than any device can give is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` (measured at 10.8 minutes before manual intervention), while the same over-request on CPU or RAM fails in about 9 seconds. Every wait loop needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
+**And `DEPLOYING` is not guaranteed to be transient.** A replica Ray cannot place is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` — measured at 10.8 minutes before manual intervention. **Whether an over-request is refused or queues depends on the cluster, not on the mode**, and every outcome below is live. `builder.py`'s GPU sizing has **four** cases, and only one of them checks anything at deploy time:
+
+* **`VRAM_MB` advertised** — your `gpu_memory_mb` becomes a `VRAM_MB` resource request and there is **no deploy-time check**. An over-request pends in Ray, which is the 10.8-minute `DEPLOYING` hang above: still reachable. A single-GPU head advertises `VRAM_MB` when VRAM detection succeeds, and so do **single-GPU** SLURM workers when `nvidia-smi` detection succeeds on the node. A **multi-GPU** node deliberately does not — a node-level sum would let a replica claim more than any one device has.
+* **No GPU node has reported in yet on an elastic (SLURM) cluster** — no smallest-GPU size is known, so this also takes the no-check path. Submitting before the first GPU worker starts means an impossible request pends rather than being refused.
+* **`VRAM_MB` not advertised**, with a smallest-GPU size known — sizing falls back to a GPU fraction, and *that* path is **the only one that refuses at deploy time**, since 0.15.0: *"gpu_memory_mb=N does not fit the smallest GPU on the cluster (M MB)"*.
+* **Nothing known at all** — not elastic, no `VRAM_MB`, and no smallest-GPU size (the proxy is unreachable, or no node reported GPU memory). Sizing falls through to `num_gpus = 1.0` with a logged warning and **no check**: the replica reserves a whole GPU whatever you asked for. A request far larger than any device is neither refused nor sized down; it simply waits for a whole GPU.
+
+**How to tell which case you are in:** a node that does not advertise `VRAM_MB` reports `total_vram_mb: 0` in the per-node cluster status. If every GPU node reports `0`, you are on one of the non-`VRAM_MB` paths and whether you get a refusal depends on whether a smallest-GPU size is known.
+
+A CPU or RAM over-request fails in about 9 seconds either way.
+
+**What `unschedulable` actually reports is narrower than "cannot be placed right now".** The comparison is against each node's **total** capacity, not its free capacity — a replica has to fit on one node, so the question asked is whether *any single node could ever* satisfy the requirement, however idle the cluster. Two consequences a reader has to have:
+
+* **Contention never shows up.** A requirement that fits a node but is temporarily held by a sibling leaves `unschedulable: false` and an empty `placement_shortfall`. Measured: 16000 MB against a 24000 MB node reports `{"unschedulable": false, "placement_shortfall": {}}`. That is the measurement, taken from the projection in isolation; the inference is the part that matters — **if** a replica is pending in that state, the reason is contention, because a sibling holds the node. **So `false` does not mean "not a placement problem".**
+* **A growing cluster is a false positive.** On a cluster that could add a larger node than it currently has, a replica the autoscaler would eventually place is reported as a shortfall. The worker leaves that in deliberately, because the alternative is reporting nothing.
+
+What it does catch is the permanent case: a requirement no node in the cluster can hold — a node lost, or a request larger than the biggest machine. Since 0.16.121 `get_app_status` names that directly: see [unschedulable and placement_shortfall](#unschedulable-and-placement_shortfall). Every wait loop still needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
+
+#### `unschedulable` and `placement_shortfall`
+
+Per deployment in `get_app_status`, from worker 0.16.121:
+
+```jsonc
+"deployments": {
+  "MyApp": {
+    "status": "UPSCALING",          // identical for a stuck deployment and one waking up
+    "replica_states": {},           // also identical — so neither field separates them
+    "unschedulable": true,
+    "placement_shortfall": { "VRAM_MB": { "required": 80000.0, "largest_node": 24000.0 } }
+  }
+}
+```
+
+Both keys are always present, so you never have to tell an absent key from a `false` one.
+
+**Why it exists.** A deployment whose replicas cannot be placed and one waking from
+`min_replicas: 0` are *both* `UPSCALING` at zero `RUNNING` replicas, with identical
+`replica_states`. Before this there was nothing to read.
+
+**Two limits, both deliberate.**
+
+- `unschedulable: false` is **not** a guarantee of placeability. A requirement in a resource
+  with no counterpart in the node status — an accelerator label — is reported as no shortfall
+  rather than guessed at.
+- On a cluster that can grow a **bigger node** than any it currently has, a replica the
+  autoscaler would eventually place reads `unschedulable: true` while it grows. The comparison
+  is against the largest node that exists now.
+
+`placement_shortfall` compares against the largest **single** node, because a replica is one
+actor and has to fit on one node: two 24 GB cards on two nodes do not serve one 40 GB replica.
+
 
 **`NOT_STARTED` can be terminal too, and the status alone never says so.** On an external cluster a deploy that no *single* node has room for is not rejected: the worker proceeds on the assumption that autoscaling will add a bigger node. When none arrives the app stays at `NOT_STARTED` with no `DEPLOY_FAILED`, no registered service and no app logs, because no replica ever started. It will not leave that state on its own, so a poll loop waiting for `RUNNING` waits forever: it needs a smaller request or a node that fits.
 
@@ -917,7 +967,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | `ModuleNotFoundError` at import | Add to `runtime_env.pip`; import inside method |
 | numpy array over RPC error | Call `.tolist()` before returning |
 | `ModuleNotFoundError: No module named 'torch'` **on the client**, not the worker | You returned a third-party type across the Hypha boundary (classically `torch.__version__`, a `str` subclass). Coerce to a builtin at the return statement: `str(...)`, `float(...)`, `.tolist()` |
-| App stuck in `DEPLOYING` for minutes with no error | You asked for more `gpu_memory_mb` than any device has. It is unschedulable, not invalid, so it never reaches `DEPLOY_FAILED`. Lower the request; put a deadline on the wait loop |
+| App stuck in `DEPLOYING` for minutes with no error | Read `deployments.<name>.unschedulable`, and read it as evidence rather than a verdict. **Neither value is conclusive on its own.** `true` with a `placement_shortfall` naming the resource means no *current* node can hold the request — which is decisive on a fixed cluster, and **not** decisive on one that can still add nodes. On an elastic (SLURM) cluster **before any worker joins, both fields read `false` and `{}`** — the head is excluded from node status on SLURM, so there is no node to compare against and the shortfall is not computed at all. `true` with `largest_node: 0` is a different state: a worker *is* there and advertises no `VRAM_MB` — CPU-only, multi-GPU, or a failed detection — and lowering `gpu_memory_mb` cannot fix that one. `false` does not clear the hypothesis either: the comparison is against total node capacity, so a request that fits a node which is merely busy reports `false` with an empty shortfall, and so does *any* request before Ray Serve writes its slow-start message. **So, four readings. `true` plus a fixed cluster plus a shortfall larger than the biggest node you own — lower the request. `true` with `largest_node: 0` — a worker is present that advertises no `VRAM_MB`, so it will never satisfy the request; wait only if more workers can still come, and expect nothing from that one. `true` with a NON-ZERO `largest_node` on an elastic cluster — a worker has joined and the request exceeds the GPU size that cluster's workers have; lower it, unless that site can launch a bigger node. `false` with an empty shortfall — one of contention, a node still joining, nothing joined yet on an elastic cluster, or a reading taken before Ray Serve wrote its slow-start message. All four mean wait. **None of them yet tells you to lower the number** — and the last one in particular does not clear it, because a genuine over-request also reads `false` with `{}` until that message exists for the projection to parse. Re-read after it appears: an over-request flips to `true` with the shortfall.** Put a deadline on the wait loop in every case |
 | `Insufficient resources` printing the whole request dict | It does not name which resource was short. Change one of `num_cpus` / `memory_mb` / `gpu_memory_mb` at a time and re-read `bioengine cluster status` |
 | GPU utilisation reads 0% during a call that clearly ran | NVML averages over ~1 s, so a sub-second call is invisible. Assert on `tensor.device.type == "cuda"` instead of on utilisation |
 | First request far slower than steady state with weights already loaded | CUDA context + kernel autotuning, not model loading. Run one throwaway forward pass at a realistic shape in `async_init` |
