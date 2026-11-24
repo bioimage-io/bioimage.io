@@ -665,6 +665,16 @@ App states: `NOT_STARTED` → `DEPLOYING` → `RUNNING` / `DEPLOY_FAILED`. Deplo
 
 **And `DEPLOYING` is not guaranteed to be transient.** A replica asking for more VRAM than any device can give is unschedulable rather than invalid, so it queues in `DEPLOYING` with no timeout and no `DEPLOY_FAILED` (measured at 10.8 minutes before manual intervention), while the same over-request on CPU or RAM fails in about 9 seconds. Every wait loop needs a wall-clock deadline of its own — see [GPU apps](#gpu-apps).
 
+**`NOT_STARTED` can be terminal too, and the status alone never says so.** On an external cluster a deploy that no *single* node has room for is not rejected: the worker proceeds on the assumption that autoscaling will add a bigger node. When none arrives the app stays at `NOT_STARTED` with no `DEPLOY_FAILED`, no registered service and no app logs, because no replica ever started. It will not leave that state on its own, so a poll loop waiting for `RUNNING` waits forever: it needs a smaller request or a node that fits.
+
+From worker `0.16.108` the status payload answers this directly, in `resource_shortfall`:
+
+- `null` whenever some node had room, which is the ordinary case and means nothing is wrong. An app that is merely still deploying reads `null` here, so do not go hunting.
+- otherwise `{"requested": {...}, "free_per_node": {"<node_id>": {...}}, "cluster_free": {...}, "detected_at": <unix float>}`. The pair worth reading is `requested` against `free_per_node`.
+- **absent entirely** on workers before `0.16.108`, where its absence means "this worker cannot tell you" rather than "there is no shortfall". Treat missing and `null` as the same thing only once you know the worker's version.
+
+`cluster_free` is diagnostic, **not** the admission test. Admission is per node, so four free GPUs spread over two nodes do not admit a four-GPU replica, and a cluster total that looks sufficient can accompany a deploy that genuinely cannot be placed.
+
 > **`bioengine apps status --json` response shape.** The top-level dict is keyed by **app id** (not flat). The real payload carries about 27 keys per app; these are the ones worth knowing:
 > ```json
 > {
