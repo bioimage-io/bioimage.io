@@ -277,10 +277,38 @@ const PATTERNS = [
   },
 ];
 
+function gitList(args) {
+  try {
+    return execFileSync('git', args, { encoding: 'utf8' }).split('\n').filter(Boolean);
+  } catch {
+    // Not a git checkout, or git is absent. The caller's own floor ("nothing was scanned, so
+    // this result means nothing") turns that into a failure rather than a silent pass.
+    return [];
+  }
+}
+
 function trackedFiles() {
-  return execFileSync('git', ['ls-files'], { encoding: 'utf8' })
-    .split('\n')
-    .filter(Boolean);
+  return gitList(['ls-files']);
+}
+
+/**
+ * New files that are NOT yet staged, which is exactly when this check is usually run.
+ *
+ * WHY THIS EXISTS. The scan took its list from `git ls-files`, so a file you had just written was
+ * invisible to it, and the moment everybody runs this check is before `git add`. Measured
+ * 2026-11-24: a new test spec carried an absolute path on a contributor's machine, the check
+ * passed while the file was untracked, and the same check named the line the moment it was
+ * staged. The leak would have landed on a green gate.
+ *
+ * `--exclude-standard` honours .gitignore and the repository-local exclude file, so build output,
+ * dependencies and agent scratch directories stay out. Entries ending in `/` are dropped: git
+ * reports a nested repository (a worktree under this tree has its own .git) as ONE such entry and
+ * does not recurse into it, which is what keeps this from walking every other branch's checkout.
+ * Measured in the shared checkout: 6 entries, 4 of them nested worktrees, 2 of them images.
+ */
+function untrackedFiles() {
+  return gitList(['ls-files', '--others', '--exclude-standard'])
+    .filter((f) => !f.endsWith('/'));
 }
 
 /** Developer machine roots to forbid, or null when they cannot be determined. */
@@ -386,7 +414,13 @@ function sessionNames(ids) {
 }
 
 function scan() {
-  const files = trackedFiles();
+  // Tracked AND not-yet-staged, because the second group is the one a run before `git add`
+  // would otherwise miss entirely. See untrackedFiles() for why that matters and what it
+  // deliberately leaves out.
+  const tracked = trackedFiles();
+  const untracked = untrackedFiles();
+  const untrackedSet = new Set(untracked);
+  const files = [...tracked, ...untracked];
   const roots = developerRoots();
   const ids = sessionIds();
   const machines = machineNames();
@@ -416,10 +450,15 @@ function scan() {
     scanned += 1;
     read.push(file);
     const r = scanOneFile(file, text, roots, ids, names, machines);
+    // Mark the ones that are not committed yet. A reader needs that distinction: a tracked hit
+    // is already in the history and needs a follow-up, while an untracked one is still on this
+    // machine only and is fixed by editing the file before it is committed.
+    for (const v of r.violations) v.untracked = untrackedSet.has(file);
     violations.push(...r.violations);
     matchable += r.matchable;
   }
-  return { violations, scanned, matchable, roots, ids, names, skipped, read };
+  return { violations, scanned, matchable, roots, ids, names, skipped, read,
+           trackedCount: tracked.length, untrackedCount: untracked.length };
 }
 
 /**
@@ -493,11 +532,19 @@ function scanOneFile(file, text, roots, ids, names, machines) {
   return { violations, matchable };
 }
 
-function report({ violations, scanned, matchable, roots, ids, names, skipped }, quiet) {
+function report({ violations, scanned, matchable, roots, ids, names, skipped,
+                  trackedCount, untrackedCount }, quiet) {
   // `quiet` exists so --self-test can assert the match-to-exit-1 wiring without
   // printing an alarming FAIL block in the middle of a passing run.
   const console = quiet ? { log() {}, error() {} } : global.console;
-  console.log(`checked ${scanned} tracked file(s), ${matchable} line(s)`);
+  // Say the two groups separately. "checked N tracked file(s)" was true and misleading: the
+  // group it did NOT name is the one a run before `git add` cares about most.
+  console.log(
+    `checked ${scanned} file(s), ${matchable} line(s)`
+    + (untrackedCount === undefined
+      ? ''
+      : ` (${trackedCount} tracked, ${untrackedCount} new and not yet staged)`),
+  );
   // Say what was NOT read before saying anything about what was. Without this the
   // output cannot distinguish a tree that is clean from a tree the check barely
   // looked at, and a file it could not open would pass in silence.
@@ -561,7 +608,7 @@ function report({ violations, scanned, matchable, roots, ids, names, skipped }, 
     byFile.get(v.file).push(v);
   }
   for (const [file, vs] of byFile) {
-    console.error(`  ${file}`);
+    console.error(`  ${file}${vs[0] && vs[0].untracked ? '   [NEW, not yet staged]' : ''}`);
     for (const v of vs.slice(0, 6)) {
       console.error(`    :${v.line}  ${v.kind} — ${v.hit}  (${v.why})`);
     }
@@ -765,7 +812,14 @@ function selfTest() {
     const saved = process.env.AGENT_SESSION_ID;
     process.env.AGENT_SESSION_ID = 'zzzz-yyyy-wwwwww';  // agent-env-check: allow
     const ids = sessionIds();
-    process.env.AGENT_SESSION_ID = saved;
+    // DELETE when there was nothing there. Assigning `undefined` to a process.env key sets the
+    // key to the nine-character STRING "undefined", which is long enough to pass the >= 8 filter
+    // and so becomes a live session id for the rest of the run. Every later full scan then
+    // reports the word `undefined` wherever it appears in the tree, which was 4 tracked files
+    // here. Found by the first case added after this one that scans the whole tree, which is
+    // also the only reason anybody would notice: on its own this group still passes.
+    if (saved === undefined) delete process.env.AGENT_SESSION_ID;
+    else process.env.AGENT_SESSION_ID = saved;
     say('the env id is in the list even when the tooling is unreachable',
       !!ids && ids.includes('zzzz-yyyy-wwwwww'), `${ids && ids.length} id(s)`);
   }
@@ -850,13 +904,96 @@ function selfTest() {
 
   // The tally has to account for the whole tree, or a file could fall out of the
   // scan without appearing in any skip bucket and nothing would say so.
+  //
+  // Both groups, since the scan covers new unstaged files too. Counting only the tracked ones
+  // here would have made this assertion fail the moment that landed, which is the right kind of
+  // failure: an accounting check that silently stops accounting for part of its input is worse
+  // than no check.
   const accounted = r.scanned + r.skipped.binaryExt + r.skipped.generated
     + r.skipped.notAFile.length + r.skipped.unreadable.length;
-  say('read plus skipped accounts for every tracked file',
-    accounted === trackedFiles().length, `${accounted} of ${trackedFiles().length}`);
+  // FROM THE SCAN'S OWN COUNTS, not a fresh `git ls-files`. Re-listing here compares a tally
+  // taken at one moment against a tree read at another, and anything that writes to the tree in
+  // between makes them disagree: four concurrent runs of this self-test reported "414 of 416",
+  // which is a false failure about nothing. The scan reports what IT saw.
+  const everything = r.trackedCount + r.untrackedCount;
+  say('read plus skipped accounts for every tracked AND untracked file',
+    accounted === everything, `${accounted} of ${everything}`);
   say('no tracked file is unreadable',
     r.skipped.unreadable.length === 0 && r.skipped.notAFile.length === 0,
     `${r.skipped.unreadable.length} unreadable, ${r.skipped.notAFile.length} not a regular file`);
+
+  // [20] A NEW FILE THAT IS NOT STAGED YET IS STILL SCANNED.
+  //
+  // This is the case the whole group exists for, and the only one that writes a real file: the
+  // list comes from git, so nothing in-process can stand in for it. The check used to read
+  // `git ls-files` alone, which is blind to a file you just wrote, and the moment everyone runs
+  // this check is before `git add`. A new test spec carried an absolute path on a contributor's
+  // machine past a green run that way.
+  //
+  // The ignored half matters as much as the caught half: without it, this rule would fire on
+  // build output and scratch files and get switched off.
+  console.log('\n[20] a NEW file that is not staged yet');
+  {
+    // ONE DIRECTORY, OURS, REMOVED AGAIN. It used to write to the repository's shared
+    // info/exclude file to prove the ignored half, which is wrong twice over: concurrent runs of
+    // this self-test left that file modified for good, and in one tree 3 of 4 concurrent runs
+    // failed outright. Nothing outside this directory is touched now, the name carries the pid
+    // so parallel runs cannot collide, and a `.gitignore` of `*` inside it is what makes git
+    // stop reporting the contents -- measured: a plain untracked directory is listed as its
+    // individual FILES, and that one line makes all of them disappear.
+    const dir = `.agent-env-selftest-${process.pid}`;
+    const probe = path.join(dir, 'probe.ts');
+    // Sweep up after a run that died before its own finally could. Only directories whose pid is
+    // gone, so a concurrent run's directory is never touched.
+    for (const name of fs.readdirSync('.')) {
+      const m = /^\.agent-env-selftest-(\d+)$/.exec(name);
+      if (!m || name === dir) continue;
+      try { process.kill(Number(m[1]), 0); continue; } catch { /* no such process */ }
+      for (const f of ['probe.ts', '.gitignore']) {
+        try { fs.unlinkSync(path.join(name, f)); } catch { /* absent */ }
+      }
+      try { fs.rmdirSync(name); } catch { /* not empty, leave it */ }
+    }
+    try {
+      fs.mkdirSync(dir, { recursive: true });
+      // A SYNTHETIC path, and this line carries the allow marker because the path rule correctly
+      // fires on it otherwise. Without the marker the checker reports itself, which is right of
+      // the rule and wrong of the fixture.
+      fs.writeFileSync(probe, 'const p = "/home/someone/secret/thing";\n');  // agent-env-check: allow
+      say('git reports the new file, and not ignored', untrackedFiles().includes(probe));
+      const dirty = scan();
+      const hits = dirty.violations.filter((v) => v.file === probe);
+      say('the scan reads it and reports the path', hits.length > 0, `${hits.length} violation(s)`);
+      say('and marks the violation as not yet staged', hits.every((v) => v.untracked === true));
+      say('so the run fails', report(dirty, true) === 1);
+
+      // The ignored half. Same bytes, one .gitignore, and git must stop seeing any of it.
+      fs.writeFileSync(path.join(dir, '.gitignore'), '*\n');
+      const clean = scan();
+      // Accounted from the scan already taken rather than by asking git again: the result
+      // carries what it read, and a second listing could pick up another run's probe.
+      say('once ignored, nothing from it is read', !clean.read.includes(probe));
+      say('and it reports no violation', clean.violations.filter((v) => v.file === probe).length === 0);
+      // NOT asserted: that the whole run now exits 0. Another copy of this self-test running in
+      // the same tree has its own probe file in it, un-ignored, for a few hundred milliseconds,
+      // so the run-level code is not a property of THIS case. Measured: four concurrent runs all
+      // failed that assertion while every per-probe claim above held. What this case is about is
+      // its own probe, and that is what it checks.
+      say('the ignored file is still on disk, so this was about git and not deletion',
+        fs.existsSync(probe));
+    } finally {
+      // Removed by unlinking the two files this case created and then the directory, rather
+      // than with fs.rmSync: that arrived in Node 14.14, and the stripped-environment run of
+      // this self-test resolves `node` to /usr/bin/node, which is 10.19.0 here. It threw
+      // `fs.rmSync is not a function` and took the whole run down with it. A checker whose own
+      // self-test needs a modern runtime cannot be trusted to report on an old one.
+      for (const name of ['probe.ts', '.gitignore']) {
+        try { fs.unlinkSync(path.join(dir, name)); } catch { /* never created */ }
+      }
+      try { fs.rmdirSync(dir); } catch { /* never created, or not empty */ }
+      say('the probe directory is gone and nothing shared was touched', !fs.existsSync(dir));
+    }
+  }
 
   if (skips.length) {
     console.log(`\n${skips.length} case group(s) did NOT run:`);
