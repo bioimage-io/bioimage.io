@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import crypto from 'crypto';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Round-33 supplementary acceptance (keen-puma): behavioral evidence beyond
+// Round-33 supplementary acceptance: behavioral evidence beyond
 // control wiring — brush actually paints a mask (with undo), arrow keys move
 // the radius, +/-/0 drive the view, hue persists across reload and recolors
 // existing masks.
@@ -16,7 +17,7 @@ const OUT = '/tmp/round33-verify';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

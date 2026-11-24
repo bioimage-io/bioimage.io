@@ -9,7 +9,7 @@ interface TestReportDialogProps {
   isLoading: boolean;
   rawErrorContent?: string | null;
   isInvalidJson?: boolean;
-  /** Published core version, set only when this staged report is behind it. See svamp #0017. */
+  /** Published core version, set only when this staged report is behind it. */
   staleAgainstCoreVersion?: string | null;
 }
 

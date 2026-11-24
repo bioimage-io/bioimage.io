@@ -70,7 +70,7 @@ interface TestDetailsDialogProps {
   partnerName?: string; // For compatibility reports
   partnerVersion?: string; // For compatibility reports
   /**
-   * svamp #0017/#0059. The core version of the model's PUBLISHED report, set
+   * The core version of the model's PUBLISHED report, set
    * ONLY when the report being shown is a staged one produced by an older core.
    * The caller owns the comparison; absent means "make no claim", which is not
    * the same as "current". A reviewer can already see which core produced a
@@ -357,7 +357,7 @@ const TestDetailsDialog: React.FC<TestDetailsDialogProps> = ({
           </Typography>
         )}
         {/* Sits beside the version it qualifies, because the version alone is
-            what reads as current. See svamp #0017. */}
+            what reads as current. */}
         {staleAgainstCoreVersion && (
           <Tooltip
             title={`This model's published report was produced by bioimageio.core v${staleAgainstCoreVersion}. A newer runtime can reach a different verdict, so treat this result as provisional.`}

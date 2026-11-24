@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Regression guard for issue #0025.
+// Regression guard against nesting an interactive control inside another one.
 //
 // The dataset overview's image rows were <button> elements, and the row for a
 // finetune split also carries its own train/test/unused pill (another button)
@@ -16,7 +16,7 @@ import { BASE_URL } from './baseUrl';
 // inside a row: the plain overview (upload affordance) and the finetune view
 // (upload affordance + split pill).
 //
-// Requires: HYPHA_TOKEN (falls back to /data/nmechtel/bioengine/.env) and a dev
+// Requires: HYPHA_TOKEN (falls back to the file named by BIOENGINE_ENV_FILE) and a dev
 // server at E2E_BASE_URL.
 
 test.use({ baseURL: BASE_URL });
@@ -26,7 +26,7 @@ const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    return fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8').match(/HYPHA_TOKEN=(\S+)/)?.[1];
+    return hyphaToken();
   } catch {
     return undefined;
   }

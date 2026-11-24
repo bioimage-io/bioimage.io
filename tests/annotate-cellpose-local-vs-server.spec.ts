@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Requires: HYPHA_TOKEN env var, falls back to /data/nmechtel/bioengine/.env.
+// Requires: HYPHA_TOKEN env var, falls back to the file named by BIOENGINE_ENV_FILE.
 // Requires: dev server running at E2E_BASE_URL (default http://localhost:3000).
 //
 // Regression test for the round-27 production bug report: Cellpose-SAM full
@@ -48,7 +48,7 @@ const LABEL = 'cells';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     const match = envText.match(/HYPHA_TOKEN=(\S+)/);
     return match?.[1];
   } catch {

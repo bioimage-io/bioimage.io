@@ -1,4 +1,4 @@
-"""Create a throwaway colab annotation dataset for verifying issue #0035.
+"""Create a throwaway colab annotation dataset for verifying the annotate-page save blockers.
 
 Mirrors exactly what the app does: `public/colab_service.py:_ensure_artifact_exists`
 (artifact create under bioimage-io/colab-annotations, type=dataset, stage=True,
@@ -62,7 +62,7 @@ async def main():
 
     am = await server.get_service("public/artifact-manager")
 
-    manifest = {"name": f"verify #0035 {alias}", "description": "throwaway fixture, delete after use"}
+    manifest = {"name": f"verify annotate-save {alias}", "description": "throwaway fixture, delete after use"}
     if user_id:
         manifest["created_by"] = user_id
         manifest["owner"] = {"id": user_id, "email": user_email}

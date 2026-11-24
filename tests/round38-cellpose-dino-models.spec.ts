@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Round-38 acceptance (keen-puma):
+// Round-38 acceptance:
 //   1. The FIS backend/model select gets a 'Cellpose' group listing
 //      Cellpose-SAM, CellposeDINO ViT-B, CellposeDINO ViT-L, mirroring the
 //      uSAM grouping style.
@@ -19,7 +20,7 @@ const OUT = '/tmp/round38-dino-verify';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

@@ -1,6 +1,6 @@
 /**
  * In-memory ring buffer of recent failures, so an error report can carry what
- * actually went wrong instead of a generic message (svamp #0046).
+ * actually went wrong instead of a generic message.
  *
  * The recurring gap this closes is not "no error was logged" but "the error was
  * logged without the context needed to place it": a Hypha RemoteException

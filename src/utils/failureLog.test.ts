@@ -6,7 +6,7 @@ import {
   FAILURE_LOG_CAPACITY,
 } from './failureLog';
 
-// svamp #0046. The buffer exists so an error report can carry what actually
+// The buffer exists so an error report can carry what actually
 // went wrong. Two properties matter more than the rest: it must never leak a
 // token, and it must never throw, because every call site is already inside a
 // catch block handling something that went wrong.

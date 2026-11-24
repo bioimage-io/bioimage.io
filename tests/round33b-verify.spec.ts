@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-33b independent acceptance (keen-puma): drawMode + brushRadius
+// Round-33b independent acceptance: drawMode + brushRadius
 // persistence across reload, and hold-acceleration on ArrowUp/ArrowDown.
 // Playwright's keyboard.down does not synthesize OS auto-repeat, so repeat
 // events are dispatched manually with `repeat: true`, which is exactly what
@@ -20,8 +21,7 @@ test('persistence + hold acceleration', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

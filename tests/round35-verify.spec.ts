@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-35 independent acceptance (keen-puma) on a multi-image dataset:
+// Round-35 independent acceptance on a multi-image dataset:
 // (1) the Browse annotations button swaps to a spinner during the
 //     availability check,
 // (2) the images-list refresh button spins through a manual refresh's full
@@ -55,8 +56,7 @@ test('round 35: browse spinner and refresh spin cycles', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

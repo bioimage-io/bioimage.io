@@ -1,6 +1,6 @@
 import { isRunnerErrorResult, buildTestFailure, buildLostContact } from './testRunOutcome';
 
-// Regression coverage for svamp #0050: a model test whose backend run succeeded
+// Regression coverage: a model test whose backend run succeeded
 // was rendered in the dialog as a red failure with a single generic "Error"
 // entry, while the collection recorded a passing report with all 17 checks.
 

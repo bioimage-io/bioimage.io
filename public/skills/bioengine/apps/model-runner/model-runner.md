@@ -15,7 +15,7 @@ Inference and discovery service for [BioImage.IO Model Zoo](https://bioimage.io)
 > rgb = np.repeat(arr, 3, axis=-1)              # -> (y, x, 3)
 > ```
 >
-> That replication is a deliberate choice you are making about your data, which is why the runner does not do it silently: it returns segmentations people treat as measurements, and a caller who sent one channel because their data IS one channel would otherwise get a plausible result computed on an array they never supplied. From the version carrying myco #0308 the error names the axis, the required count and this remedy instead of reprinting bioimageio's raw `AxisInfo` objects.
+> That replication is a deliberate choice you are making about your data, which is why the runner does not do it silently: it returns segmentations people treat as measurements, and a caller who sent one channel because their data IS one channel would otherwise get a plausible result computed on an array they never supplied. From the version carrying that fix the error names the axis, the required count and this remedy instead of reprinting bioimageio's raw `AxisInfo` objects.
 >
 > Cellpose-3 models declare large minimum input sizes. Sending a smaller array fails with an axis-size error before inference starts, which looks like a loading failure but is not: `famous-fish` needs at least 565x807, `happy-elephant` 1024x1024, `merry-gorilla` 1440x1920, `thoughtful-chipmunk` 1680x1475.
 

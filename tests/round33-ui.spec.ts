@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
 // Round-33 UI: brush/lasso mode switch (double-click Draw Mask, round 33c),
 // radius stepper, and Mask Color dialog. Confirms the controls render,
@@ -13,7 +13,7 @@ const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

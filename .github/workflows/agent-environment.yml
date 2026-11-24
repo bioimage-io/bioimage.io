@@ -1,0 +1,43 @@
+name: No agent environment in the repo
+
+# This repository is public, and CLAUDE.md forbids publishing anything about the
+# environment an automated contributor works in: session ids, workspace ids, the
+# names and commands of that tooling, machine names, and absolute paths on
+# somebody's machine. The rule was already written and was still broken, so this
+# runs the check on every change rather than relying on a reader noticing.
+#
+# Eight rules: five always run, and three need a developer home directory or that
+# tooling to be reachable, so they cannot run on a CI runner. The check prints
+# NOT CHECKED with a reason for those three instead of a green tick, and its exit
+# code is driven by the five that do run, which are the ones that catch a
+# published identifier by shape rather than by name.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: '22'
+
+      # Run the self-test first. A checker that has stopped being able to go red
+      # reports a clean tree and a dirty tree identically, so prove it
+      # discriminates before trusting the result of the run below.
+      - name: The check can still fail
+        run: node scripts/check-no-agent-environment.js --self-test
+
+      - name: No tracked file names the agent environment
+        run: node scripts/check-no-agent-environment.js

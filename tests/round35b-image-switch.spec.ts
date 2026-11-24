@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-35b independent acceptance (keen-puma): switching images in the
+// Round-35b independent acceptance: switching images in the
 // dataset overview removes the previous image IMMEDIATELY and shows the
 // annotation-switch skeleton (centered image icon + loading text) until the
 // new image renders. The same skeleton is reused when loading the next
@@ -19,8 +20,7 @@ test('image switch shows skeleton, previous image removed immediately', async ({
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

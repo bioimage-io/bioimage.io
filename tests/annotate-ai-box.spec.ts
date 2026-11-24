@@ -1,9 +1,9 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
 // Requires: HYPHA_TOKEN env var (same token the user stores in localStorage
-// after login), falls back to reading /data/nmechtel/bioengine/.env if unset.
+// after login), falls back to the file named by BIOENGINE_ENV_FILE if unset.
 // Requires: dev server running at the dev server (
 // overridden below since playwright.config.ts's baseURL targets :3000 for the
 // model-test integration specs).
@@ -16,7 +16,7 @@ import { BASE_URL } from './baseUrl';
 // to catch and, longer-term, guard against.
 //
 // Navigates with the BARE alias (not the full "bioimage-io/..." artifact
-// id) so this also covers the alias-canonicalization regression keen-puma
+// id) so this also covers the alias-canonicalization regression
 // found: a bare-alias session_id must always resolve against the fixed
 // bioimage-io collection workspace, never the connected user's own
 // workspace (useHyphaService.ts, fixed alongside toArtifactId reuse).
@@ -29,7 +29,7 @@ const LABEL = 'cells';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     const match = envText.match(/HYPHA_TOKEN=(\S+)/);
     return match?.[1];
   } catch {

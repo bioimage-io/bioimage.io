@@ -2,8 +2,9 @@ import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import crypto from 'crypto';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-33d independent acceptance (keen-puma): brush-first default is covered
+// Round-33d independent acceptance: brush-first default is covered
 // in round33b-verify; this spec covers the blue brush stroke (mid-stroke
 // screenshot for eyeball review), and the Select-mode rework: drag on empty
 // space box-selects every touched mask instead of panning, Shift adds, Delete
@@ -41,8 +42,7 @@ test('blue brush stroke + box selection without panning', async ({ page }) => {
     if (m.text().includes('[Select]')) selectLogs.push(m.text());
   });
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

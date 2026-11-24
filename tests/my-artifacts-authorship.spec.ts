@@ -3,7 +3,7 @@ import { BASE_URL } from './baseUrl';
 
 /**
  * My Artifacts must list artifacts you are NAMED on, not only the ones you
- * uploaded (myco issue 0006).
+ * uploaded.
  *
  * Nothing here talks to hypha.aicell.io and nothing here touches a real model.
  * `window.__hyphaStore` (a dev-only seam in src/store/hyphaStore.ts, dropped
@@ -472,7 +472,7 @@ test('a nameless session with no uploads of its own sees nothing it should not',
 });
 
 /**
- * myco issue 0020. The card used to render a hardcoded green "Published" chip
+ * The card used to render a hardcoded green "Published" chip
  * for anything not staged, next to a StatusBadge that reads the `status`
  * field. On a published artifact the two said the same word twice; on a
  * committed artifact still marked draft they contradicted each other.

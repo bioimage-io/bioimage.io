@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-34b independent acceptance (keen-puma): the click-time preparation
+// Round-34b independent acceptance: the click-time preparation
 // flow for Interactive Segmentation.
 //   The gear button is gone; clicking the tool button opens the model dialog.
 //   "Start annotating" is enabled immediately and shows a spinner while the
@@ -19,8 +20,7 @@ const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 const OUT = '/tmp/round34b-verify';
 
 function injectAuth(page: import('@playwright/test').Page) {
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   return page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

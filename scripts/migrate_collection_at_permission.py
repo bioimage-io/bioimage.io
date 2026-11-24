@@ -15,7 +15,8 @@ Usage:
   python scripts/migrate_collection_at_permission.py --only <alias> # apply to ONE artifact
   python scripts/migrate_collection_at_permission.py --execute      # apply to ALL leaky children
 
-Requires BIOIMAGE_IO_TOKEN in /data/nmechtel/bioengine/.env (workspace admin).
+Requires BIOIMAGE_IO_TOKEN, either in the environment or in the file named by
+the BIOENGINE_ENV_FILE environment variable (workspace admin).
 """
 import argparse
 import asyncio
@@ -24,7 +25,7 @@ from hypha_rpc import connect_to_server
 
 COLLECTION_ID = "bioimage-io/bioimage.io"
 TIGHT = ["read", "get_file", "list", "list_files", "create"]
-ENV_PATH = "/data/nmechtel/bioengine/.env"
+ENV_PATH = os.environ.get("BIOENGINE_ENV_FILE", "")
 
 
 def grants_put_file(at):
@@ -38,10 +39,20 @@ def grants_put_file(at):
 
 
 def load_token():
+    direct = (os.environ.get("BIOIMAGE_IO_TOKEN") or "").strip()
+    if direct:
+        return direct
+    # No path is hardcoded here: this repository is public, so a developer's
+    # filesystem layout does not belong in it.
+    if not ENV_PATH:
+        raise SystemExit(
+            "BIOIMAGE_IO_TOKEN is not set and BIOENGINE_ENV_FILE names no file.\n"
+            "  Export the token, or point BIOENGINE_ENV_FILE at a file holding it."
+        )
     for line in open(ENV_PATH):
         if line.startswith("BIOIMAGE_IO_TOKEN="):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("BIOIMAGE_IO_TOKEN not found")
+    raise SystemExit(f"BIOIMAGE_IO_TOKEN not found in {ENV_PATH}")
 
 
 async def main():

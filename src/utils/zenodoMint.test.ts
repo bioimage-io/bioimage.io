@@ -6,7 +6,7 @@ import {
   REAL_ZENODO,
 } from './zenodoMint';
 
-// svamp #0062. Every model-change commit should mint a Zenodo version. The
+// Every model-change commit should mint a Zenodo version. The
 // property that matters most here is NOT that minting works, it is that minting
 // against REAL Zenodo cannot happen by accident: a DOI is permanent and cannot
 // be un-minted, so a config flip must not silently turn every save into a

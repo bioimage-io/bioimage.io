@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
 // Round-33 follow-up: drawMode + brushRadius persist across reload (like
 // maskHue), and holding ArrowUp/ArrowDown accelerates after ~1s of
@@ -16,7 +16,7 @@ const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

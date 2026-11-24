@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-36 independent acceptance (keen-puma): merging touching masks.
+// Round-36 independent acceptance: merging touching masks.
 //   Two overlapping brush masks, box-selected, merge into ONE via the A
 //   shortcut, with an undo snapshot taken first (Ctrl+Z restores both).
 //   Two separated masks no-op with the exact warning toast.
@@ -24,8 +25,7 @@ test('merge touching masks, undo restores, non-touching toast, guide mentions me
     if (t.includes('[Select]') || t.includes('[Expander]')) logs.push(t);
   });
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

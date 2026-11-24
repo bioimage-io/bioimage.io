@@ -31,11 +31,12 @@ staging session is preserved (a non-stage edit finalizes/clears staging, as the
 """
 import argparse
 import asyncio
+import os
 from collections import Counter
 from hypha_rpc import connect_to_server
 
 COLLECTION_ID = "bioimage-io/bioimage.io"
-ENV_PATH = "/data/nmechtel/bioengine/.env"
+ENV_PATH = os.environ.get("BIOENGINE_ENV_FILE", "")
 
 STATUS_RENAME = {
     "request-review": "in-review",
@@ -47,10 +48,20 @@ RECONCILE = {"deletion-requested"}
 
 
 def load_token():
+    direct = (os.environ.get("BIOIMAGE_IO_TOKEN") or "").strip()
+    if direct:
+        return direct
+    # No path is hardcoded here: this repository is public, so a developer's
+    # filesystem layout does not belong in it.
+    if not ENV_PATH:
+        raise SystemExit(
+            "BIOIMAGE_IO_TOKEN is not set and BIOENGINE_ENV_FILE names no file.\n"
+            "  Export the token, or point BIOENGINE_ENV_FILE at a file holding it."
+        )
     for line in open(ENV_PATH):
         if line.startswith("BIOIMAGE_IO_TOKEN="):
             return line.split("=", 1)[1].strip().strip('"').strip("'")
-    raise SystemExit("BIOIMAGE_IO_TOKEN not found")
+    raise SystemExit(f"BIOIMAGE_IO_TOKEN not found in {ENV_PATH}")
 
 
 async def main():

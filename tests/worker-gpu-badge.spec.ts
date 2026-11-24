@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Regression guard for issue #0027.
+// Regression guard for the GPU badge on a partial-GPU app.
 //
 // A BioEngine app can hold a GPU in two ways. Whole-GPU apps set num_gpus.
 // Partial-GPU apps ask by VRAM instead (gpu_memory_mb), which leaves num_gpus
@@ -14,7 +14,7 @@ import { BASE_URL } from './baseUrl';
 // live deployment set changes constantly, so a hardcoded expectation would rot
 // within days.
 //
-// Requires: HYPHA_TOKEN (falls back to /data/nmechtel/bioengine/.env) and a dev
+// Requires: HYPHA_TOKEN (falls back to the file named by BIOENGINE_ENV_FILE) and a dev
 // server at E2E_BASE_URL.
 
 test.use({ baseURL: BASE_URL });
@@ -34,7 +34,7 @@ type AppStatus = {
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    return fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8').match(/HYPHA_TOKEN=(\S+)/)?.[1];
+    return hyphaToken();
   } catch {
     return undefined;
   }
@@ -145,14 +145,14 @@ test('worker dashboard badges every GPU app, including partial-GPU ones', async 
     });
   }
 
-  // The whole point of #0027 is the partial-GPU case. Say so out loud when the
+  // The whole point of this guard is the partial-GPU case. Say so out loud when the
   // live worker happens not to be running one, so a green result is not read as
   // proof that case still works.
   if (partialGpuChecked === 0) {
     testInfo.annotations.push({
       type: 'note',
       description:
-        'no partial-GPU app (gpu_enabled with num_gpus 0) was deployed, so the #0027 case itself was not exercised.',
+        'no partial-GPU app (gpu_enabled with num_gpus 0) was deployed, so the partial-GPU case itself was not exercised.',
     });
   }
 });

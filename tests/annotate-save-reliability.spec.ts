@@ -1,9 +1,9 @@
 import { test, expect, Page } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Verification harness for issue #0035: the three live blockers the
-// 2026-10-25 colab review found on the annotate page.
+// Verification harness for the three live blockers the 2026-10-25 colab review
+// found on the annotate page.
 //
 //   B2  save reported success even when the presigned PUT returned an HTTP error
 //   B3  no unsaved-work protection anywhere
@@ -29,11 +29,13 @@ const LABEL = process.env.FIXTURE_LABEL || 'cells';
 const STEM = process.env.FIXTURE_STEM || 'verify35_cells';
 
 function readHyphaToken(): string | undefined {
-  if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
+  // Optional on purpose: these tests skip rather than fail when no token is
+  // available. But say WHY on the way out, because returning undefined silently
+  // makes a skipped run look like a passing one.
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioimage.io/.env', 'utf8');
-    return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
-  } catch {
+    return hyphaToken();
+  } catch (e) {
+    console.warn(`skipping: ${(e as Error).message}`);
     return undefined;
   }
 }
@@ -110,7 +112,7 @@ async function beforeUnloadCancels(page: Page): Promise<boolean> {
 
 test.describe.configure({ mode: 'serial' });
 
-test.describe('annotate save reliability (#0035)', () => {
+test.describe('annotate save reliability', () => {
   test('B3: unsaved masks prompt on an in-app exit and arm the unload guard', async ({ page }) => {
     const token = readHyphaToken();
     if (!token) {

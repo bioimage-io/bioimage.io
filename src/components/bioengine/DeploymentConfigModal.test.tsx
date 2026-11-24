@@ -6,7 +6,7 @@ import { useHyphaStore } from '../../store/hyphaStore';
 
 jest.mock('../../store/hyphaStore');
 
-// svamp #0053: the version box is prefilled with whatever is currently running, so
+// the version box is prefilled with whatever is currently running, so
 // the default action on a running app redeploys that version even when the artifact
 // has published newer code. The worker cannot warn about it: it reports the deploy as
 // the version that was asked for, because it was asked for. This dialog is the only

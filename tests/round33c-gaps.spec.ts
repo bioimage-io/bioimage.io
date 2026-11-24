@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { hyphaToken } from './hyphaToken';
 
-// Round-33c gap fills (keen-puma): the parts silver-crane flagged as not
+// Round-33c gap fills: the parts an earlier review flagged as not
 // live-tested — tutorial click-through with the new shortcut copy, the
 // threshold rows without numeric readouts, and the mode-dependent icons.
 
@@ -17,8 +18,7 @@ test('tutorial click-through, threshold rows, icons', async ({ page }) => {
   const pageErrors: string[] = [];
   page.on('pageerror', (e) => pageErrors.push(e.message));
 
-  const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
-  const token = envText.match(/HYPHA_TOKEN=(\S+)/)![1];
+  const token = hyphaToken();
   await page.addInitScript(({ tok, expiry }) => {
     localStorage.setItem('token', tok);
     localStorage.setItem('tokenExpiry', expiry);

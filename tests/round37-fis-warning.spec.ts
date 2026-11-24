@@ -1,8 +1,9 @@
 import { test, expect } from '@playwright/test';
 import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Round-37 acceptance (keen-puma):
+// Round-37 acceptance:
 //   1. Warn before Full Image Segmentation runs over existing masks. Clicking
 //      Run Segmentation / Compute Flow Field / Re-run on Server with at least
 //      one existing mask on the image shows a blocking inline warning (not a
@@ -20,7 +21,7 @@ const OUT = '/tmp/round37-verify';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

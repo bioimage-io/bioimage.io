@@ -161,7 +161,7 @@ describe('package list: the shapes the runner really emits', () => {
   });
 });
 
-// svamp #0052: a partner tool that PASSES records no detail payload, and the
+// a partner tool that PASSES records no detail payload, and the
 // dialog used to drop the whole Test Details section, leaving a dialog that read
 // as "never tested". The models where a tool works looked like the models where
 // it was never tried.
@@ -204,7 +204,7 @@ describe('compatibility report with no details', () => {
   });
 });
 
-// svamp #0017/#0059. A reviewer opening a STAGED model sees which
+// A reviewer opening a STAGED model sees which
 // bioimageio.core produced the verdict but not that the version is behind.
 // The first attempt put this warning inside a Popover that nothing can open
 // (dead since 302ea59, 2026-02-23), so it shipped without ever rendering.

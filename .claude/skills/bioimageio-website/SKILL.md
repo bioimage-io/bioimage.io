@@ -149,7 +149,7 @@ so reviewers cannot edit them while they are still staged/in-review. `handleAcce
 publish, but to grant reviewers on such a model *while it is still in review*, use the ops top-up
 below. There is also a proposed server-side fix (a parent-collection permission fallback in Hypha, so a
 collection-`rw+` reviewer is authorized on child artifacts directly) on the local branch
-`restore-collection-permission-fallback` in `/data/nmechtel/hypha` — not yet merged; it needs a
+`restore-collection-permission-fallback` in a local Hypha checkout — not yet merged; it needs a
 design decision on whether that cascade should be global or gated behind a collection opt-in flag.
 
 **Ops top-up.** To grant reviewers on an already-published model out of band, use `BIOIMAGE_IO_TOKEN`

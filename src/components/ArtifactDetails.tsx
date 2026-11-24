@@ -1010,7 +1010,7 @@ const ArtifactDetails = () => {
                                     {testReport.runtime}
                                   </Typography>
                                   {/* The stale-core warning used to live here. This whole Popover
-                                      is unreachable (svamp #0059): its `open` gate reads an anchor
+                                      is unreachable: its `open` gate reads an anchor
                                       that nothing has assigned since 302ea59, so the warning never
                                       rendered. It now sits in the report dialog, which reviewers
                                       actually open. Do not add UI here without restoring a trigger. */}
@@ -2290,7 +2290,7 @@ const ArtifactDetails = () => {
         isLoading={isLoadingTestReport}
         rawErrorContent={rawErrorContent}
         isInvalidJson={isInvalidJson}
-        /* svamp #0017/#0059. publishedCoreVersion is only ever populated while
+        /* publishedCoreVersion is only ever populated while
            viewing a staged report, so the staged-only gating is already in the
            state itself. Null comparand means no claim, not "current". */
         staleAgainstCoreVersion={(() => {

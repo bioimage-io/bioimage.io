@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Requires: HYPHA_TOKEN env var (falls back to /data/nmechtel/bioengine/.env).
+// Requires: HYPHA_TOKEN env var (falls back to the file named by BIOENGINE_ENV_FILE).
 // Requires: dev server at E2E_BASE_URL (default http://localhost:3000).
 //
 // What this tests:
@@ -26,7 +26,7 @@ import { BASE_URL } from './baseUrl';
 //
 // Deliberately does NOT click "Create split" / "Extend split" / "Start
 // training": creating a split or starting a real GPU training run against
-// shared infra is out of scope for an automated check — keen-puma/Nils run
+// shared infra is out of scope for an automated check — a maintainer runs
 // that e2e pass by hand once this lands.
 
 test.use({ baseURL: BASE_URL });
@@ -36,7 +36,7 @@ const DATASET_ALIAS = 'annotation-mst3ebzz-o5px';
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     const match = envText.match(/HYPHA_TOKEN=(\S+)/);
     return match?.[1];
   } catch {

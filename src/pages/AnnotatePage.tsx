@@ -2389,7 +2389,7 @@ print("CLAHE_RESULT:" + result_b64)
       />
 
       {/* Never show the first-visit tutorial on top of the connecting/error
-          overlay (bug reported by keen-puma) — it stays queued in `helpOpen`
+          overlay (reported bug) — it stays queued in `helpOpen`
           and appears once the overlay clears. */}
       <HelpTutorial open={helpOpen && !showStatusOverlay} onClose={() => setHelpOpen(false)} />
 

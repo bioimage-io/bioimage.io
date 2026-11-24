@@ -1,8 +1,8 @@
 import { test, expect } from '@playwright/test';
-import fs from 'fs';
 import { BASE_URL } from './baseUrl';
+import { envFileText } from './hyphaToken';
 
-// Round-36 acceptance (keen-puma, confirmed via svamp thread h5BkpX6uBC):
+// Round-36 independent acceptance:
 // 1. Select 2+ masks with the Select tool, press Expand Mask (button or "A")
 //    to merge them via geometric union. Touching/overlapping masks merge into
 //    one feature with a single undo snapshot; non-touching masks no-op with a
@@ -21,7 +21,7 @@ const HYPHA_SERVER_URL = process.env.REACT_APP_HYPHA_SERVER_URL || 'https://hyph
 function readHyphaToken(): string | undefined {
   if (process.env.HYPHA_TOKEN) return process.env.HYPHA_TOKEN;
   try {
-    const envText = fs.readFileSync('/data/nmechtel/bioengine/.env', 'utf8');
+    const envText = envFileText();
     return envText.match(/HYPHA_TOKEN=(\S+)/)?.[1];
   } catch {
     return undefined;

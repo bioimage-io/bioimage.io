@@ -112,6 +112,29 @@ These rules apply ONLY to user-visible strings. Code comments, JSDoc, `console.*
 
 ---
 
+## Environment variables these checks and specs read
+
+No path to a credentials file is hardcoded anywhere in this repository, because it is public and a
+contributor's filesystem layout does not belong in it. Three variables carry what used to be
+literals. Each one fails with the remedy named rather than a bare `ENOENT`.
+
+| variable | read by | what it is |
+|---|---|---|
+| `HYPHA_TOKEN` | the Playwright specs, via `tests/hyphaToken.ts` | the token a signed-in user holds; preferred over any file |
+| `BIOENGINE_ENV_FILE` | `tests/hyphaToken.ts`, `scripts/migrate_*.py` | a file holding `HYPHA_TOKEN=` / `BIOIMAGE_IO_TOKEN=`, used only when the token is not already in the environment |
+| `BIOIMAGE_IO_TOKEN` | `scripts/migrate_*.py` | the workspace-admin token those migrations need |
+
+`npm run check-agent-env` asserts that no tracked file names an automated contributor's
+environment, and it also runs as a `pretest` hook and in CI. It reports which of its rules actually
+ran: two of them need a home directory and that tooling to be reachable, so in CI they print
+`NOT CHECKED` rather than a green tick. `AGENT_ENV_FORBIDDEN_ROOTS` (colon-separated) overrides the
+directories it treats as a person's own.
+
+Its one real limit, worth knowing before trusting it: session NAMES are matched only for sessions
+still reachable in the live list, so a name belonging to a session from elsewhere is not caught.
+Two such names were found by hand in 14 tracked files after the rule was written. The gate reduces
+recurrence; it does not replace reading the diff before a push.
+
 ## Where to find more
 
 Load these skills before touching the matching area of the codebase — they hold the deeper guidance (coding standards, architectural patterns, component inventory, dev rules):

@@ -1,5 +1,5 @@
 /**
- * Mint a Zenodo version for an artifact after a successful commit (svamp #0062).
+ * Mint a Zenodo version for an artifact after a successful commit.
  *
  * The rule this implements: every model-change commit should produce a Zenodo
  * version, while a Hypha version is cut only when the weights change. The Hypha

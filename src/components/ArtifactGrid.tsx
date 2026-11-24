@@ -38,8 +38,8 @@ const partnerLinkFromId = (partnerId: string, workspace?: string): string => {
   // Prefer the workspace the partner manifest declares. It is absent for all 13
   // partners today, so the hardcoded list below still carries stardist and
   // qupath; the moment the manifest gains the key, that list stops being
-  // consulted for whichever partners set it. Default is the partner id, as
-  // decided on #0031.
+  // consulted for whichever partners set it. Default is the partner id, which is a
+  // deliberate choice rather than a fallback.
   const ws = (workspace || '').trim().toLowerCase()
     || (CENTRAL_HOSTED_PARTNERS.includes(id) ? 'bioimageio' : id);
   return `${ws}/${id}`;

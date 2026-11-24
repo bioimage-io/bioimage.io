@@ -518,7 +518,7 @@ const Edit: React.FC = () => {
     // (handleSave / onDrop / the setTimeout recursion may have already committed).
     // Name the Hypha version after the model's own RDF version, so the two stop
     // drifting apart. Forward only: existing artifacts keep the version names
-    // they already have, and migrating them is a separate decision (#0015).
+    // they already have, and migrating them is a separate decision nobody has taken.
     //
     // Only on a NEW version. An in-place edit_version must keep the name of the
     // version it is overwriting, and renaming it would silently move a published
@@ -554,7 +554,7 @@ const Edit: React.FC = () => {
       if (/staging mode to commit|must be in staging/i.test(msg)) return;
       throw err;
     }
-    // svamp #0062: every model-change commit mints a Zenodo version. Runs AFTER
+    // every model-change commit mints a Zenodo version. Runs AFTER
     // the commit succeeded and deliberately cannot fail it: the artifact state is
     // already correct, so a Zenodo outage must not read as a failed save.
     await mintAfterCommit('commit');
@@ -1426,7 +1426,7 @@ const Edit: React.FC = () => {
           comment: `Published by ${user?.email}`,
           _rkwargs: true
         });
-        // svamp #0062: mint a Zenodo version for this commit too. Only on the
+        // mint a Zenodo version for this commit too. Only on the
         // branch that actually committed; the else branch below just re-reads
         // state and changed nothing, so there is nothing to mint for.
         await mintAfterCommit('publish-flow');
