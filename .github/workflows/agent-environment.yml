@@ -43,10 +43,21 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v5
 
+      # package-manager-cache is OFF deliberately. setup-node v5 turns it on by
+      # default, sees pnpm-lock.yaml, and then fails with "Unable to locate
+      # executable file: pnpm" because pnpm is not on the runner. That killed
+      # this job before either step below could run, on every push from the one
+      # that added this workflow onwards, so the red tick meant "could not run"
+      # rather than "the tree names the agent environment".
+      #
+      # Installing pnpm would also fix the error and would be the wrong fix: the
+      # checker imports only child_process, os, fs and path, so this job needs no
+      # dependencies, no install and no cache.
       - name: Setup Node
         uses: actions/setup-node@v5
         with:
           node-version: '22'
+          package-manager-cache: false
 
       # Run the self-test first. A checker that has stopped being able to go red
       # reports a clean tree and a dirty tree identically, so prove it
