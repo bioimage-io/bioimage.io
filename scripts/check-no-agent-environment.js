@@ -103,6 +103,10 @@ function vocabulary() {
 }
 
 const VOCAB = vocabulary();
+// Set by sessionIds(): whether the live session registry was actually READ, as opposed to the
+// one id the environment supplied. The summary distinguishes them, because "CHECKED (1 live id)"
+// over an env var alone reads exactly like a list that was consulted and had one entry.
+let REGISTRY_REACHED = false;
 // Longest first, so an alternation prefers the longer word where one contains the other.
 const VOCAB_ALT = VOCAB.length
   ? [...VOCAB].sort((a, b) => b.length - a.length).map((w) => w.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')).join('|')
@@ -306,25 +310,36 @@ function sessionIds() {
   const ids = new Set();
   const own = envValue('_SESSION_ID', 'AGENT_SESSION_ID');
   if (own) ids.add(own);
-  try {
-    // The command's name comes from the configured vocabulary, never from this file. With no
-    // vocabulary there is nothing to invoke, and the throw below takes the same path as a
-    // missing binary: the live list is skipped and whatever the environment supplied stands.
-    if (!VOCAB.length) throw new Error('no vocabulary configured');
-    const out = execFileSync(VOCAB[0], ['session', 'list', '--json', '--all'], {
-      encoding: 'utf8',
-      stdio: ['ignore', 'pipe', 'ignore'],
-      timeout: 20000,
-    });
-    const rows = JSON.parse(out);
-    const list = Array.isArray(rows) ? rows : rows.sessions || [];
-    for (const r of list) {
-      const id = r && (r.id || r.sessionId);
-      if (typeof id === 'string' && id) ids.add(id);
+  // AGENT_TOOL names the binary outright. Otherwise EVERY configured word is tried, because the
+  // vocabulary is a list of words to hide, not an ordered list with the executable first, and
+  // taking element 0 made the result depend on the order someone typed them in: with the
+  // directory name ahead of the command name, the registry was never consulted and the summary
+  // still said CHECKED, over the one id the environment had supplied. Found in review.
+  const tool = (process.env.AGENT_TOOL || '').trim();
+  const candidates = tool ? [tool] : VOCAB;
+  let registry = false;
+  for (const candidate of candidates) {
+    try {
+      const out = execFileSync(candidate, ['session', 'list', '--json', '--all'], {
+        encoding: 'utf8',
+        stdio: ['ignore', 'pipe', 'ignore'],
+        timeout: 20000,
+      });
+      const rows = JSON.parse(out);
+      const list = Array.isArray(rows) ? rows : rows.sessions || [];
+      for (const r of list) {
+        const id = r && (r.id || r.sessionId);
+        if (typeof id === 'string' && id) ids.add(id);
+      }
+      registry = true;
+      break;
+    } catch {
+      // Not the binary, or the tooling is absent as in CI. Try the next word; if none works,
+      // whatever the environment supplied still stands and the summary says the registry was
+      // not reached, rather than reporting one env id as though the list had been read.
     }
-  } catch {
-    // Tooling absent, e.g. in CI. Any id from the environment still stands.
   }
+  REGISTRY_REACHED = registry;
   // Under eight characters would match ordinary words.
   const kept = [...ids].filter((v) => v.length >= 8);
   return kept.length ? kept : null;
@@ -523,7 +538,10 @@ function report({ violations, scanned, matchable, roots, ids, names, skipped }, 
   );
   console.log(
     `  session ids                                  : ${
-      ids ? `CHECKED (${ids.length} live id(s), not printed)` : 'NOT CHECKED - the agent tooling is not reachable from here'
+      ids
+        ? `CHECKED (${ids.length} id(s), not printed; registry ${
+          REGISTRY_REACHED ? 'READ' : 'NOT reached, so these came from the environment only'})`
+        : 'NOT CHECKED - the agent tooling is not reachable from here'
     }`,
   );
 

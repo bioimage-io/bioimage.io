@@ -6,11 +6,26 @@ name: No agent environment in the repo
 # somebody's machine. The rule was already written and was still broken, so this
 # runs the check on every change rather than relying on a reader noticing.
 #
-# Eight rules: five always run, and three need a developer home directory or that
-# tooling to be reachable, so they cannot run on a CI runner. The check prints
-# NOT CHECKED with a reason for those three instead of a green tick, and its exit
-# code is driven by the five that do run, which are the ones that catch a
-# published identifier by shape rather than by name.
+# WHAT ACTUALLY RUNS HERE, counted rather than asserted: the numbers below were read
+# out of the check in both states, not written from memory, because the previous
+# version of this comment said "eight rules: five always run" and had been wrong
+# since two of them were added. A file whose own standard is not to overclaim
+# coverage should not overclaim its own.
+#
+# On a runner there is no developer home, the agent tooling is unreachable, and the
+# git-ignored vocabulary file is absent, so:
+#
+#   pattern rules            4 of 7 run   (id-in-position, workspace id,
+#                                          bare row number, developer path by shape)
+#   dropped for no vocabulary    3        (backlog directory, tooling command,
+#                                          row reference after a tool name)
+#   literal-value rules          0 of 4   (session ids, session names, machine names,
+#                                          this machine's paths by name)
+#
+# So the exit code here is driven by the four shape rules, which are the ones that
+# catch a published identifier without being told what to look for. Every rule that
+# did not run prints NOT CHECKED with a reason, and the self-test prints and counts
+# its skipped groups, so a green tick here never means "all of it was examined".
 
 on:
   push:
