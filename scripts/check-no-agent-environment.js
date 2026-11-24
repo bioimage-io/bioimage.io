@@ -772,10 +772,32 @@ function selfTest() {
 
   console.log('\n[18] this machine, matched literally and reported redacted');
   {
+    // Whether the machine running this HAS a name to protect is a fact about
+    // where the self-test runs, not about the checker. A CI runner protects
+    // none, and the old case asserted one anyway, so the self-test failed on
+    // every runner: the step whose job is to prove the checker can still go red
+    // never passed, and the check itself was skipped behind it. Treated like
+    // the vocabulary groups now, SKIPPED and counted, with the cases that need
+    // a real name moved inside the branch that has one. Where a name IS
+    // readable and the rule does not catch it, this still fails.
     const names = machineNames();
-    say('a machine name is readable here', !!names, `${names ? names.length : 0}`);
-    // Driven with a FABRICATED machine name through the parameter, so the case neither
-    // depends on which machine runs it nor writes a real hostname into this file.
+    if (names) {
+      const real = scanOneFile('x.sh', `ssh ${names[0]}\n`, null, null, null, names);
+      say('a readable machine name is caught',
+        real.violations.some((v) => v.kind === 'machine name'),
+        `${names.length} name(s) readable`);
+      // Counts only. Printing the violation back here would write this
+      // machine's name into the self-test output, which is the thing the rule
+      // exists to prevent.
+      say('and the readable name is NOT printed back',
+        real.violations.every((v) => !JSON.stringify(v).includes(names[0])),
+        `${real.violations.length} violation(s)`);
+    } else {
+      skip('no machine name is readable here, which is what a CI runner looks like: it has '
+           + 'nothing of its own to protect, so the two cases needing a real name did not run');
+    }
+    // Driven with a FABRICATED machine name through the parameter, so the cases below neither
+    // depend on which machine runs them nor write a real hostname into this file.
     const hit = scanOneFile('x.sh', 'ssh notarealhost\n', null, null, null, ['notarealhost']);
     say('the hostname is caught when matched literally',
       hit.violations.some((v) => v.kind === 'machine name'),
