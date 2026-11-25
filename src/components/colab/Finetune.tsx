@@ -23,6 +23,7 @@ import {
 } from '../../utils/trainingModels';
 import { resolveInitCheckpointUrl } from '../../utils/finetuneCheckpoints';
 import { createSessionPoller, Poller } from '../../utils/sessionPoller';
+import { buildStartTrainingImages, unresolvableCount } from '../../utils/startTrainingCall';
 import { epochProgressOf, outcomeForStatus } from '../../utils/trainingProgress';
 import EpochProgress from './EpochProgress';
 import LoginButton from '../LoginButton';
@@ -241,9 +242,31 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
         return;
       }
       setShowEmptyTestWarning(false);
+      // A training row carries EITHER image_url (a materialised image) or
+      // image_source (a remote OME-Zarr one), told apart by which key is
+      // present. Reading image_url directly put `undefined` in this array for
+      // a region row, which start_training either rejected deep in the backend
+      // naming a missing source, or silently trained on the subset that
+      // happened to be materialised. An entry with neither key is a broker
+      // answer this build does not understand, so the run is refused rather
+      // than started with a hole in it.
+      // The image arguments are built by a tested pure function. They used to
+      // be built inline, and a review showed that reverting them to
+      // `e.image_url` left the entire suite green, because nothing exercised
+      // the construction itself.
+      const unusable = unresolvableCount(urls);
+      if (unusable > 0) {
+        setStartError(
+          `${unusable} of the selected images could not be resolved to a source the trainer can read. `
+          + 'Reload the dataset page and try again. If it keeps happening, the annotation service and '
+          + 'this page disagree about how images are addressed.',
+        );
+        setStarting(false);
+        return;
+      }
+      const images = buildStartTrainingImages(urls);
       const call: any = {
-        train_images: urls.train.map((e) => e.image_url),
-        train_labels: urls.train.map((e) => e.geojson_url),
+        ...images,
         model_type: pendingModelType,
         label: sessionTag(artifactAlias, pendingLabel),
         // Only what this backend accepts. Passing a foreign parameter is
@@ -252,10 +275,6 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
         ...parsed.values,
         _rkwargs: true,
       };
-      if (urls.test.length > 0) {
-        call.val_images = urls.test.map((e) => e.image_url);
-        call.val_labels = urls.test.map((e) => e.geojson_url);
-      }
       // Resuming is replica-local by construction, which is fine because every
       // call on this page goes through the same pin.
       if (pendingResumeId) call.resume_session_id = pendingResumeId;

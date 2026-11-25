@@ -268,11 +268,75 @@ export function splitDocToSummary(doc: SplitDoc): SplitSummary {
 }
 
 /** One image+annotation pair url resolved for fine-tuning (broker v0.7.0). */
-export interface TrainingUrlEntry {
-  stem: string;
-  user: string;
-  image_url: string;
-  geojson_url: string;
+/**
+ * Where a training image's pixels are. A materialised image has a presigned
+ * `image_url`; a remote OME-Zarr one has an `image_source` describing the store
+ * and the region to read, and no url at all.
+ */
+export interface RemoteImageSource {
+  kind: 'ngff';
+  /** The store URL. A credential is spliced in per response, so do not log it. */
+  store_root: string;
+  multiscale_path: string | null;
+  /** `null` means the whole image rather than a crop. */
+  region: { x: number; y: number; width: number; height: number } | null;
+  /** Level 0 FIRST, named as the store names them, so not reliably "0". */
+  dataset_paths: string[];
+  axis_roles: { y: number; x: number; c: number | null };
+  /** In the store's own axis order. */
+  level0_shape: number[];
+  /** The axis NAMES, e.g. ["c","y","x"]. */
+  axes: string[];
+  planes: Record<string, number> | null;
+}
+
+/**
+ * One image+annotation pair resolved for fine-tuning.
+ *
+ * The two shapes are told apart by which key is PRESENT, and this is a
+ * DISCRIMINATED UNION rather than one shape with two optional keys. With both
+ * keys optional, a caller could write `e.image_url` for a region row, get
+ * `undefined`, and have nothing to object: the hole then went into
+ * `start_training(train_images=[...])`, which either failed deep in the
+ * backend naming a missing source, or trained only on the subset that happened
+ * to be materialised.
+ *
+ * WHAT THE UNION DOES AND DOES NOT STOP, measured rather than assumed. The
+ * union refuses a row carrying BOTH keys and one carrying NEITHER, by two
+ * DIFFERENT mechanisms, so neither half is redundant: the required key in each
+ * member is what refuses NEITHER, and the `?: never` partner is what refuses
+ * BOTH. Measured by deleting the two `?: never` members and recompiling: a
+ * both-key row then compiles with no error at all, while a neither-key row
+ * still fails. TypeScript's excess-property check on a union admits a key that
+ * exists in any member, so without the partner there is nothing left to object.
+ * Deleting them as redundant would silently re-admit both-key rows. It does
+ * NOT stop a caller reading `e.image_url` off an unnarrowed entry: both members
+ * declare the key, so the access types as `string | undefined` and compiles.
+ * Under `tsc --strict` it errors only where that value is assigned to a
+ * non-optional slot, which is what the typed builder in
+ * `utils/startTrainingCall.ts` provides and what `call: any` in Finetune.tsx
+ * still does not. So the guarantee is the BUILDER's, not the type's: go through
+ * `trainingImageRef` below.
+ */
+export type TrainingUrlEntry =
+  | { stem: string; user: string; geojson_url: string; image_url: string; image_source?: never }
+  | { stem: string; user: string; geojson_url: string; image_source: RemoteImageSource; image_url?: never };
+
+/**
+ * What to hand `start_training` for one training image.
+ *
+ * `start_training` accepts a url string OR the source object, so the page does
+ * not have to understand the object: it passes through whichever the broker
+ * sent. Returns `undefined` when an entry carries neither, which is a broker
+ * answer this build does not understand, and the caller refuses rather than
+ * sending a hole in the array.
+ */
+export function trainingImageRef(
+  entry: TrainingUrlEntry,
+): string | RemoteImageSource | undefined {
+  if (entry.image_url) return entry.image_url;
+  if (entry.image_source) return entry.image_source;
+  return undefined;
 }
 
 export interface TrainingUrls {
