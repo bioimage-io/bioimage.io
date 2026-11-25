@@ -16,7 +16,9 @@ BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are
 
 > ⚠️ **`<workspace>/<app-id>` alone (e.g. `bioimage-io/model-runner`) is NOT the callable app service.** That short form exists as a WebRTC offer endpoint registered by the proxy, and calling it returns only `{offer}`, not the app methods. **Always use the per-worker per-replica form above when calling an app.**
 
-**Service types** (use with `list_services({"type": ...})`):
+**Service types.** These are the `type` values Hypha registers. `list_services({"type": ...})` is
+fine for *interactive* exploration, where a hang costs you a Ctrl-C — **never in a script**, where it
+hangs with no upper bound. Scripts resolve over HTTP (see below):
 
 | Type | Registered by | Selects |
 |---|---|---|
@@ -30,12 +32,14 @@ BioEngine service IDs follow `<workspace>/<client_id>:<service_name>`. There are
 from hypha_rpc import connect_to_server
 s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
 
-# 1. List workers in the workspace:
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
-#   → ["bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker", "...-denbi-...", ...]
+# 1. Resolve a worker. Use the HTTP helper `worker_service_id()` defined in the next
+#    section of this file -- NOT `list_services`, which hangs against a busy workspace
+#    with no upper bound and makes a healthy worker look dead.
+worker_sid = worker_service_id("bioimage-io", "bioengine-worker-kth")   # or "...-denbi"
+#   → "bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker"
 
 # 2. For a chosen worker, ask which apps it has running AND get their concrete service IDs:
-worker = await s.get_service(workers[0])
+worker = await s.get_service(worker_sid)
 status = await worker.get_app_status(None)            # None / no args = all running apps
 #   ALWAYS a dict keyed by app id, even when one app is queried (the
 #   docstring's "single app returns directly" claim is stale — treat the
@@ -52,6 +56,99 @@ app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<
 # (see apps/model-runner/model-runner.md § Async job API).
 request_id = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
+
+## Step 1's helper: resolve the worker over HTTP, never by RPC listing
+
+`list_services` has been observed to **hang** against a busy workspace. The fault is in the
+platform's listing path, not in your token, your workspace or the worker: a worker whose calls appear
+to "stop answering" is very often a caller stuck inside the listing while the worker is perfectly
+healthy.
+
+Two measurements, kept apart because they are **not** one simultaneous comparison — the second run
+happened about 24 minutes after the first:
+
+```
+run A, one RPC connection, both arms in the same run:
+  list_services                                TIMED OUT after 75 s
+  get_service + get_status by exact id          OK in 0.7 s
+  control: an id that cannot exist              refused in 0.0 s
+
+run B, ~24 min later, four arms in one run on one connection:
+  control  an id that cannot exist              REFUSED  in 0.01 s
+  get_service + get_status by exact id          OK       in 0.02 s
+  list_services                                 ANSWERED in 0.05 s,  25 entries
+  GET /<workspace>/services                     HTTP 200 in 2.844 s, 25 entries
+```
+
+Read both before concluding anything:
+
+- **It is intermittent, and run B is what "it works for me" looks like.** It has been seen to clear
+  by itself after roughly 25 minutes. A run where the listing answers tells you nothing about the
+  next one, so wire this fallback in *before* you need it.
+- **The HTTP listing is not the faster route — it is the route that does not hang.** In run B it was
+  57× *slower* than the RPC listing (2.844 s against 0.05 s), and it has also been measured at
+  0.127 s. Switch to it because a 75 s hang has no upper bound and a few seconds does, not for speed.
+
+```python
+import json, os, urllib.request
+
+def worker_service_id(workspace: str, match: str, server: str = "https://hypha.aicell.io") -> str:
+    """Resolve a worker's fully-qualified service id without enumerating by RPC."""
+    # TRAP 4 — send the header only if you actually have a token. A public workspace's
+    # listing answers 200 with no header at all, and an invalid token answers 401,
+    # so an absent token works where a bogus one does not.
+    # os.environ['HYPHA_TOKEN'] would raise KeyError, and f"Bearer {None}" gets a 401.
+    headers = {}
+    token = os.environ.get("HYPHA_TOKEN") or os.environ.get("BIOIMAGE_IO_TOKEN")
+    if token:
+        headers["Authorization"] = f"Bearer {token}"
+    req = urllib.request.Request(f"{server}/{workspace}/services", headers=headers)
+    with urllib.request.urlopen(req, timeout=30) as resp:
+        raw = resp.read()
+    if not raw:                        # TRAP 1 — see below
+        raise RuntimeError("empty body: follow redirects. This is NOT 'no services'.")
+    ids = [s["id"] for s in json.loads(raw)]
+    hits = [i for i in ids if i.endswith(":bioengine-worker") and match in i]
+    if len(hits) != 1:                 # never pick one silently
+        raise RuntimeError(f"{len(hits)} workers match {match!r}: {hits}")
+    return f"{workspace}/{hits[0]}"    # TRAP 2 — see below
+```
+
+That block is **synchronous and self-contained** — no `await`, no open Hypha client — so it imports
+and runs on its own. Then use it as step 1 and carry on with an exact-id lookup, which answers while
+the listing does not:
+
+```python
+worker = await s.get_service(worker_service_id("bioimage-io", "bioengine-worker-kth"))
+status = await worker.get_app_status(None)
+```
+
+Four things will bite you here, and each one fails silently:
+
+1. **The URL answers `307` with a zero-byte body.** A caller that does not follow redirects sees an
+   *empty listing*, not an error — so "this workspace has no services" and "I forgot to follow the
+   redirect" are the same bytes. `urllib` and `requests` follow redirects by default; `curl` needs
+   `-L`.
+2. **HTTP ids are not workspace-prefixed.** The listing returns `<client_id>:<service_name>` while
+   `get_service` wants `<workspace>/<client_id>:<service_name>`. Hand one to the other and you get a
+   not-found that reads exactly like a service that is missing.
+3. **Never hard-code the worker's hash.** A worker's `client_id` contains its pod name, so any
+   snippet that pastes one works today and breaks at the next restart — which is how a copied
+   example turns into a phantom "service not found". Match on the stable part
+   (`bioengine-worker-kth`) and let the `:bioengine-worker` suffix do the rest, and refuse rather
+   than guess when more than one matches.
+4. **The token is optional, and a wrong one is worse than none.** Measured against `bioimage-io`:
+   no token at all → `HTTP 200`, 25 entries; a bogus token → `HTTP 401`; a valid workspace token
+   → `HTTP 200`, 25 entries. So `os.environ['HYPHA_TOKEN']` raises `KeyError` for a caller who
+   holds none, and `f"Bearer {None}"` turns a route that would have answered 200 into a 401.
+   Send the header only when a token is actually set.
+
+> ⚠️ **A listing cannot tell you a service is ABSENT.** The RPC and HTTP listings have been seen to
+> disagree — 25 entries against 28, naming different worker pods — and then to AGREE at 25 about
+> 24 minutes later, so agreement on one run retires nothing. A service missing from a
+> listing may simply be missing from *that* listing. Only an exact-id `get_service` settles whether
+> something is really gone. Asserting an absence from a listing once produced a confident, wrong
+> report that a production app was unreachable, when it resolved by exact id in 0.02 s.
 
 > **`get_app_status(application_ids=[...])`** — pass a **list**, not a single string. The schema field is `application_ids: List[str] | None`. Single-element list and multi-element list both return a dict keyed by app id; only `None` is special (returns all apps).
 

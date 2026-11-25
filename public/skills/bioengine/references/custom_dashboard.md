@@ -86,16 +86,25 @@ ALIAS      = "my-facility-dashboard"        # change me
 DASHBOARD_DIR = Path("./dashboard")          # contains index.html (+ optional assets)
 
 # The single BioEngine worker this dashboard is for.
-# Either a full service ID (workspace/client_id:bioengine-worker), or just the
-# workspace/client_id prefix — the published HTML auto-connects to this one.
-# Discover via `list_services({"type": "bioengine-worker"})` after the worker is up.
+# Use the FULL service ID: workspace/client_id:bioengine-worker. Hypha reads a
+# two-part value workspace/X as workspace/*:X, so X is a SERVICE name and not a
+# client: a bare workspace/client_id asks for a service by that name and never
+# resolves (KeyError "Service not found: workspace/*:<client_id>@*").
+# Discover it with worker_service_id() from service_ids.md, which resolves over HTTP.
+# Do NOT use list_services in a script: it hangs against a busy workspace.
 WORKER_SERVICE_ID = os.environ.get("WORKER_SERVICE_ID")  # e.g. "ws-user-google-oauth2|...:bioengine-worker"
 if not WORKER_SERVICE_ID:
     raise SystemExit(
         "Set WORKER_SERVICE_ID to the worker's service ID before publishing.\n"
-        "Discover it with: hypha_rpc → connect_to_server → list_services({'type':'bioengine-worker'}).\n"
-        "If your worker's client_id changes on every restart, use a stable prefix like\n"
-        "'<workspace>/bioengine-worker-alm' and rely on Hypha's mode='first' selection."
+        "Discover it with worker_service_id() from references/service_ids.md, which\n"
+        "resolves over HTTP; list_services hangs against a busy workspace.\n"
+        "If your worker's client_id changes on every restart, pin it with the worker's\n"
+        "--client-id flag: a pinned id is the only form that stays addressable across\n"
+        "restarts. Do NOT fall back to the bare workspace/bioengine-worker form -- it\n"
+        "names a service, not a worker, and once a second worker registers it fails\n"
+        "outright with 'Multiple services found'.\n"
+        "Do NOT force it through with {mode: 'first'}: that binds an arbitrary match\n"
+        "and says nothing. worker_service_id() refuses an ambiguous match instead."
     )
 
 MANIFEST = {
@@ -386,7 +395,7 @@ function renderApps(s) {
 The most common changes the agent makes (or asks the user about) before publishing:
 
 - **Facility / lab branding**: edit the CSS custom properties at the top (`--facility-name`, `--brand-color`, `--brand-color-2`), the `<img src=...>` for the logo, and the `<h1>` text.
-- **Worker selector**: the `WORKER_SERVICE_ID` constant baked into the HTML can be a full client_id (`ws/<client_id>:bioengine-worker`) or, when the workspace has exactly one worker and the client_id drifts on restart, the shorter `ws/bioengine-worker` form — Hypha resolves to the unique matching client. For multiple workers in the same workspace, use a stable `fullnameOverride` (Kubernetes) or `--client-id` (Docker / SLURM) and bake that.
+- **Worker selector**: bake the **full** service ID into the HTML — `ws/<client_id>:bioengine-worker`. A two-part value is not a shorter spelling of it but a different query, because Hypha reads `ws/X` as `ws/*:X`: `ws/<client_id>` asks for a *service* named after the client and never resolves, and the bare `ws/bioengine-worker` asks for that service on *any* client, which works only while the workspace holds exactly one worker and fails with `AssertionError: Multiple services found for ws/*:bioengine-worker` once a second one registers. ⚠️ Do not reach for `{mode: 'first'}` to clear that error — it resolves, binding an arbitrary one of the matching workers with nothing on the page showing which. For multiple workers in the same workspace, give each a stable `fullnameOverride` (Kubernetes) or `--client-id` (Docker / SLURM) and bake the full ID that yields.
 - **Admin actions**: by default the template is read-only and uses anonymous connection. To add Deploy / Stop / Restart buttons, gate them on the URL-parameter `?token=<admin-token>` and check `server.config.user.email` against an allow-list before showing them. **Never hard-code a token into the HTML** — the artifact is public-read and the URL would leak it.
 - **Filter apps**: only show apps whose `manifest.id` is in an allow-list — useful when a facility wants to expose `cellpose-finetuning` and `model-runner` but hide an internal app.
 - **Auto-refresh interval**: default 5 s; lower for live demos, higher for shared workers to reduce load.
@@ -398,17 +407,18 @@ The most common changes the agent makes (or asks the user about) before publishi
 If you don't know the worker's exact service ID at publish time:
 
 ```python
-from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io",
-                             "token": TOKEN, "workspace": WORKSPACE})
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
-print(workers)  # → [".../bioengine-worker-<hash>:bioengine-worker"]
+# Resolve over HTTP, not by RPC listing: `list_services` hangs against a busy workspace
+# with no upper bound. `worker_service_id()` is the ready-to-paste helper in
+# service_ids.md § "Step 1's helper: resolve the worker over HTTP, never by RPC listing".
+print(worker_service_id(WORKSPACE, "bioengine-worker"))
+#   → "<workspace>/bioengine-worker-<hash>:bioengine-worker", or a refusal naming every
+#     match if more than one worker matches — it never silently picks one.
 ```
 
-For Docker / SLURM-mode workers the client_id is regenerated on every container restart, so the dashboard would break after a worker restart. Two ways to make it stable:
+For Docker / SLURM-mode workers the client_id is regenerated on every container restart, so the dashboard would break after a worker restart. There is one way to make it stable — and one short form that looks like a second way and is not:
 
 1. **Pin the worker's client_id** at startup via `--client-id bioengine-worker-<facility>` (Docker / SLURM). The published dashboard then targets `<workspace>/bioengine-worker-<facility>:bioengine-worker` and survives restarts.
-2. **Use the workspace-only short form** `<workspace>/bioengine-worker` and rely on Hypha's selection mode (defaults to `first` when one match). This works when there is exactly one BioEngine worker registered in the workspace; if a second worker shows up, Hypha will pick one without warning.
+2. ⚠️ **Do not use the workspace-only short form** `<workspace>/bioengine-worker`. It does not name a worker at all: Hypha reads `<workspace>/X` as `<workspace>/*:X`, so this asks for a service called `bioengine-worker` on *any* client. It works while the workspace holds exactly one worker, and the moment somebody else registers a second one it stops working — `AssertionError: Multiple services found for <workspace>/*:bioengine-worker` — so the dashboard **fails to connect** rather than quietly binding to the wrong worker. ⚠️ Nor should you clear that error with `{mode: 'first'}`, which is worse: that one does bind, to an arbitrary one of the matching workers, with nothing on the page showing which. Either way the failure arrives when somebody else adds a worker, not when you write the dashboard, so it will not show up in your testing. Pin the id as in (1); if you must resolve at runtime, use `worker_service_id()` from [service_ids.md](service_ids.md), which refuses an ambiguous match instead of guessing.
 
 ---
 

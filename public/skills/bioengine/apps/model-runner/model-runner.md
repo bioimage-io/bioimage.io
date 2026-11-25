@@ -53,11 +53,16 @@ from hypha_rpc import connect_to_server
 s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
                              "workspace": "bioimage-io"})
 
-# 1. Pick a worker (KTH and deNBI both run model-runner today):
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
+# 1. Pick a worker (KTH and deNBI both run model-runner today). Do NOT use
+#    `list_services` in a script: it hangs against a busy workspace, with no upper
+#    bound, and a hung script looks exactly like a dead worker. `worker_service_id()`
+#    is the ready-to-paste HTTP helper in
+#    references/service_ids.md § "Step 1's helper: resolve the worker over HTTP, never by RPC listing".
+#    It also refuses rather than guessing when your match hits both sites.
+worker_sid = worker_service_id("bioimage-io", "bioengine-worker-kth")   # or "...-denbi"
 
 # 2. Get the concrete app service ID from the worker:
-worker = await s.get_service(workers[0])
+worker = await s.get_service(worker_sid)
 status = await worker.get_app_status(None)
 mr_sid = status["model-runner"]["service_ids"]["websocket_service_id"]
 #   → "bioimage-io/bioengine-worker-kth-<hash>-<replica>:model-runner"
@@ -252,8 +257,9 @@ import asyncio, time, httpx, numpy as np, io
 # 1. Resolve the concrete model-runner service ID (see "Service ID — discover before calling" above)
 s = await connect_to_server({"server_url": "https://hypha.aicell.io",
                              "token": token, "workspace": "bioimage-io"})
-workers = [sv["id"] for sv in await s.list_services({"type": "bioengine-worker"})]
-worker = await s.get_service(workers[0])
+# worker_service_id() resolves over HTTP instead of enumerating by RPC, because
+# `list_services` hangs against a busy workspace — see references/service_ids.md.
+worker = await s.get_service(worker_service_id("bioimage-io", "bioengine-worker-kth"))
 mr_sid = (await worker.get_app_status(None))["model-runner"]["service_ids"]["websocket_service_id"]
 mr = await s.get_service(mr_sid)
 

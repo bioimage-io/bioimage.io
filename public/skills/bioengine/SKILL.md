@@ -523,7 +523,7 @@ bioengine apps run bioimage-io/cellpose-finetuning \
 
 ### Python — `worker.deploy_app(...)`
 
-Equivalent path when you already have a Hypha client open (no separate CLI process). Use this from agents that resolve the worker via `list_services` rather than via the `BIOENGINE_WORKER_SERVICE_ID` env var:
+Equivalent path when you already have a Hypha client open (no separate CLI process). Use this from agents that resolve the worker themselves rather than via the `BIOENGINE_WORKER_SERVICE_ID` env var — with `worker_service_id()` from [references/service_ids.md](references/service_ids.md), which resolves over HTTP, **not** with `list_services`, which hangs against a busy workspace:
 
 ```python
 worker = await server.get_service(f"{workspace}/bioengine-worker")
