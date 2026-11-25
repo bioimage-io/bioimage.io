@@ -23,6 +23,8 @@ import {
 } from '../../utils/trainingModels';
 import { resolveInitCheckpointUrl } from '../../utils/finetuneCheckpoints';
 import { createSessionPoller, Poller } from '../../utils/sessionPoller';
+import { epochProgressOf, outcomeForStatus } from '../../utils/trainingProgress';
+import EpochProgress from './EpochProgress';
 import LoginButton from '../LoginButton';
 import ExportModelDialog from './ExportModelDialog';
 import TrainingServicePicker from './TrainingServicePicker';
@@ -50,6 +52,16 @@ export interface TrainingSessionStatus {
   elapsed_s?: number;
   start_time?: number;
   end_time?: number;
+  /**
+   * Epoch progress, from model-finetune 0.18.0 on. All three arrive ABSENT
+   * from an older replica rather than null, which is why they are optional and
+   * why `epochProgressOf` treats absence as "make no claim". The basis is not
+   * decoration: it says whether the count was measured during the run or
+   * merely inferred from it having finished. See utils/trainingProgress.ts.
+   */
+  n_epochs?: number | null;
+  n_epochs_completed?: number | null;
+  n_epochs_completed_basis?: string | null;
 }
 
 const TERMINAL_STATUSES: TrainingStatusValue[] = ['COMPLETED', 'FAILED', 'STOPPED'];
@@ -612,6 +624,12 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
               ? s.label.slice(artifactAlias.length + 1)
               : s.label;
             const isRunning = !TERMINAL_STATUSES.includes(s.status);
+            // Only a `measured` basis earns a per-epoch claim. A Cellpose run
+            // reports `floor_if_completed`, which is inferred from the run
+            // having finished rather than observed during it, and an older
+            // replica reports nothing at all. Both come back as `none` and the
+            // card then shows exactly what it showed before.
+            const epochs = epochProgressOf(s);
             return (
               <div key={s.session_id} className="border border-gray-200 rounded-lg p-4">
                 <div className="flex items-start justify-between gap-3">
@@ -631,6 +649,15 @@ const Finetune: React.FC<FinetuneProps> = ({ artifactId, artifactAlias, server, 
                     <div className="text-xs text-gray-500 mt-1 font-mono truncate" title={s.session_id}>
                       {s.session_id}
                     </div>
+                    <EpochProgress
+                      progress={epochs}
+                      isRunning={isRunning}
+                      // The mapping is a tested pure function, not an inline
+                      // ternary. Inline, a reviewer hardcoded it to 'completed'
+                      // and the whole suite stayed green, so the original
+                      // defect could return unnoticed.
+                      outcome={outcomeForStatus(s.status)}
+                    />
                     {s.message && <div className="text-xs text-gray-600 mt-1">{s.message}</div>}
                     {s.val_reused_train && (
                       <div className="text-xs text-amber-600 mt-1">Validation reused the training image(s).</div>
