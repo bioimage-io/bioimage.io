@@ -538,16 +538,6 @@ print('CLAHE packages ready')
   const [maskColorOpen, setMaskColorOpen] = useState(false);
   const [helpOpen, setHelpOpen] = useState(false);
 
-  // Auto-open tutorial on first visit
-  useEffect(() => {
-    try {
-      const seen = localStorage.getItem('bioimage-annotation-tutorial-seen');
-      if (!seen) {
-        setHelpOpen(true);
-        localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
-      }
-    } catch { /* ignore */ }
-  }, []);
   const [isLowContrast, setIsLowContrast] = useState(false);
   const [originalImageUrl, setOriginalImageUrl] = useState<string | null>(null);
   // Data URL of the CLAHE-enhanced pixels (set alongside isCLAHEActive).
@@ -636,6 +626,32 @@ print('CLAHE packages ready')
   // login; anonymous/under-privileged callers get a login prompt instead
   // of the generic error banner).
   const [permissionDenied, setPermissionDenied] = useState(false);
+
+  // Auto-open the tutorial on a first visit, but ONLY once an image has
+  // actually loaded.
+  //
+  // It used to open on mount, before access was known. Measured on the live
+  // page, logged out, against a dataset the visitor may not read: the
+  // thirteen-step guide opened ON TOP of the "This dataset is private" card,
+  // so the first thing a visitor met was a tour of tools they cannot use,
+  // covering the sentence that explains why. Waiting for a loaded image also
+  // means `tutorial-seen` is not burned on that visit, so the guide still
+  // appears the first time they open a dataset they CAN read.
+  useEffect(() => {
+    if (permissionDenied || !hasLoadedOnce) return;
+    try {
+      const seen = localStorage.getItem('bioimage-annotation-tutorial-seen');
+      if (!seen) {
+        setHelpOpen(true);
+        localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
+      }
+    } catch { /* ignore */ }
+  }, [permissionDenied, hasLoadedOnce]);
+
+  // And close it if a denial arrives while it is open, for the same reason.
+  useEffect(() => {
+    if (permissionDenied) setHelpOpen(false);
+  }, [permissionDenied]);
 
   // Request-access flow (colab-rework-plan.md §13 item 4): a logged-in,
   // permission-denied visitor can ask the broker for a role instead of
