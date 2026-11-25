@@ -50,6 +50,11 @@ import { useTrainingCapabilities } from '../../hooks/useTrainingCapabilities';
 import { isSmallImageDims, readImageDimensions, SMALL_IMAGE_WARNING_TEXT } from '../../utils/imageSize';
 import LabelManager from './LabelManager';
 import FinetuneView, { CheckpointSource, ResumableSession } from './FinetuneView';
+import {
+  canMountLocalFolder,
+  describeFolderPickError,
+  NO_LOCAL_FOLDER_SUPPORT,
+} from '../../utils/localFolderSupport';
 import { ExportedCheckpoint, listExportedCheckpoints } from '../../utils/finetuneCheckpoints';
 import { supportsInitCheckpoint } from '../../utils/trainingModels';
 import AnnotationStatsView from './AnnotationStatsView';
@@ -1057,14 +1062,20 @@ print("Service registered successfully", end='')
   }, [waitingForKernel, executeCode, mountDirectory, mountLocalFolder]);
 
   const handleUploadClick = async () => {
+    // Checked BEFORE the kernel is requested as well as before the picker is
+    // called: on a browser without the API, starting a kernel for a mount that
+    // cannot happen leaves the page busy for nothing.
+    if (!canMountLocalFolder()) {
+      setError(NO_LOCAL_FOLDER_SUPPORT);
+      return;
+    }
     requestKernel();
     let dirHandle: any;
     try {
       dirHandle = await (window as any).showDirectoryPicker();
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setError((err as Error).message || 'Failed to select folder.');
-      }
+      const message = describeFolderPickError(err);
+      if (message) setError(message);
       return;
     }
     await mountLocalFolder(dirHandle);

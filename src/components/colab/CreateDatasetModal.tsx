@@ -1,4 +1,9 @@
 import React, { useState } from 'react';
+import {
+  canMountLocalFolder,
+  describeFolderPickError,
+  NO_LOCAL_FOLDER_SUPPORT,
+} from '../../utils/localFolderSupport';
 import { COLLECTION_ID } from './datasetApi';
 import { registerDataset } from './brokerApi';
 import { isSmallImageDims, readImageDimensions } from '../../utils/imageSize';
@@ -53,6 +58,12 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
   const [error, setError] = useState<string | null>(null);
 
   const handleFolderClick = async () => {
+    // Checked before calling, not after failing: without this the browsers
+    // that lack the API report their own TypeError as the user-facing error.
+    if (!canMountLocalFolder()) {
+      setError(NO_LOCAL_FOLDER_SUPPORT);
+      return;
+    }
     try {
       const dirHandle = await (window as any).showDirectoryPicker();
       setFolderHandle(dirHandle);
@@ -79,9 +90,8 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
       // gating folder selection or the Create button.
       scanForSmallImages(imageHandles);
     } catch (err) {
-      if ((err as Error).name !== 'AbortError') {
-        setError(`Failed to select folder: ${(err as Error).message}`);
-      }
+      const message = describeFolderPickError(err);
+      if (message) setError(message);
     }
   };
 
@@ -194,7 +204,9 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
                 </label>
                 <button
                   onClick={handleFolderClick}
-                  className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 transition-colors flex items-center justify-center gap-2"
+                  disabled={!canMountLocalFolder()}
+                  title={canMountLocalFolder() ? undefined : NO_LOCAL_FOLDER_SUPPORT}
+                  className="w-full px-4 py-3 border-2 border-dashed border-gray-300 rounded-lg hover:border-purple-500 hover:bg-purple-50 disabled:opacity-60 disabled:cursor-not-allowed disabled:hover:border-gray-300 disabled:hover:bg-transparent transition-colors flex items-center justify-center gap-2"
                 >
                   <svg className="w-5 h-5 text-gray-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 7v10a2 2 0 002 2h14a2 2 0 002-2V9a2 2 0 00-2-2h-6l-2-2H5a2 2 0 00-2 2z" />
@@ -202,7 +214,9 @@ const CreateDatasetModal: React.FC<CreateDatasetModalProps> = ({
                   {folderHandle ? `${folderHandle.name} (${fileCount} images)` : 'Choose a folder to mount'}
                 </button>
                 <p className="text-xs text-gray-500 mt-1.5">
-                  Images are not uploaded now. You can upload them, one at a time or all at once, from the dataset page.
+                  {canMountLocalFolder()
+                    ? 'Images are not uploaded now. You can upload them, one at a time or all at once, from the dataset page.'
+                    : NO_LOCAL_FOLDER_SUPPORT}
                 </p>
                 {smallImageCount > 0 && (
                   <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-lg px-3 py-1.5 mt-1.5">
