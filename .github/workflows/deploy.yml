@@ -6,20 +6,48 @@ on:
       - main
   workflow_dispatch:
 
-# Add permissions block
+# Least privilege, per job: the build only reads the repository, and only the
+# deploy job touches Pages.
 permissions:
-  contents: write
-  id-token: write
-  pages: write      # Add pages permission
-  deployments: write # Add deployments permission
+  contents: read
+
+# One Pages deployment at a time. `cancel-in-progress: false` because a deploy
+# that is already running should finish rather than be replaced: cancelling it
+# leaves the site on the previous commit with a green tick on the newer one.
+concurrency:
+  group: pages
+  cancel-in-progress: false
 
 jobs:
-  build-and-deploy:
+  # Upload and deploy are SEPARATE JOBS, and the deploy job retries once if the
+  # artifact is not there yet. THAT PAIR is the fix: the split is what makes a
+  # retry safe, and the retry is what survives a slow artifact service. The wait
+  # step in front of them is a heuristic that usually spares the retry, not the
+  # thing holding this up.
+  #
+  # What goes wrong: `deploy-pages` asks the artifact service for an artifact
+  # that `upload-pages-artifact` finalized moments earlier, and that read is not
+  # consistent yet. The log shows "Artifact github-pages.zip successfully
+  # finalized", then "Found 0 artifact(s)".
+  #
+  # WHEN it started matters more than the layout, because the layout is three
+  # months old: all 13 concluded runs from 2026-11-12 to 2026-11-20 deployed on
+  # the first attempt, and of the 17 concluded runs from 2026-11-23 onwards, 10
+  # did not. The service got slower, this workflow did not change. Upstream
+  # reports the same turn in actions/deploy-pages#451 ("seldom before, now most
+  # of the time",
+  # 2026-11-22), with measured visibility lags of 2 to 6 seconds and one case
+  # where the artifact appeared only 46 seconds after finalizing.
+  #
+  # So a job boundary alone is NOT a fix: picking up a new runner takes seconds,
+  # which is the same scale as the lag, and someone in that thread already found
+  # separate jobs plus a two-second sleep insufficient. The boundary is here
+  # because it makes a retry safe: only the deploy job repeats, so no second
+  # `github-pages` artifact is uploaded into the same run, which is its own
+  # failure mode ("Multiple artifacts named github-pages").
+  build:
     runs-on: ubuntu-latest
-    environment:
-      name: github-pages
-      url: ${{ steps.deployment.outputs.page_url }}
-    
+
     steps:
       - name: Checkout
         uses: actions/checkout@v5
@@ -65,12 +93,78 @@ jobs:
           cp -r chatbot-src/*/bioimageio_chatbot/static/* build/chat/
           rm -rf chatbot.zip chatbot-src
 
+      # v5 is the version upstream pairs with deploy-pages v5. v4 also pulls in
+      # an upload-artifact build that targets Node 20, which the runner now
+      # warns about and forces onto Node 24.
       - name: Upload artifact
-        uses: actions/upload-pages-artifact@v4
+        uses: actions/upload-pages-artifact@v5
         with:
           path: './build'
 
+  deploy:
+    needs: build
+    runs-on: ubuntu-latest
+    permissions:
+      pages: write
+      id-token: write
+      actions: read      # to list this run's artifacts in the wait step below
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url || steps.retry.outputs.page_url }}
+
+    steps:
+      # Wait until the artifact shows up in a listing, so the deploy does not ask
+      # a question the service cannot answer yet.
+      #
+      # This is a HEURISTIC, not the same question deploy-pages asks. It polls
+      # the REST endpoint with GITHUB_TOKEN; deploy-pages lists through
+      # @actions/artifact, which calls ArtifactService/ListArtifacts on
+      # ACTIONS_RESULTS_URL with the runtime token. Those are different read
+      # paths, and #451 records the REST view showing an artifact AFTER the other
+      # lookup had failed to find it, which is weaker than the two disagreeing at
+      # the same instant but enough to say they are not one question. So this
+      # narrows the window on most days and cannot close it; the retry below is
+      # the actual cover.
+      #
+      # `continue-on-error` and the `|| echo 0` matter more than they look: the
+      # Actions default shell is `bash -e`, where an assignment from a failing
+      # command substitution ENDS the script. Without them, one 5xx or one
+      # secondary rate limit from the artifacts call would fail this step and
+      # stop the job before either deploy step ran, turning insurance into a new
+      # way to fail on exactly the days the service is unhealthy.
+      - name: Wait for the Pages artifact to be listable
+        continue-on-error: true
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          for attempt in $(seq 1 24); do
+            count=$(gh api "repos/${{ github.repository }}/actions/runs/${{ github.run_id }}/artifacts" \
+                      --jq '[.artifacts[] | select(.name == "github-pages")] | length' || echo 0)
+            echo "poll $attempt: github-pages artifacts listed = ${count:-0}"
+            if [ "${count:-0}" -ge 1 ]; then
+              echo "artifact listable after $(( (attempt - 1) * 5 ))s of polling"
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "not listed after 120s; deploying anyway, so that any failure comes from"
+          echo "deploy-pages with its own diagnostics rather than from this loop"
+
       - name: Deploy to GitHub Pages
         id: deployment
+        continue-on-error: true
+        uses: actions/deploy-pages@v5
+
+      # One retry, because the wait above narrows the window but cannot close
+      # it: the lag has been measured in that thread at up to 46 seconds, and a
+      # listing that reads 0 at 120s may still resolve later. Only reached when
+      # the first attempt actually failed, so a healthy deploy costs nothing.
+      - name: Wait before retrying the deploy
+        if: steps.deployment.outcome == 'failure'
+        run: sleep 60
+
+      - name: Deploy to GitHub Pages (retry)
+        id: retry
+        if: steps.deployment.outcome == 'failure'
         uses: actions/deploy-pages@v5
         
