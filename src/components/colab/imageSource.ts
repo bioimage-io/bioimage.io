@@ -24,7 +24,7 @@
  * today and stays the truth after OME-TIFF lands.
  */
 
-import type { PixelRegion } from './ngffLayout';
+import type { PixelRegion, RecordedPlanes } from './ngffLayout';
 
 export interface PyramidLevel {
   width: number;
@@ -148,6 +148,14 @@ export type ImageSourceRef =
        * gigapixel slide costs the same as the crop taken out of it.
        */
       region?: PixelRegion | null;
+      /**
+       * The plane recorded for this source at import, with the shape it was
+       * measured against. Given one, every level DERIVES its own index from
+       * it rather than pinning its own middle slice, which is what keeps the
+       * pixels on screen the pixels the record names on a pyramid that
+       * downsamples z. See `planeAtLevel` in ngffLayout.
+       */
+      planes?: RecordedPlanes | null;
     };
 
 /**
@@ -227,7 +235,7 @@ export async function openImageSource(ref: ImageSourceRef): Promise<ImageSourceH
   if (typeof ref !== 'string') {
     const { openNgffPyramid } = await import('./ngffPyramid');
     return new PyramidImageSource(
-      await openNgffPyramid(ref.storeRoot, ref.multiscalePath, ref.region),
+      await openNgffPyramid(ref.storeRoot, ref.multiscalePath, ref.region, ref.planes),
     );
   }
   const kind = sourceKindForUrl(ref);

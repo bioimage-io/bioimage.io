@@ -11,15 +11,20 @@
 
 import {
   assertNoChannelTruncation,
+  assertPlaneIsResolvable,
   axisRoles,
   chunkToBands,
   describeDtype,
+  displayedPlanes,
+  displayedPlanesForProbe,
   dtypeItemsize,
   levelDims,
   materialiseBytes,
   parseMultiscales,
+  planeAtLevel,
   planeSelection,
   regionAtLevel,
+  resampledIndexedAxes,
 } from './ngffLayout';
 import type { NgffAxis } from './ngffLayout';
 
@@ -231,6 +236,394 @@ describe('planeSelection', () => {
       height: 8,
     });
     expect(sel[1]).toBeNull();
+  });
+});
+
+// --- displayedPlanes ------------------------------------------------------
+
+/**
+ * The defect these exist for, measured on a real store: a 5-axis tczyx source
+ * of shape [1, 3, 9, 1000, 2000] was displayed at z index 4 and trained at z
+ * index 0. Nothing noticed, because the mask rasterises non-empty, the shapes
+ * agree and the run reaches COMPLETED. So the assertion that matters is not
+ * "a plane is recorded" but "the recorded index is the DISPLAYED one", which
+ * is why each case names the number rather than only its presence.
+ */
+describe('displayedPlanes', () => {
+  it('records the MIDDLE z slice, which is what the viewer shows', () => {
+    // The exact store from the measurement. Recording 0 here is the bug.
+    const planes = displayedPlanes([1, 3, 9, 1000, 2000], axisRoles(TCZYX, 5), TCZYX);
+    expect(planes).toEqual({ z: 4 });
+    expect(planeSelection([1, 3, 9, 1000, 2000], axisRoles(TCZYX, 5), TCZYX)[2]).toBe(4);
+  });
+
+  it('records every non-singleton non-spatial axis, so a time series is complete', () => {
+    // The broker refuses a PARTIAL mapping: once any plane is named, every
+    // axis that is neither spatial nor channel and larger than one must be.
+    expect(displayedPlanes([7, 3, 9, 64, 64], axisRoles(TCZYX, 5), TCZYX)).toEqual({ t: 0, z: 4 });
+  });
+
+  it('omits a singleton axis, so a flat 2-D store records no plane at all', () => {
+    expect(displayedPlanes([8, 8], axisRoles(YX, 2), YX)).toBeUndefined();
+    expect(displayedPlanes([1, 1, 1, 8, 8], axisRoles(TCZYX, 5), TCZYX)).toBeUndefined();
+  });
+
+  it('never names the channel axis, which the broker refuses and training reads whole', () => {
+    const planes = displayedPlanes([1, 32, 1, 64, 64], axisRoles(TCZYX, 5), TCZYX);
+    // 32 channels, and still nothing to record: a plane on c would be written
+    // and then ignored, so the record would say one thing and training do
+    // another.
+    expect(planes).toBeUndefined();
+  });
+
+  it('never names y or x, which are the crop', () => {
+    const planes = displayedPlanes([2, 1, 1, 64, 64], axisRoles(TCZYX, 5), TCZYX);
+    expect(Object.keys(planes || {})).toEqual(['t']);
+  });
+
+  it('refuses a layout whose non-singleton axis has no name', () => {
+    const unnamed: NgffAxis[] = [{ name: '' }, ...YX];
+    // Rank 3 with only two usable names: axisRoles falls back to "the last two
+    // are y and x", leaving dimension 0 indexed and nameless.
+    expect(() => displayedPlanes([9, 64, 64], axisRoles(unnamed, 3), unnamed)).toThrow(
+      /has 9 slices but no name/,
+    );
+  });
+
+  it('refuses a layout naming two non-singleton axes the same', () => {
+    const twins: NgffAxis[] = [{ name: 'z' }, { name: 'z' }, ...YX];
+    expect(() => displayedPlanes([3, 5, 64, 64], axisRoles(twins, 4), twins)).toThrow(
+      /more than one axis z/,
+    );
+  });
+});
+
+// --- the record and the drawn level must describe the same slice ----------
+
+/**
+ * Does level-k index `at` cover reference index `ref`?
+ *
+ * Level k's index `at` spans reference indices
+ * [at * refSize / size, (at + 1) * refSize / size). This is the only honest
+ * way to state the claim: on a downsampled axis one level-k slice stands for
+ * several reference slices, so "equal" is the wrong question and "contains" is
+ * the right one.
+ */
+const covers = (at: number, size: number, ref: number, refSize: number) =>
+  ref >= (at * refSize) / size && ref < ((at + 1) * refSize) / size;
+
+describe('a pyramid that downsamples z', () => {
+  // Legal NGFF: tools that build 3-D pyramids for isotropic volumes resample
+  // z along with y and x.
+  const S0 = [1, 1, 9, 4096, 4096];
+  const S1 = [1, 1, 4, 2048, 2048];
+  const recorded = { planes: { z: 4 }, shape: S0 };
+
+  it('reads the level-0 record at the level the canvas actually draws', () => {
+    // THE DEFECT THIS EXISTS FOR. The record is made once against level 0 and
+    // says z=4. The viewer draws at s1, which has only four z slices. Pinning
+    // s1's own middle gives 2, and index 2 of s1 covers reference slices
+    // 4.5 to 6.75, which does NOT include 4: the annotation would be drawn on
+    // one slice and the record would name another.
+    const naive = planeSelection(S1, axisRoles(TCZYX, 5), TCZYX)[2] as number;
+    expect(naive).toBe(2);
+    expect(covers(naive, S1[2], 4, S0[2])).toBe(false);
+
+    // Derived from the record instead, s1 index 1 covers reference slices
+    // 2.25 to 4.5, which does include 4.
+    const derived = planeSelection(S1, axisRoles(TCZYX, 5), TCZYX, null, recorded)[2] as number;
+    expect(derived).toBe(1);
+    expect(covers(derived, S1[2], 4, S0[2])).toBe(true);
+  });
+
+  it('is the identity on the level the record was measured against', () => {
+    expect(planeSelection(S0, axisRoles(TCZYX, 5), TCZYX, null, recorded)[2]).toBe(4);
+  });
+
+  it('agrees with the record at EVERY level of the pyramid', () => {
+    for (const shape of [S0, S1, [1, 1, 2, 1024, 1024]]) {
+      const at = planeSelection(shape, axisRoles(TCZYX, 5), TCZYX, null, recorded)[2] as number;
+      expect(covers(at, shape[2], 4, S0[2])).toBe(true);
+    }
+  });
+
+  it('leaves an axis the pyramid does NOT resample exactly where it was', () => {
+    // The common case, and the one that must not change: a store pyramided
+    // only in y and x keeps its z index at every level.
+    const flat0 = [1, 1, 9, 4096, 4096];
+    const flat1 = [1, 1, 9, 2048, 2048];
+    const sel = planeSelection(flat1, axisRoles(TCZYX, 5), TCZYX, { planes: { z: 7 }, shape: flat0 });
+    // Guard against the argument order silently shifting: `recorded` is the
+    // FIFTH parameter and `region` the fourth, so passing it in the wrong slot
+    // would be a no-op that this assertion catches.
+    expect(sel[2]).toBe(4);
+    const proper = planeSelection(flat1, axisRoles(TCZYX, 5), TCZYX, null, {
+      planes: { z: 7 },
+      shape: flat0,
+    });
+    expect(proper[2]).toBe(7);
+  });
+
+  it('scales UP when the record was measured on a coarser reference', () => {
+    // A store listing its datasets coarsest-first: the broker's level0_shape
+    // is then the COARSE one, and training reads that as level 0 too, so the
+    // mapping has to work in this direction as well.
+    //
+    // The claim is the OTHER WAY ROUND here, and that asymmetry is the point.
+    // Going coarser, one shown slice contains several recorded ones, so the
+    // shown slice must CONTAIN the record. Going finer, the recorded slice
+    // contains several shown ones, so the shown slice must sit INSIDE the
+    // record. A single rounding rule satisfies one and breaks the other: the
+    // floor would pick fine index 2, which sits at coarse position 0.89 and so
+    // shows a slice the record does not name.
+    const coarse = [1, 1, 4, 512, 512];
+    const fine = [1, 1, 9, 2048, 2048];
+    const at = planeSelection(fine, axisRoles(TCZYX, 5), TCZYX, null, {
+      planes: { z: 1 },
+      shape: coarse,
+    })[2] as number;
+    expect(at).toBe(3);
+    // Inside the recorded coarse slice: its position in coarse coordinates
+    // falls within [1, 2).
+    expect(covers(1, coarse[2], at, fine[2])).toBe(true);
+    // And the floor, which the first attempt used, does not satisfy that.
+    expect(covers(1, coarse[2], 2, fine[2])).toBe(false);
+  });
+
+  it('falls back to the middle rule when the record says nothing', () => {
+    expect(planeSelection(S1, axisRoles(TCZYX, 5), TCZYX, null, null)[2]).toBe(2);
+    expect(
+      planeSelection(S1, axisRoles(TCZYX, 5), TCZYX, null, { planes: {}, shape: S0 })[2],
+    ).toBe(2);
+    // A record naming a different axis must not move z.
+    expect(
+      planeSelection(S1, axisRoles(TCZYX, 5), TCZYX, null, { planes: { t: 0 }, shape: S0 })[2],
+    ).toBe(2);
+  });
+
+  it('never leaves the axis, whatever the record says', () => {
+    for (const index of [0, 8, 1000, -5]) {
+      const at = planeSelection(S1, axisRoles(TCZYX, 5), TCZYX, null, {
+        planes: { z: index },
+        shape: S0,
+      })[2] as number;
+      expect(at).toBeGreaterThanOrEqual(0);
+      expect(at).toBeLessThan(S1[2]);
+    }
+  });
+});
+
+describe('planeAtLevel refuses what it cannot map', () => {
+  // These call the mapping DIRECTLY, and they exist because the guards around
+  // it hid the root cause: a mutation restoring the old
+  // `Number(shape[dim]) || 1` default broke no test at all, since every case
+  // reached the record through usableRecord or the rank check first. A guard
+  // in front of a defect is not a test of the defect.
+  const at = (shape: any, levelSize: number) =>
+    planeAtLevel({ planes: { z: 4 }, shape }, 'z', 2, levelSize);
+
+  it('gives NO ANSWER when the reference shape has nothing at that axis', () => {
+    // The measured failure: with an empty shape the default treated z as
+    // having one slice and returned index 8 for a 9-slice level, and index 3
+    // for a 4-slice one. Both are a recorded slice 4 drawn as another slice.
+    expect(at([], 9)).toBeNull();
+    expect(at([], 4)).toBeNull();
+    expect(at(undefined, 9)).toBeNull();
+  });
+
+  it('gives no answer for a reference size that is not a positive whole number', () => {
+    expect(at([1, 1, 0, 64, 64], 4)).toBeNull();
+    expect(at([1, 1, -9, 64, 64], 4)).toBeNull();
+    expect(at([1, 1, 9.5, 64, 64], 4)).toBeNull();
+    expect(at([1, 1, '9', 64, 64], 4)).toBeNull();
+    expect(at([1, 1, null, 64, 64], 4)).toBeNull();
+  });
+
+  it('still answers for a reference it CAN use', () => {
+    // The control: the same call shape with a usable reference returns a
+    // number, so the nulls above are about the reference and not about the
+    // function refusing everything.
+    expect(at([1, 1, 9, 64, 64], 4)).toBe(1);
+    expect(at([1, 1, 9, 64, 64], 9)).toBe(4);
+  });
+});
+
+describe('refusing a pyramid whose plane nobody recorded', () => {
+  const Z_PYRAMID = [
+    [1, 1, 9, 4096, 4096],
+    [1, 1, 4, 2048, 2048],
+  ];
+  const FLAT_PYRAMID = [
+    [1, 1, 9, 4096, 4096],
+    [1, 1, 9, 2048, 2048],
+  ];
+  const roles = axisRoles(TCZYX, 5);
+
+  it('names the axis that is sampled differently at each resolution', () => {
+    expect(resampledIndexedAxes(Z_PYRAMID, roles, TCZYX)).toEqual(['z']);
+    // The ordinary case: pyramided in y and x alone, so no indexed axis moves.
+    expect(resampledIndexedAxes(FLAT_PYRAMID, roles, TCZYX)).toEqual([]);
+  });
+
+  it('REFUSES a z-downsampled store opened with no record', () => {
+    // This is the last disguise of the row's own defect. Without a record each
+    // level pins its own middle slice, so the annotation is drawn on one slice
+    // while the record names another, the run completes, and nothing reports
+    // it. The refusal names the axis and what to do.
+    expect(() => assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, null)).toThrow(/z axis/);
+    expect(() => assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, null)).toThrow(
+      /no usable slice was recorded/,
+    );
+    expect(() => assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, null)).toThrow(/v0\.12\.6/);
+  });
+
+  it('allows it once a record IS supplied, because the plane is then derived', () => {
+    expect(() =>
+      assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, { planes: { z: 4 }, shape: Z_PYRAMID[0] }),
+    ).not.toThrow();
+  });
+
+  it('leaves every ordinary store alone, with or without a record', () => {
+    // The check must not become a tax on the common case: a store pyramided in
+    // y and x only, and a single-level store, both open exactly as before.
+    expect(() => assertPlaneIsResolvable(FLAT_PYRAMID, roles, TCZYX, null)).not.toThrow();
+    expect(() => assertPlaneIsResolvable([[1, 1, 9, 64, 64]], roles, TCZYX, null)).not.toThrow();
+    expect(() => assertPlaneIsResolvable([[64, 64]], axisRoles(YX, 2), YX, null)).not.toThrow();
+  });
+
+  it('ignores a record of the WRONG RANK on a pyramid that resamples nothing', () => {
+    // F7.1, and the reason the earlier rank check was not enough: a flat
+    // pyramid takes the early return in assertPlaneIsResolvable, so nothing
+    // examined the record before it was used. Measured: with a record of
+    // {z: 4} and shape [9, 64, 64] read at the z dimension, the selection came
+    // back as slice 0 of a 9-slice store whose recorded slice is 4, silently.
+    const FLAT = [
+      [1, 1, 9, 64, 64],
+      [1, 1, 9, 32, 32],
+    ];
+    const malformed = { planes: { z: 4 }, shape: [9, 64, 64] };
+    // Not refused, because nothing here is ambiguous: with the record ignored,
+    // every level agrees on its own middle slice.
+    expect(() => assertPlaneIsResolvable(FLAT, roles, TCZYX, malformed)).not.toThrow();
+    for (const shape of FLAT) {
+      const at = planeSelection(shape, axisRoles(TCZYX, 5), TCZYX, null, malformed)[2];
+      // 4, the middle of nine, and never 0.
+      expect(at).toBe(4);
+    }
+    // And a record of the RIGHT rank is still honoured, so the guard has not
+    // simply disabled records on flat pyramids.
+    expect(
+      planeSelection(FLAT[0], axisRoles(TCZYX, 5), TCZYX, null, {
+        planes: { z: 7 },
+        shape: FLAT[0],
+      })[2],
+    ).toBe(7);
+  });
+
+  it('treats a record whose SHAPE cannot answer as no record', () => {
+    // Measured: with shape [] the mapping used to read a missing reference
+    // size, default it to one slice, and return index 8 at a 9-slice level for
+    // a recorded slice 4. The record was present, so the refusal was skipped,
+    // and a wrong slice was drawn with no error. That combination is the
+    // defect this row exists to remove, so an unusable shape now refuses.
+    expect(() =>
+      assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, { planes: { z: 4 }, shape: [] }),
+    ).toThrow(/no usable slice was recorded/);
+
+    // A shape of the wrong rank reads some other axis's size as z's: [9,64,64]
+    // at dim 2 gives a reference of 64, and index 0 out of it.
+    expect(() =>
+      assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, { planes: { z: 4 }, shape: [9, 64, 64] }),
+    ).toThrow(/no usable slice was recorded/);
+  });
+
+  it('refuses a record that names an axis OTHER than the resampled one', () => {
+    // {t: 0} answers for t, and t is not what is ambiguous here.
+    expect(() =>
+      assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, { planes: { t: 0 }, shape: Z_PYRAMID[0] }),
+    ).toThrow(/no usable slice was recorded/);
+  });
+
+  it('treats an EMPTY record as no record, not as permission', () => {
+    // `{}` is what a source with nothing recorded looks like once it has been
+    // through a normaliser, and it carries no slice, so it must not satisfy
+    // the check.
+    expect(() =>
+      assertPlaneIsResolvable(Z_PYRAMID, roles, TCZYX, { planes: {}, shape: Z_PYRAMID[0] }),
+    ).toThrow(/no usable slice was recorded/);
+  });
+});
+
+describe('displayedPlanesForProbe', () => {
+  const layout = {
+    axes: ['t', 'c', 'z', 'y', 'x'],
+    axis_roles: { y: 3, x: 4, c: 1 },
+    level0_shape: [1, 3, 9, 1000, 2000],
+  };
+
+  it('reads the same middle slice off a probe as off the parsed layout', () => {
+    expect(displayedPlanesForProbe(layout)).toEqual({ z: 4 });
+  });
+
+  it('handles what the LIVE broker actually returns, not an invented shape', () => {
+    // Copied from a real `probe_ngff_source` response on 2026-11-25, for a
+    // 9-slice fixture store. The point is that the field names and the role
+    // mapping are the service's own: a helper tested only against a shape this
+    // file invented would be green and still wrong at the one call site it
+    // has. Note axis_roles carries no `indexed` list, which is why the adapter
+    // derives one rather than expecting the broker to send it.
+    const live = {
+      axes: ['t', 'c', 'z', 'y', 'x'],
+      axis_roles: { y: 3, x: 4, c: 1 },
+      level0_shape: [1, 1, 9, 256, 256],
+    };
+    // t is singleton so it is omitted, c may not carry a plane, and z is 9
+    // deep so the middle slice is 4. This is the value the live worker was
+    // then measured reading: it fetched chunk s0/0.0.4.0.0 and staged an
+    // array whose background is slice 4's.
+    expect(displayedPlanesForProbe(live)).toEqual({ z: 4 });
+  });
+
+  it('uses the PROBE roles, so the axis set matches what the broker will accept', () => {
+    // A store whose channel axis sits at index 0. If this used its own role
+    // resolution and disagreed, the record would name an axis the broker
+    // refuses, and an importable source would fail to import.
+    expect(
+      displayedPlanesForProbe({
+        axes: ['c', 'z', 'y', 'x'],
+        axis_roles: { y: 2, x: 3, c: 0 },
+        level0_shape: [3, 9, 1000, 2000],
+      }),
+    ).toEqual({ z: 4 });
+  });
+
+  it('records nothing when the probe did not describe its layout', () => {
+    // A broker older than v0.12.6. Without names and a shape there is no way
+    // to tell a z-stack from a 2-D image, so there is nothing to refuse on
+    // here and the training reader refuses it instead.
+    expect(displayedPlanesForProbe(undefined)).toBeUndefined();
+    expect(displayedPlanesForProbe({})).toBeUndefined();
+    expect(displayedPlanesForProbe({ axes: ['z', 'y', 'x'] })).toBeUndefined();
+  });
+
+  it('records nothing when the names and the shape do not describe each other', () => {
+    expect(
+      displayedPlanesForProbe({
+        axes: ['z', 'y', 'x'],
+        axis_roles: { y: 1, x: 2, c: null },
+        level0_shape: [9, 1000],
+      }),
+    ).toBeUndefined();
+  });
+
+  it('propagates the refusal for a layout a plane cannot describe', () => {
+    expect(() =>
+      displayedPlanesForProbe({
+        axes: ['', 'y', 'x'],
+        axis_roles: { y: 1, x: 2, c: null },
+        level0_shape: [9, 1000, 2000],
+      }),
+    ).toThrow(/no name/);
   });
 });
 

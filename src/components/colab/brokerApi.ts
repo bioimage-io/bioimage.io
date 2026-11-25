@@ -134,6 +134,19 @@ export type ImageUrl =
       multiscale_path?: string | null;
       /** Set when the image is a patch of a larger slide (broker v0.12.0). */
       region?: PixelRegion | null;
+      /**
+       * The slice this source was recorded on at import, by axis name, and the
+       * shape those indices were measured against (broker v0.12.6 records
+       * them; a release that also RETURNS them here is still owed).
+       *
+       * Without both, the page that draws the annotation cannot derive the
+       * recorded plane and falls back to each level's own middle slice, which
+       * on a pyramid that resamples z is a different slice from the recorded
+       * one. `openNgffPyramid` refuses such a source rather than drawing the
+       * wrong plane, so an absent field is reported rather than silent.
+       */
+      planes?: Record<string, number> | null;
+      level0_shape?: number[] | null;
     };
 
 /**
@@ -190,6 +203,21 @@ export interface NgffProbe {
    * guard cannot drift from the gate that actually enforces it.
    */
   max_materialise_bytes: number;
+  /**
+   * The store's own axis NAMES, in its order, e.g. `["t","c","z","y","x"]`.
+   *
+   * Absent from a broker older than v0.12.6. Declared here only now, though
+   * the broker has sent it for longer: a key nothing declares is a key nothing
+   * can use, and this one is what tells a z-stack from a 2-D image before an
+   * import is written. See `displayedPlanesForProbe` in ngffLayout.
+   */
+  axes?: string[];
+  /** Role to axis INDEX, as the broker resolved it. Absent before v0.12.6. */
+  axis_roles?: { y: number; x: number; c: number | null };
+  /** Level 0's dimensions in the store's axis order. Absent before v0.12.6. */
+  level0_shape?: number[];
+  /** Level 0 FIRST, named as the store names them, so not reliably `"0"`. */
+  dataset_paths?: string[];
 }
 
 export type MyAnnotationUrl =
@@ -623,6 +651,30 @@ export async function getImageUrl(server: any, artifactId: string, imageStem: st
 }
 
 /**
+ * A recorded plane, or `null` when what arrived cannot be used as one.
+ *
+ * "Both halves or neither" was the rule and this is what enforces it. An empty
+ * array is TRUTHY, so a check for the field's presence let `level0_shape: []`
+ * through as a whole record: the mapping then read a missing reference size,
+ * defaulted it to one slice, and returned index 8 of 9 for a recorded slice 4,
+ * with no error anywhere. A wrong slice that reports success is the failure
+ * this whole mechanism exists to prevent, so a shape that is not a non-empty
+ * list of positive integers is no shape at all.
+ *
+ * Exported for its own test: the condition can only be produced by a service
+ * this repository does not control.
+ */
+export function usableRecord(
+  planes: Record<string, number> | null | undefined,
+  shape: number[] | null | undefined,
+): { planes: Record<string, number>; shape: number[] } | null {
+  if (!planes || Object.keys(planes).length === 0) return null;
+  if (!Array.isArray(shape) || shape.length === 0) return null;
+  if (!shape.every((n) => typeof n === 'number' && Number.isInteger(n) && n > 0)) return null;
+  return { planes, shape };
+}
+
+/**
  * Turn a broker `ImageUrl` into something `openImageSource` accepts.
  *
  * The two live in different modules on purpose: `imageSource` knows how to
@@ -636,6 +688,10 @@ export function imageSourceRefFor(url: ImageUrl): ImageSourceRef {
       storeRoot: url.store_root,
       multiscalePath: url.multiscale_path ?? undefined,
       region: url.region ?? null,
+      // Both halves or neither: an index without the shape it was measured
+      // against cannot be placed on another level, so half a record is no
+      // record and must not look like one.
+      planes: usableRecord(url.planes, url.level0_shape),
     };
   }
   return url.read_url;
@@ -676,9 +732,30 @@ export async function importNgffImage(
   multiscalePath?: string,
   /** A patch of the store rather than the whole of it (broker v0.12.0). */
   region?: PixelRegion | null,
+  /**
+   * Which slice of each non-spatial axis the annotator is showing, by axis
+   * name (broker v0.12.6). Required for a store whose t or z is larger than
+   * one: training refuses such a source with no plane recorded rather than
+   * reading index 0, because index 0 would pair the polygons with another
+   * slice's pixels and still reach COMPLETED. `displayedPlanesForProbe`
+   * computes it from the same rule the viewer displays with.
+   */
+  planes?: Record<string, number> | null,
 ): Promise<ImportNgffResult> {
-  return callBroker(server, (broker) =>
-    broker.import_ngff_image({
+  const wanted = planes && Object.keys(planes).length > 0 ? planes : undefined;
+  return callBroker(server, async (broker) => {
+    // The key is OMITTED, not sent as null, when there is no plane to record.
+    //
+    // Measured against the deployed service: it raises `TypeError: got an
+    // unexpected keyword argument 'planes'` at argument binding, exactly as it
+    // does for a nonsense kwarg, because the version accepting one is merged
+    // but not yet rolled out. Sending `planes: null` on every import would
+    // therefore have broken EVERY remote import, including the 2-D ones that
+    // have no plane to record and nothing to gain from the field.
+    //
+    // So the only calls that can meet an older service are the multi-slice
+    // ones, which is the case that cannot be done correctly there anyway.
+    const payload: Record<string, unknown> = {
       artifact_id: artifactId,
       store_root: storeRoot,
       stem: stem || null,
@@ -686,7 +763,38 @@ export async function importNgffImage(
       region: region || null,
       origin: window.location.origin,
       _rkwargs: true,
-    }),
+    };
+    if (wanted) payload.planes = wanted;
+    try {
+      return await broker.import_ngff_image(payload);
+    } catch (err) {
+      throw rewriteMissingPlanesSupport(err, wanted);
+    }
+  });
+}
+
+/**
+ * Turn "unexpected keyword argument 'planes'" into a sentence worth reading.
+ *
+ * The raw error is a Python traceback from inside an RPC worker, and the thing
+ * it means is specific: this annotation service is older than the import being
+ * attempted, and recording the slice is not optional for the source in hand.
+ * Everything else passes through untouched, because a message rewritten for
+ * the wrong error is worse than a traceback.
+ *
+ * Exported for its own test. The condition it matches can only be produced by
+ * a service this repository does not control, so a unit test is the only place
+ * the mapping can be checked at all.
+ */
+export function rewriteMissingPlanesSupport(err: unknown, wanted: unknown): unknown {
+  const text = String((err as any)?.message ?? err ?? '');
+  if (!wanted || !/unexpected keyword argument '?planes'?/.test(text)) return err;
+  return new Error(
+    'This source has more than one slice, so which slice an annotation is ' +
+      'drawn on has to be recorded with the import. The annotation service ' +
+      'running here is too old to record it (it needs v0.12.6 or newer). ' +
+      'Importing it without that would produce a source that cannot be ' +
+      'trained on, so the import was refused instead.',
   );
 }
 

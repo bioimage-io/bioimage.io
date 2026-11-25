@@ -10,7 +10,7 @@
 // until its extent is known. Step one checks the URL; step two shows what is
 // there and lets a patch be taken out of it.
 
-import React, { useCallback, useEffect, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import {
   ImportNgffResult,
   NgffProbe,
@@ -18,7 +18,7 @@ import {
   importNgffImage,
   probeNgffSource,
 } from './brokerApi';
-import { describeDtype, materialiseBytes } from './ngffLayout';
+import { describeDtype, displayedPlanesForProbe, materialiseBytes } from './ngffLayout';
 import { openImageSource } from './imageSource';
 import type { ImageSourceHandle } from './imageSource';
 
@@ -129,6 +129,28 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
   }, [busy, onClose]);
 
   /**
+   * The slice this import will be annotated on, and recorded as.
+   *
+   * Memoised and computed once for both uses: the note the user reads and the
+   * value sent to the broker come from the same call, so the dialog cannot say
+   * "slice 4" while the import records something else. A layout no plane can
+   * describe surfaces as an error that disables Import, rather than as a
+   * failure after the click: the import would be refused by the broker anyway,
+   * and a disabled button with a reason beats a round trip to the same answer.
+   */
+  const planeChoice = useMemo((): {
+    planes: Record<string, number> | undefined;
+    error: string | null;
+  } => {
+    if (!probe) return { planes: undefined, error: null };
+    try {
+      return { planes: displayedPlanesForProbe(probe), error: null };
+    } catch (err) {
+      return { planes: undefined, error: readableError(err) };
+    }
+  }, [probe]);
+
+  /**
    * Render a thumbnail of the source once it is known to be readable.
    *
    * Read straight from the store by the browser, using the URL as typed: a
@@ -154,6 +176,15 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
           kind: 'ngff',
           storeRoot: storeRoot.trim(),
           multiscalePath: multiscale.trim() || undefined,
+          // The preview is shown AT the plane this import is about to record,
+          // so what the dialog says, what it draws and what it writes are one
+          // decision. Without this the preview pinned the drawn level's own
+          // middle slice, which on a pyramid that downsamples z is a
+          // different slice from the one recorded.
+          planes:
+            probe && planeChoice.planes
+              ? { planes: planeChoice.planes, shape: probe.level0_shape || [] }
+              : null,
         });
         open.handle = handle;
         if (cancelled) {
@@ -177,7 +208,7 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
       // only when the dialog closes or the source changes.
       open.handle?.close();
     };
-  }, [probe, storeRoot, multiscale]);
+  }, [probe, storeRoot, multiscale, planeChoice]);
 
   /** Clamp a region into the store and refuse an empty one. */
   const commitRegion = useCallback(
@@ -278,6 +309,14 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
       await handleCheck();
       return;
     }
+    // A layout whose plane cannot be described is refused here as well as by
+    // the disabled button, because a form can still be submitted by pressing
+    // Enter in a text field. Importing it anyway would write a source that
+    // training refuses later, which is the whole failure this records against.
+    if (planeChoice.error) {
+      setError(planeChoice.error);
+      return;
+    }
     setImporting(true);
     setError(null);
     try {
@@ -288,6 +327,9 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
         name.trim() || undefined,
         multiscale.trim() || undefined,
         region,
+        // The same value the note above the button describes, so the record
+        // and what the user was told cannot differ.
+        planeChoice.planes,
       );
       onImported(result);
       onClose();
@@ -302,6 +344,34 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
   const bytes = probe ? materialiseBytes(width, height, probe.dtype, probe.channels) : 0;
   const tooLargeToCopy = !!probe && bytes > 0 && bytes > probe.max_materialise_bytes;
   const channelNote = probe ? channelDisplayNote(probe.channels.length) : null;
+
+  /**
+   * "z slice 4 of 9", one clause per non-singleton axis.
+   *
+   * Worth showing rather than leaving implicit: the annotator picks the middle
+   * slice of a z-stack, so a user who assumed they were drawing on the first
+   * one would otherwise find out only from a model that learned the wrong
+   * pixels. The sizes come from the probe's own shape, so the sentence is the
+   * store's numbers and not this component's guess.
+   */
+  const planeNote = useMemo((): string | null => {
+    const planes = planeChoice.planes;
+    if (!planes || !probe) return null;
+    const names = probe.axes || [];
+    const shape = probe.level0_shape || [];
+    const clauses = Object.entries(planes).map(([axis, index]) => {
+      const size = shape[names.indexOf(axis)];
+      return typeof size === 'number' && size > 0
+        ? `${axis} slice ${index} of ${size}`
+        : `${axis} slice ${index}`;
+    });
+    if (clauses.length === 0) return null;
+    const list =
+      clauses.length === 1
+        ? clauses[0]
+        : `${clauses.slice(0, -1).join(', ')} and ${clauses[clauses.length - 1]}`;
+    return `This source has more than one slice. It will be annotated on ${list}, and that choice is recorded with the import so training reads the same slice.`;
+  }, [planeChoice.planes, probe]);
 
   /**
    * Edit one field of the region, taking the whole image as the starting
@@ -513,6 +583,24 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
                 </div>
               )}
 
+              {planeNote && (
+                <div
+                  className="p-3 rounded-lg border text-xs bg-gray-50 border-gray-200 text-gray-600"
+                  data-testid="plane-note"
+                >
+                  {planeNote}
+                </div>
+              )}
+
+              {planeChoice.error && (
+                <div
+                  className="p-3 rounded-lg border text-xs bg-amber-50 border-amber-200 text-amber-800"
+                  data-testid="plane-error"
+                >
+                  {planeChoice.error}
+                </div>
+              )}
+
               {bytes > 0 && (
                 <div
                   className={`p-3 rounded-lg border text-xs ${
@@ -570,7 +658,7 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
           </button>
           <button
             type="submit"
-            disabled={busy || !storeRoot.trim()}
+            disabled={busy || !storeRoot.trim() || !!planeChoice.error}
             className="px-5 py-2.5 bg-indigo-600 text-white rounded-xl hover:bg-indigo-700 disabled:bg-gray-300 disabled:cursor-not-allowed text-sm font-medium shadow-sm flex items-center gap-2 transition-colors active:scale-[0.98]"
           >
             {busy && (

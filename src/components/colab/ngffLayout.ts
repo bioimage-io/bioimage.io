@@ -198,6 +198,179 @@ export function regionAtLevel(
 }
 
 /**
+ * A plane recorded against ONE reference level, with that level's shape.
+ *
+ * Both halves are needed together. An index alone cannot be placed on another
+ * level: "z index 4" means one slice out of nine on level 0 and a different
+ * slice out of four on a level that halved z, so the size it was measured
+ * against travels with it.
+ *
+ * `shape` is the broker's `level0_shape`, which is the shape of
+ * `dataset_paths[0]`. That is also the array the TRAINING reader opens as
+ * level 0, so deriving from it makes the viewer agree with what training will
+ * actually read. It is deliberately not "the largest level": this module
+ * orders levels by size because `datasets[]` order is only a convention, and
+ * on a store that lists its datasets coarsest-first those two rules disagree
+ * about which level is level 0. Following the broker keeps the record, the
+ * display and the training read on one definition.
+ */
+export interface RecordedPlanes {
+  /** Axis NAME to index, as recorded at import. */
+  planes: Record<string, number>;
+  /** Shape of the level those indices were measured against. */
+  shape: number[];
+}
+
+/**
+ * Where a recorded plane lands on the level being read, or `null` when the
+ * record says nothing about this axis.
+ *
+ * The same proportional mapping `regionAtLevel` does for y and x, applied to
+ * an indexed axis. Identity whenever the axis is not resampled, which is every
+ * store that pyramids only in y and x, so the common case is untouched.
+ *
+ * Both directions work. If the reference level is the COARSER one, the ratio
+ * is above 1 and the index scales up, which is what a store listing its
+ * datasets coarsest-first needs.
+ */
+export function planeAtLevel(
+  recorded: RecordedPlanes | null | undefined,
+  axisName: string,
+  dim: number,
+  levelSize: number,
+  /**
+   * The rank of the array being read. Checked HERE, at the point of use, and
+   * not only in `assertPlaneIsResolvable`: that function returns early when no
+   * axis is resampled, so on a pyramid that resamples nothing a malformed
+   * record reached the selection unexamined and produced slice 0 for a
+   * recorded slice 4, silently. A guard that runs after an early return is not
+   * a guard for the path that took it.
+   *
+   * Optional only so existing callers that cannot know the rank keep
+   * compiling; every caller in this module passes it.
+   */
+  rank?: number,
+): number | null {
+  if (!recorded) return null;
+  // A record of the wrong rank describes some other layout, and reading it at
+  // this dimension answers for whichever axis happens to sit there.
+  if (typeof rank === 'number' && (recorded.shape?.length ?? -1) !== rank) return null;
+  const entry = Object.entries(recorded.planes || {}).find(
+    ([name]) => name.toLowerCase() === axisName,
+  );
+  if (!entry) return null;
+  const index = entry[1];
+  if (typeof index !== 'number' || !Number.isFinite(index)) return null;
+
+  // NO DEFAULT for the reference size, and that is the whole point of this
+  // line. It used to read `Number(recorded.shape?.[dim]) || 1`, so a record
+  // whose shape was empty or of the wrong rank silently became "one slice at
+  // this axis", and the mapping then returned index 8 of 9 for a recorded
+  // slice 4. A wrong slice with no error is the exact failure this module
+  // exists to prevent, so an unusable reference yields NO ANSWER and the
+  // caller refuses instead.
+  const reference = recorded.shape?.[dim];
+  if (typeof reference !== 'number' || !Number.isInteger(reference) || reference < 1) return null;
+  const referenceSize = reference;
+  const size = Math.max(1, levelSize);
+  if (referenceSize === size) return clamp(Math.floor(index), 0, size - 1);
+
+  // The rounding DIFFERS BY DIRECTION, and picking one for both is wrong in
+  // the other. Write the recorded slice as the half-open range
+  // [index, index + 1) in reference coordinates, which in this level's
+  // coordinates is [index*s/r, (index+1)*s/r).
+  //
+  //  - target COARSER (s < r): one slice here stands for several reference
+  //    slices, so the honest pick is the slice whose range CONTAINS the
+  //    recorded one. That is the floor. Measured: 9 reference slices down to
+  //    4, recorded 4, floor gives 1, whose range 2.25 to 4.5 contains 4. The
+  //    ceiling gives 2, whose range 4.5 to 6.75 does not.
+  //  - target FINER (s > r): the recorded slice spans several slices here, so
+  //    the pick must be INSIDE it. That is the ceiling. Measured: 4 reference
+  //    slices up to 9, recorded 1, the ceiling gives 3, which sits at
+  //    reference 1.33, inside slice 1. The floor gives 2, which sits at
+  //    reference 0.89 and so shows a slice the record does not name.
+  const scaled = (index * size) / referenceSize;
+  return clamp(size < referenceSize ? Math.floor(scaled) : Math.ceil(scaled), 0, size - 1);
+}
+
+/**
+ * The indexed axes whose size DIFFERS between levels, by name.
+ *
+ * These are the axes for which "which slice am I showing" has no single
+ * answer across a pyramid: level 0's slice 4 of 9 and level 1's slice 4 of 4
+ * are different pixels. For every other axis a plane index means the same
+ * thing at every level, which is why a store pyramided only in y and x needs
+ * none of this.
+ *
+ * Exported so the reader can REFUSE on one rather than guess, and so that
+ * refusal can be tested without a store.
+ */
+export function resampledIndexedAxes(
+  shapes: number[][],
+  roles: AxisRoles,
+  axes: NgffAxis[],
+): string[] {
+  const out: string[] = [];
+  for (const d of roles.indexed) {
+    const sizes = new Set(shapes.map((shape) => Math.max(1, shape[d] ?? 1)));
+    if (sizes.size > 1) out.push(axes[d]?.name || `axis ${d}`);
+  }
+  return out;
+}
+
+/**
+ * Refuse to draw a multi-plane pyramid whose plane nobody recorded.
+ *
+ * The case this exists for, and it is the row's own defect wearing its last
+ * disguise: a store that downsamples z, opened WITHOUT the plane recorded at
+ * import. Every level then pins its own middle slice, the annotation is drawn
+ * on one slice, the record names another, and the run still reports success
+ * having paired polygons with different pixels. Nothing downstream can notice,
+ * which is exactly why this has to be said here.
+ *
+ * It is deliberately narrow. With a record, the plane is derived and there is
+ * nothing to refuse. Without one, it fires only when an indexed axis is
+ * actually resampled, so every store pyramided in y and x alone, which is
+ * almost all of them, opens exactly as before.
+ */
+export function assertPlaneIsResolvable(
+  shapes: number[][],
+  roles: AxisRoles,
+  axes: NgffAxis[],
+  recorded?: RecordedPlanes | null,
+): void {
+  const resampled = resampledIndexedAxes(shapes, roles, axes);
+  if (resampled.length === 0) return;
+  // A record counts only if it RESOLVES on every axis that is resampled, at
+  // every level. "A record is present" was the wrong test: a shape of the
+  // wrong rank, or an empty one, is present and names nothing, and under the
+  // old reading it both skipped this refusal and silently produced an index.
+  // So the question asked here is the one that matters, which is whether the
+  // record can actually answer for the axes that need answering.
+  // The rank is NOT re-checked here. `planeAtLevel` refuses a record of the
+  // wrong rank at the point of use, so the resolvability probe below already
+  // answers false for one, and a second copy of the rule here was decoration:
+  // a mutation that removed it changed nothing, which is how it was found.
+  if (recorded && Object.keys(recorded.planes || {}).length > 0) {
+    const resolvesEverywhere = roles.indexed.every((d) => {
+      const name = (axes[d]?.name || '').toLowerCase();
+      if (!resampled.some((axis) => axis.toLowerCase() === name)) return true;
+      return shapes.every(
+        (shape) => planeAtLevel(recorded, name, d, Math.max(1, shape[d] ?? 1), shape.length) !== null,
+      );
+    });
+    if (resolvesEverywhere) return;
+  }
+  throw new Error(
+    `This source's ${resampled.join(' and ')} axis is sampled differently at each ` +
+      'resolution, and no usable slice was recorded for it, so there is no way to tell ' +
+      'which slice an annotation would be drawn on. Re-import the source with a service ' +
+      'that records the slice (annotation broker v0.12.6 or newer).',
+  );
+}
+
+/**
  * The zarrita selection that reduces an array to one drawable plane.
  *
  * Y, X and C pass through whole (`null`); every other dimension is pinned.
@@ -211,24 +384,172 @@ export function regionAtLevel(
  * Zarr library: jest 27 cannot resolve zarrita's `import`-only exports map at
  * all, and the axis arithmetic here is precisely the part that has to stay
  * directly testable. `ngffPyramid` does the one-line conversion.
+ *
+ * *recorded* OVERRIDES the middle-slice rule, and that is what keeps the
+ * viewer and the saved record describing the same pixels. The record is made
+ * once, against the store's reference level, and every level then DERIVES its
+ * own index from it with `planeAtLevel` below. Without this the two were
+ * computed independently: the record from level 0, the drawing from whichever
+ * level the canvas asked for, and on a pyramid that downsamples z those are
+ * different slices. That is this module's own defect one level down, and it
+ * was invisible to a test that computed both from the same shape.
  */
 export function planeSelection(
   shape: number[],
   roles: AxisRoles,
   axes: NgffAxis[],
   region?: PixelRegion | null,
+  recorded?: RecordedPlanes | null,
 ): (number | null | AxisRange)[] {
   const selection: (number | null | AxisRange)[] = shape.map(() => null);
   for (const d of roles.indexed) {
     const name = (axes[d]?.name || '').toLowerCase();
     const size = Math.max(1, shape[d]);
-    selection[d] = name === 'z' ? Math.floor(size / 2) : 0;
+    const fromRecord = planeAtLevel(recorded, name, d, size, shape.length);
+    selection[d] = fromRecord !== null ? fromRecord : name === 'z' ? Math.floor(size / 2) : 0;
   }
   if (region) {
     selection[roles.y] = [region.y, region.y + region.height];
     selection[roles.x] = [region.x, region.x + region.width];
   }
   return selection;
+}
+
+/**
+ * Which slice of each non-spatial axis the viewer is DISPLAYING, by axis name.
+ *
+ * This is the record that makes a region annotation on a z-stack or a time
+ * series trainable at all. `planeSelection` above pins z to the middle slice,
+ * so an annotation drawn on a 9-slice stack describes slice 4; the training
+ * reader, given no plane, used to read slice 0. Nothing downstream could
+ * notice: the mask rasterises non-empty, the shapes agree, and the run reaches
+ * COMPLETED having paired the polygons with a different slice's pixels. The
+ * reader now refuses rather than assuming 0, which turns a silently wrong
+ * model into a legible error, and this function is what supplies the missing
+ * answer.
+ *
+ * DERIVED FROM `planeSelection`, deliberately, rather than reimplementing the
+ * middle-slice rule. The record has to say what the viewer SHOWS, and two
+ * copies of that rule would be one copy and one slowly-diverging claim. Read
+ * the indices back out of the same array the reads are sliced with and they
+ * cannot disagree.
+ *
+ * `undefined` rather than `{}` when there is nothing to record, because an
+ * absent plane and an empty one must not mean two different things to the
+ * broker, which normalises `{}` to "none given" for the same reason.
+ *
+ * SINGLETON axes are omitted. Index 0 of a one-element axis is the only slice
+ * it has, so recording it tells a reader nothing it could act on, and the
+ * reader only ever asks about an axis larger than one. That also keeps a plain
+ * 2-D store recording no plane at all, exactly as before this existed.
+ *
+ * Only Y, X and C are excluded, via `roles.indexed`, and that matches what the
+ * broker will accept: it REFUSES a plane naming y, x or the channel axis,
+ * because y and x are the crop and the channel axis is read whole, so such a
+ * record would say one thing while training did another.
+ */
+export function displayedPlanes(
+  shape: number[],
+  roles: AxisRoles,
+  axes: NgffAxis[],
+): Record<string, number> | undefined {
+  const selection = planeSelection(shape, roles, axes);
+  const planes: Record<string, number> = {};
+  const seen = new Set<string>();
+
+  for (const d of roles.indexed) {
+    if (Math.max(1, shape[d]) <= 1) continue;
+    const name = (axes[d]?.name || '').trim();
+    if (!name) {
+      throw new Error(
+        `This source's axis ${d} has ${shape[d]} slices but no name, so which ` +
+          'slice an annotation was drawn on cannot be recorded. Training refuses ' +
+          'a source with an unrecorded plane rather than guessing one.',
+      );
+    }
+    // Two non-singleton axes sharing a name cannot both be described by a
+    // mapping keyed on names: one would overwrite the other, and the record
+    // would then name a slice of an axis nobody meant. Pathological metadata
+    // rather than a layout anyone writes on purpose, but it is cheaper to
+    // refuse it here than to let it choose a slice by key collision.
+    if (seen.has(name)) {
+      throw new Error(
+        `This source names more than one axis ${name}, so a plane cannot say ` +
+          'which of them a slice index belongs to.',
+      );
+    }
+    seen.add(name);
+
+    const index = selection[d];
+    if (typeof index !== 'number') {
+      // Not reachable while `planeSelection` pins every axis in
+      // `roles.indexed` to a number, which it does on the line above. It is
+      // here because that coupling is exactly what this function depends on:
+      // were a range or a null ever to appear at a pinned axis, the
+      // alternative to this throw is writing a non-index into the record and
+      // discovering it as a training failure much later.
+      throw new Error(
+        `This source's axis ${name} is displayed as a range rather than one ` +
+          'slice, so a single plane index cannot describe it.',
+      );
+    }
+    planes[name] = index;
+  }
+
+  return Object.keys(planes).length > 0 ? planes : undefined;
+}
+
+/**
+ * The layout a broker probe reports, as much of it as a plane needs.
+ *
+ * Structural on purpose: this module stays free of the broker client, which is
+ * what lets its arithmetic be unit-tested without a server. Every field is
+ * optional because a broker older than v0.12.6 reports none of them.
+ */
+export interface ProbeLayout {
+  /** Axis NAMES in the store's own order. */
+  axes?: string[] | null;
+  /** Role to axis INDEX. */
+  axis_roles?: { y: number; x: number; c: number | null } | null;
+  /** Level 0's dimensions, in the store's own axis order. */
+  level0_shape?: number[] | null;
+}
+
+/**
+ * `displayedPlanes` for what a probe reported, or `undefined` when the probe
+ * did not describe its layout.
+ *
+ * The roles come from the PROBE rather than from this module's own
+ * `axisRoles`, so the axis set a plane may name is the same one the broker
+ * validates against. If the two disagreed about which axis is the channel, a
+ * record this side thought legal would be refused there, and the import would
+ * fail on a store that is perfectly importable.
+ *
+ * An old broker yields `undefined` rather than an error. Without axis names
+ * and a shape there is no way to tell a z-stack from a 2-D image here, so
+ * there is nothing to refuse on; such a source records no plane and the
+ * training reader refuses it then, which is where the information to refuse
+ * on exists. That is also the behaviour every import had before this.
+ */
+export function displayedPlanesForProbe(
+  layout: ProbeLayout | null | undefined,
+): Record<string, number> | undefined {
+  const names = layout?.axes;
+  const shape = layout?.level0_shape;
+  const probeRoles = layout?.axis_roles;
+  if (!Array.isArray(names) || !Array.isArray(shape) || !probeRoles) return undefined;
+  if (names.length !== shape.length) return undefined;
+
+  const { y, x, c } = probeRoles;
+  const indexed: number[] = [];
+  for (let d = 0; d < shape.length; d++) {
+    if (d !== y && d !== x && d !== c) indexed.push(d);
+  }
+  return displayedPlanes(
+    shape,
+    { y, x, c: typeof c === 'number' ? c : null, indexed },
+    names.map((name) => ({ name: String(name) })),
+  );
 }
 
 /**

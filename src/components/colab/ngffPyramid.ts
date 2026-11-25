@@ -17,6 +17,7 @@
 import { FetchStore, get, open, slice } from 'zarrita';
 import { orderPyramidLevels, rastersToRgba } from './omeTiffPyramid';
 import {
+  assertPlaneIsResolvable,
   axisRoles,
   chunkToBands,
   levelDims,
@@ -26,7 +27,7 @@ import {
   planeSelection,
   regionAtLevel,
 } from './ngffLayout';
-import type { AxisRange, PixelRegion } from './ngffLayout';
+import type { AxisRange, PixelRegion, RecordedPlanes } from './ngffLayout';
 import type { DecodedPyramid, NativePlane } from './imageSource';
 
 /**
@@ -58,6 +59,13 @@ export async function openNgffPyramid(
    * annotated and copied through exactly the same path as a small one.
    */
   region?: PixelRegion | null,
+  /**
+   * The plane this source was recorded on, with the shape it was measured
+   * against (usually the broker's `level0_shape`). Every level derives its own
+   * index from it, so a pyramid that downsamples z shows the slice the record
+   * names instead of that level's own middle one.
+   */
+  recordedPlanes?: RecordedPlanes | null,
 ): Promise<DecodedPyramid> {
   const store = new FetchStore(storeRoot.endsWith('/') ? storeRoot.slice(0, -1) : storeRoot);
   const group = await open(store, { kind: 'group' });
@@ -75,6 +83,15 @@ export async function openNgffPyramid(
   // region is expressed in. Read after ordering, because `datasets[]` order is
   // only a convention and level 0 is whichever array is largest.
   const base = { width: levels[0].width, height: levels[0].height };
+  // Refused HERE, before any pixel is fetched: on a pyramid that resamples a
+  // non-spatial axis, a level pinning its own middle slice shows different
+  // pixels from the one recorded at import, and nothing downstream can tell.
+  assertPlaneIsResolvable(
+    arrays.map((array) => Array.from(array.shape as number[])),
+    roles,
+    axes,
+    recordedPlanes,
+  );
   /** *region* on one level's own grid, or null when the whole level is wanted. */
   const cropAt = (target: { width: number; height: number }) =>
     region ? regionAtLevel(region, base, target) : null;
@@ -90,7 +107,7 @@ export async function openNgffPyramid(
     // once from level 0.
     const levelRoles = axisRoles(axes, array.shape.length);
     const crop = cropAt(target);
-    const selection = planeSelection(array.shape, levelRoles, axes, crop).map((s) =>
+    const selection = planeSelection(array.shape, levelRoles, axes, crop, recordedPlanes).map((s) =>
       Array.isArray(s) ? slice((s as AxisRange)[0], (s as AxisRange)[1]) : s,
     );
     const chunk = await get(array as any, selection as any);
