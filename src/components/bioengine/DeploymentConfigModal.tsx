@@ -720,7 +720,7 @@ const DeploymentConfigModal: React.FC<DeploymentConfigModalProps> = ({
                   />
                   <p className="text-xs text-gray-500 mt-1">
                     Dict mapping method names to allowed user lists. Use <code className="bg-gray-100 px-0.5 rounded">"*"</code> as key to apply a rule to all methods; <code className="bg-gray-100 px-0.5 rounded">["*"]</code> as value for public access.
-                    Example: <code className="bg-gray-100 px-0.5 rounded">{"{"}"run_inference": ["*"], "train": ["admin@lab.edu"]{"}"}</code>.
+                    Example: <code className="bg-gray-100 px-0.5 rounded">{"{"}"run_inference": ["*"], "train": ["admin@lab.edu"]{"}"}</code>. {/* agent-env-check: allow: an invented domain in example JSON, not a real address */}
                     Leave empty to use the app's default access control (public access).
                     Admin users are always added automatically.
                   </p>

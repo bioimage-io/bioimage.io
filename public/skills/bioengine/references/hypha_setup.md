@@ -71,7 +71,7 @@ async with connect_to_server({"server_url": "https://hypha.aicell.io", "token": 
         "name": "My Lab",                     # optional display name
         "description": "Workers + apps for the lab",
         "persistent": True,                   # required for artifact storage
-        # "owners": ["nils.mech@gmail.com"],  # optional — defaults to caller; add co-owners here
+        # "owners": ["colleague@example.com"],  # optional — defaults to caller; add co-owners here
     })
     print("created:", ws["id"])
 ```

@@ -155,6 +155,53 @@ const NOT_RUNTIME = String.raw`(?!(?:pyodide|bioengine|hypha|runner|root|me|user
 const ID_SHAPE = String.raw`[a-z]{3,}-[a-z]{3,}-[a-z]{6}`;
 const WS_SHAPE = String.raw`ws-[a-z0-9]+(?:-[a-z0-9]+)*-[0-9a-f]{8}`;
 
+// Addresses that BELONG in this repository: the project's own published contact points. These
+// are deliberate and documented, so they are named here rather than left to a reviewer to
+// recognise each time.
+const CONTACT_ADDRESSES = new Set([
+  'ai4life@eurobioimaging.eu',
+  'bioimageio-coc@googlegroups.com',
+]);
+
+// Address shapes that cannot identify a person. Each clause earned its place by firing on
+// something real in this tree, which is why they are listed rather than guessed:
+//
+//   the reserved documentation and testing domains, which by RFC cannot be registered;
+//   a no-reply sender, which no human reads;
+//   the service account that every git-over-SSH instruction has to name.
+const IMPERSONAL_ADDRESS = new RegExp(
+  String.raw`@(?:[A-Za-z0-9-]+\.)*(?:example\.(?:com|org|net)|invalid|localhost|test)$`
+  // `users.noreply.` is ANCHORED to the forges that mint those addresses. Unanchored it
+  // exempted any domain merely CONTAINING that phrase, so an address at a lookalike host
+  // ending in evil.com passed the gate: measured RC=0 with it staged, before this anchor.
+  // The lookalike is spelled out as a self-test fixture rather than here, because a full
+  // address written in this comment makes the file fail its own rule.
+  + String.raw`|^(?:no-?reply|noreply)@|@users\.noreply\.(?:github|gitlab)\.com$`
+  + String.raw`|^git@(?:github|gitlab|bitbucket)\.(?:com|org)$`,
+  'i',
+);
+
+/**
+ * Is this match a version-pinned package spec rather than an address?
+ *
+ * `docsify-tabs@1.js` in a CDN script tag fired on the first run of the address rule, so it has
+ * to be exempt. The FIRST attempt exempted it with a lookahead rejecting any domain whose first
+ * label is all digits, on the stated belief that no domain's first label is all digits. That was
+ * wrong and it opened the hole this function closes: `163.com` and `126.com` are two of the
+ * largest consumer mail providers in China, so the rule silently passed a real person's address
+ * at either of them. Found in review round 2.
+ *
+ * The exemption is now the PIN SHAPE itself and nothing wider: a first label of only digits AND
+ * a last label that is a FILE EXTENSION rather than a top-level domain. `1.js` is a pin,
+ * `163.com` is a domain, and the two are told apart by `js` against `com`.
+ */
+const ASSET_EXTENSION = /^(?:js|mjs|cjs|jsx|ts|tsx|css|scss|map|min|json|svg|png|jpe?g|gif|woff2?|wasm)$/i;
+function isVersionPinnedSpec(hit) {
+  const labels = hit.slice(hit.lastIndexOf('@') + 1).split('.');
+  if (labels.length < 2) return false;
+  return /^[0-9]+$/.test(labels[0]) && ASSET_EXTENSION.test(labels[labels.length - 1]);
+}
+
 const PATTERNS = [
   {
     // THE LEAK VECTOR ITSELF: an id-shaped literal assigned to, or passed as, something that
@@ -274,6 +321,26 @@ const PATTERNS = [
       'gi',
     ),
     why: "an absolute path under somebody's home or data directory",
+  },
+  {
+    // A REAL PERSON'S ADDRESS IN A PUBLIC FILE. This repository is public and its skills are
+    // served, so an address in a tracked file is published to anyone who reads it, and a
+    // contributor's address arrived here twice: once as sample data in a test fixture and once
+    // as the illustrative value of an `owners` list in a served skill.
+    //
+    // The rule is an address MINUS the ones that cannot identify a person, rather than a list
+    // of forbidden providers. A provider list is the tempting version and it is wrong: it
+    // passes every self-hosted and university address, which is most of this community.
+    // A version-pinned package spec is exempted by `isVersionPinnedSpec` in `accept`, NOT by a
+    // lookahead in this expression. The lookahead that used to do it rejected every domain whose
+    // first label is all digits, which let a real address at 163.com or 126.com through; see that
+    // function for the measurement.
+    name: 'personal email address',
+    re: /\b[A-Za-z0-9._%+-]+@[A-Za-z0-9](?:[A-Za-z0-9.-]*[A-Za-z0-9])?\.[A-Za-z]{2,}\b/g,
+    why: "a real person's address in a file this repository publishes",
+    accept: (hit) => CONTACT_ADDRESSES.has(hit.toLowerCase())
+      || IMPERSONAL_ADDRESS.test(hit)
+      || isVersionPinnedSpec(hit),
   },
 ];
 
@@ -477,7 +544,12 @@ function scanOneFile(file, text, roots, ids, names, machines) {
     matchable += 1;
     for (const p of PATTERNS) {
       p.re.lastIndex = 0;
-      const m = p.re.exec(line);
+      // `accept` lets a rule match broadly and then keep the ones that are legitimate, which is
+      // the only workable shape for the address rule: "an address, except these" as a single
+      // regex needs lookaheads that nobody can read or change safely. Rules without an `accept`
+      // behave exactly as before.
+      let m = p.re.exec(line);
+      while (m && p.accept && p.accept(m[0])) m = p.re.exec(line);
       if (m) violations.push({ file, line: i + 1, kind: p.name, hit: m[0], why: p.why });
     }
     if (roots) {
@@ -640,14 +712,13 @@ function selfTest() {
     console.log(`  SKIP  ${why}`);
   };
 
-  const probe = (line) => {
-    const hits = [];
-    for (const p of PATTERNS) {
-      p.re.lastIndex = 0;
-      if (p.re.exec(line)) hits.push(p.name);
-    }
-    return hits;
-  };
+  // Routed through the REAL scanner rather than re-running PATTERNS here. The previous version
+  // duplicated the match loop, so it saw neither the per-rule `accept` filter nor the inline
+  // allow marker: every "does not fire" control in group 20 failed against a rule that was
+  // working perfectly in the tree. A self-test with its own private matcher cannot tell you
+  // whether the thing that runs is right.
+  const probe = (line) => scanOneFile('probe-fixture.txt', `${line}\n`, null, null, null, null)
+    .violations.map((v) => v.kind);
 
   // Every fixture below is a FABRICATED value, never a live one, and every
   // line carries the allow marker so the scanner skips this file's own
@@ -874,6 +945,52 @@ function selfTest() {
   say('CONTROL a nested runtime account does not fire',
     probe('WORKDIR /mnt/home/bioengine/app').length === 0);
 
+  console.log('\n[20] a real person\'s address in a published file');
+  const EMAIL = 'personal email address';
+  // Every fixture here is fabricated. The local parts are invented names and the domains are
+  // either reserved or invented, so this block names nobody.
+  say('a consumer-provider address is caught',
+    probe('const owner = "jane.doe@gmail.com";').includes(EMAIL));  // agent-env-check: allow
+  // THE POINT OF THE RULE, and why it is not a list of providers: most of this community
+  // publishes from a university or an institute, and a provider list passes every one of them.
+  say('a university address is caught',
+    probe('maintainer: a.person@some-university.ac.uk').includes(EMAIL));  // agent-env-check: allow
+  say('a self-hosted address is caught',
+    probe('contact a.person@their-own-domain.org for access').includes(EMAIL));  // agent-env-check: allow
+  say('CONTROL the project contact addresses do not fire',
+    probe('report to ai4life@eurobioimaging.eu or bioimageio-coc@googlegroups.com').length === 0);
+  say('CONTROL a reserved documentation domain does not fire',
+    probe('email: "colleague@example.com"').length === 0);
+  say('CONTROL a reserved subdomain does not fire',
+    probe("user = { email: 'owner@example.invalid' }").length === 0);
+  say('CONTROL a no-reply sender does not fire',
+    probe('Co-Authored-By: Someone <noreply@anthropic.com>').length === 0);
+  say('CONTROL the git service account does not fire',
+    probe('url."git@github.com:".insteadOf').length === 0);
+  // Fired on the first run of this rule, on a CDN script tag in docs/index.html.
+  say('CONTROL a version-pinned package spec does not fire',
+    probe('<script src="https://cdn.example.com/docsify-tabs@1.js"></script>').length === 0);
+  // THE HOLE REVIEW ROUND 2 FOUND, and the reason the exemption above is a shape test rather
+  // than a lookahead. The first version rejected any domain whose first label was all digits,
+  // so an address at either of these two providers passed a green gate. Both must FIRE.
+  say('a digit-only domain label is still an address (163)',
+    probe('const owner = "invented.name@163.com";').includes(EMAIL));  // agent-env-check: allow
+  say('a digit-only domain label is still an address (126)',
+    probe('maintainer: another.invented@126.com').includes(EMAIL));  // agent-env-check: allow
+  // The two must be told apart by the LAST label, so assert the discriminator directly as well:
+  // same digit-only first label, one ending in a TLD and one in a file extension.
+  say('the pin exemption turns on the file extension, not the digits',
+    isVersionPinnedSpec('pkg@1.js') && !isVersionPinnedSpec('person@163.com'));  // agent-env-check: allow
+  // The inline marker has to cover this rule too, or a deliberate example has no way out.
+  // A forge no-reply is exempt, but only at the forge. Unanchored, the phrase exempted any
+  // domain containing it, which is a hole a hostile or careless value walks straight through.
+  say('CONTROL a forge no-reply address does not fire',
+    probe('Co-Authored-By: Someone <12345+someone@users.noreply.github.com>').length === 0);
+  say('a lookalike noreply domain IS caught',
+    probe('const c = "jane@users.noreply.evil.com";').includes(EMAIL));  // agent-env-check: allow
+  say('CONTROL the allow marker exempts an address line',
+    probe(`example: admin@invented-lab.edu  // ${ALLOW}`).length === 0);  // agent-env-check: allow
+
   // The real tree must be scannable at all.
   const r = scan();
   say('the scan reads the tracked tree', r.scanned > 100, `${r.scanned} files`);
@@ -932,7 +1049,7 @@ function selfTest() {
   //
   // The ignored half matters as much as the caught half: without it, this rule would fire on
   // build output and scratch files and get switched off.
-  console.log('\n[20] a NEW file that is not staged yet');
+  console.log('\n[21] a NEW file that is not staged yet');
   {
     // ONE DIRECTORY, OURS, REMOVED AGAIN. It used to write to the repository's shared
     // info/exclude file to prove the ignored half, which is wrong twice over: concurrent runs of

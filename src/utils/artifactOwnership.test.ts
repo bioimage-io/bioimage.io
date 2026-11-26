@@ -14,7 +14,7 @@ import {
  */
 const danielSession = {
   id: 'google-oauth2|109398169297807010606',
-  email: 'danialtza@gmail.com',
+  email: 'contributor@example.org',
   name: 'Daniel Franco-Barranco',
 };
 
@@ -39,7 +39,7 @@ const uploadedByDaniel = {
   manifest: {
     name: 'Another model',
     authors: [{ name: 'Someone Else' }],
-    uploader: { email: 'Danialtza@Gmail.com' },
+    uploader: { email: 'Contributor@Example.org' },
   },
 };
 
@@ -80,7 +80,7 @@ describe('getOwnership', () => {
   it('matches an author by email when the manifest has one', () => {
     const artifact = {
       id: 'a',
-      manifest: { authors: [{ name: 'D. F-B.', email: 'DANIALTZA@gmail.com' }] },
+      manifest: { authors: [{ name: 'D. F-B.', email: 'CONTRIBUTOR@example.org' }] },
     };
     expect(isMyArtifact(artifact, danielSession)).toBe(true);
   });
@@ -122,7 +122,7 @@ describe('getOwnership', () => {
       config: {
         permissions: {
           'google-oauth2|109398169297807010606': '*',
-          'danialtza@gmail.com': 'rw+',
+          'contributor@example.org': 'rw+',
         },
       },
       _permissions: {
@@ -170,13 +170,13 @@ describe('ownedDisplayNames', () => {
   // author uploaded, 3 carry `uploader.name` "Daniel Franco-Barranco", 2 carry
   // "Daniel Franco Barranco" and 5 carry no name at all.
   const ownUploads = [
-    { id: 'a', manifest: { uploader: { email: 'danialtza@gmail.com', name: 'Daniel Franco-Barranco' } } },
-    { id: 'b', manifest: { uploader: { email: 'danialtza@gmail.com', name: 'Daniel Franco Barranco' } } },
-    { id: 'c', manifest: { uploader: { email: 'danialtza@gmail.com' } } },
+    { id: 'a', manifest: { uploader: { email: 'contributor@example.org', name: 'Daniel Franco-Barranco' } } },
+    { id: 'b', manifest: { uploader: { email: 'contributor@example.org', name: 'Daniel Franco Barranco' } } },
+    { id: 'c', manifest: { uploader: { email: 'contributor@example.org' } } },
   ];
 
   it('recovers every spelling the user signed their own uploads with', () => {
-    expect(ownedDisplayNames(ownUploads, { email: 'danialtza@gmail.com' })).toEqual([
+    expect(ownedDisplayNames(ownUploads, { email: 'contributor@example.org' })).toEqual([
       'daniel franco-barranco',
       'daniel franco barranco',
     ]);
@@ -186,7 +186,7 @@ describe('ownedDisplayNames', () => {
     const strangers = [
       { id: 'x', manifest: { uploader: { email: 'other@example.org', name: 'Ada Lovelace' } } },
     ];
-    expect(ownedDisplayNames(strangers, { email: 'danialtza@gmail.com' })).toEqual([]);
+    expect(ownedDisplayNames(strangers, { email: 'contributor@example.org' })).toEqual([]);
     expect(ownedDisplayNames(null, danielSession)).toEqual([]);
   });
 
@@ -194,7 +194,7 @@ describe('ownedDisplayNames', () => {
   // the two most recent sessions to comment on the live zoo looked like) still
   // matches its authored artifacts.
   it('lets a nameless session match authorship', () => {
-    const nameless = { id: 'google-oauth2|x', email: 'danialtza@gmail.com' };
+    const nameless = { id: 'google-oauth2|x', email: 'contributor@example.org' };
     expect(isMyArtifact(authoredBySomeoneElse, nameless)).toBe(false);
     const names = ownedDisplayNames(ownUploads, nameless);
     expect(isMyArtifact(authoredBySomeoneElse, nameless, names)).toBe(true);
@@ -206,15 +206,15 @@ describe('ownedDisplayNames', () => {
       id: 'a',
       manifest: { authors: [{ name: 'Daniel Franco Barranco' }] },
     };
-    const names = ownedDisplayNames(ownUploads, { email: 'danialtza@gmail.com' });
-    expect(isMyArtifact(artifact, { email: 'danialtza@gmail.com' }, names)).toBe(true);
+    const names = ownedDisplayNames(ownUploads, { email: 'contributor@example.org' });
+    expect(isMyArtifact(artifact, { email: 'contributor@example.org' }, names)).toBe(true);
   });
 });
 
 describe('identityKeywords', () => {
   it('offers one keyword per available signal', () => {
     expect(identityKeywords(danielSession)).toEqual([
-      'danialtza@gmail.com',
+      'contributor@example.org',
       'daniel franco-barranco',
     ]);
   });
