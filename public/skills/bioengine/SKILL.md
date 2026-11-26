@@ -741,12 +741,40 @@ From worker `0.16.108` the status payload answers this directly, in `resource_sh
 >                           "logs": {"<replica_id>": {"stdout": ["…"], "stderr": ["…"], "…": "…"}}},
 >       "ProxyDeployment": {"status": "HEALTHY", "…": "…"}
 >     },
->     "service_ids": {"websocket_service_id": "...", "webrtc_service_id": "..."}
+>     "service_registered": true,      // readiness: the ids below are live. null = unknown, NOT "no"
+>     "service_ids": {"websocket_service_id": "...", "webrtc_service_id": "..."}   // null until registered
 >   }
 > }
 > ```
 > So `result[app_id]["deployments"][deployment_name]["message"]` is where the actionable detail lives. The bare `bioengine apps status` output only prints per-deployment *status*, not the message — always pass `--json` when debugging.
 >
+> **`status: RUNNING` does not mean the app is callable yet — poll `service_registered`.** The two
+> are independent signals. `status` is Ray Serve's view of the replicas; the service IDs are
+> withheld until the app's proxy has registered itself with Hypha, which happens *after* the
+> replicas report healthy. In that window `get_app_status` returns `status: RUNNING`, every
+> deployment `HEALTHY`, and `service_ids.websocket_service_id: null`. Calling with that null then
+> raises `AssertionError: Service ID must be a string`, which breaks exactly the "deploy, then
+> call" loop these docs teach. Withholding the ID is deliberate — publishing it early would hand
+> out an address that does not resolve yet — so the fix is to poll the right field:
+>
+> ```python
+> # WRONG: RUNNING is true before the service exists
+> while (await worker.get_app_status(None))[app_id]["status"] != "RUNNING": ...
+>
+> # RIGHT: wait for registration, then read the id
+> while True:
+>     app = (await worker.get_app_status(None))[app_id]
+>     if app.get("service_registered") is True:
+>         ws_id = app["service_ids"]["websocket_service_id"]
+>         break
+>     await asyncio.sleep(2)        # service_registered None = unknown, keep polling
+> ```
+>
+> `service_registered` is **tri-state**: `true` registered, `false` the proxy reported itself
+> unregistered, `null` the worker cannot tell. Treat `null` as *keep waiting*, not as a failure —
+> a loop that exits on "not true" gives up on an app that is merely still starting. Equivalently,
+> poll for a non-empty `websocket_service_id`; it is populated from the same signal.
+
 > `version` vs `running_version` is the pair that actually diagnoses a stuck update, and they can disagree for minutes. `version_verified` reads like a guarantee and is not one: it has been observed `true` while the replica was two versions behind. Other fields you will see and can ignore for most work: `auto_redeploy`, `recovered_app`, `application_kwargs`, `scaling`, `start_time`, `last_updated_at`.
 >
 > **`running_version` is not always a version string — it can be `null` (Python `None`) on a perfectly healthy app.** The worker derives it from the *entry* deployment's replica identity, which the proxy records separately from Serve's own health. Three situations therefore yield `null`: no replica is in `RUNNING` state yet; replicas are up but the proxy has not recorded an identity for the entry replica yet; or the proxy could not be read at all. `status: RUNNING`, every deployment `HEALTHY`, `version: 1.0.0` and `running_version: null` therefore co-occur legitimately, and that is the normal reading a few seconds into a first deploy. A readiness gate written as `running_version == manifest_version` hangs forever on an app that is already serving traffic — which is the same trap as the frontend-only case above, reached a different way. Gate on a real call, as the live-test cycle does.
