@@ -117,6 +117,7 @@ async def main() -> None:
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
         delete_version = getattr(worker, "delete_app_version", None)
         am = None
+        failed: list[tuple[str, str]] = []
         for v in reversed([v for v in existing if dev_re.match(v)]):
             try:
                 if delete_version is not None:
@@ -127,7 +128,35 @@ async def main() -> None:
                     await am.delete(artifact_id=artifact_id, version=v)
                 print(f"  deleted pre-release {v}")
             except Exception as e:
-                print(f"  could not delete {v}: {str(e)[:80]}")
+                # Print the whole thing. A remote error arrives as a traceback that is
+                # already truncated mid-frame by the transport, so trimming it again
+                # here ("...: RemoteError:Traceback (most recent call last):\n  File")
+                # removed the exception type and message, which is everything that
+                # distinguishes a permissions problem from a missing version.
+                print(f"  could not delete {v}: {e!r}", file=sys.stderr)
+                failed.append((v, repr(e)))
+                # STOP. Do not go on to older pre-releases. The loop walks newest-first, so
+                # once this delete has failed, `v` still exists and every remaining candidate
+                # now has a successor. Deleting one of those is the corrupting delete the
+                # comment below says is unsafe: it re-points `v` at the preceding slot's
+                # payload. Continuing would also make the abort message a lie, because it
+                # says nothing was published and implies the state is retryable, while an
+                # older version had already been destroyed under a surviving successor.
+                break
+        if failed:
+            # Abort rather than publish. This is the ONLY moment these deletes are
+            # safe: the pre-releases are the newest versions, so nothing follows them
+            # to shift. Publish first and each one acquires a successor, after which
+            # deleting it re-points that successor at the preceding slot's payload --
+            # so the guard then refuses forever and the pre-releases are stuck in the
+            # version list for good. Publishing over a failed cleanup trades a
+            # retryable error now for an unfixable one later.
+            print("\nERROR: refusing to publish the release: "
+                  f"{len(failed)} pre-release(s) could not be deleted.", file=sys.stderr)
+            for v, err in failed:
+                print(f"  {v}: {err}", file=sys.stderr)
+            sys.exit("Nothing was published. Fix the cause above and re-run --release; "
+                     "the deletes are only safe while these are still the newest versions.")
         await worker.upload_app(files=_set_files_version(files, base))
         print(f"published release {artifact_id}@{base}")
         try:
