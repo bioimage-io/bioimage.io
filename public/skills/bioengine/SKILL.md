@@ -286,6 +286,7 @@ class MyDeployment:
 - **Identifying the caller — `context["user"]["id"]` is not a stable identity.** It is a *per-token synthetic account*. Measured with two API tokens of the same person: `id` was `blossom-account-33066105` on one and `glacier-gojirasaurus-34123849` on the other, while `parent` was `github|49943582` and the email was identical on both. `context["ws"]` is no better — it is the workspace the caller's **token** was minted for, so the same human reports `ws-user-github|49943582` on a personal token and `bioimage-io` on an org one. If you store a record keyed on `id`, its owner cannot reach it after they mint a new token. Derive the key as `email` → `parent` → `id`, first non-empty; `parent` sits ahead of `id` so that a user with no email on their account still gets a stable key rather than a per-token one.
 - **Changing that key later is a data migration, so get it right the first time.** Every record already on disk is keyed under the old computation, and a new derivation matches none of them — the people locked out are the legitimate owners, reporting "this says it belongs to someone else" about data they wrote. If you must change it, do it on the **read** side as a key *set*: compare the stored owner against every key the caller may hold (`email`, `parent`, `id`) and treat a match on any as ownership, while writing only the stable key going forward. That regresses nothing and fixes new records. Whether to bound that compatibility window depends on where the old key came from: bound it (honour legacy keys only for records predating the change) if the old key was **self-asserted by the client**, since the bound is what stops a forged key being honoured; leave it unbounded if the old key was **server-derived**, where there is nothing forgeable to exclude and an age window only strands records that nothing else will ever clear.
 - Import third-party packages **inside methods** — top-level imports break Ray serialization.
+- **`memory_mb` is padded before it becomes the Ray request, so leave room under the node's `total_memory`.** `memory_mb=4096` on a node reporting exactly `total_memory: 4294967296` (4 GiB) is unschedulable, and the refusal prints the padded figure rather than the one you wrote: `Requested: {'num_cpus': 1, 'num_gpus': 0.0, 'memory': 4831838208, 'VRAM_MB': 0}` — that is 4608 MiB. Measured once, at one size: 4096 becomes 4608. Do not extrapolate that as a percentage, because a 12.5% multiplier and a flat 512 MiB addition both produce it and they diverge sharply higher up (at 16 GiB they predict 18 GiB against 16.5 GiB). Treat it as "ask for less than the node reports" until somebody measures a second size. The message does not name which resource was short or what was free, so "change one resource at a time" is the way through, and the first thing to try is a smaller `memory_mb`.
 - **GPU is requested in megabytes of VRAM, not in device counts.** `gpu_memory_mb=8192` asks for 8 GB, `gpu_memory_mb=-1` claims a whole GPU, and **CPU-only is expressed by omitting the kwarg** — `gpu_memory_mb=0` is hard-rejected, so "zero means no GPU" does not carry over. `num_gpus` was replaced by `gpu_memory_mb` in bioengine 0.15.0 and is no longer accepted on `@bioengine.app`. Sizing in MB is what makes several small models share one device safely: two 8 GB apps fit a 24 GB card and the third waits, whereas the old fractional `num_gpus=0.25` divided the device without enforcing any VRAM limit.
 - Entry/orchestrator deployments in composition apps: `num_cpus=0` and no `gpu_memory_mb` — they route calls and hold no compute.
 - `Field(None)` not `Field([...])` for mutable defaults — mutable defaults crash at startup.
@@ -295,7 +296,7 @@ class MyDeployment:
   ```
   Factor the body into an **undecorated helper** and call that from both places. (The simple-app template's smoke test gets away with `await self.ping()` only because `ping` takes no arguments.)
 
-  Put that helper in a **separate module that imports nothing from `bioengine`**, not in the decorated class. A helper *method* fixes `FieldInfo` but buys you nothing locally, because reaching it still means importing the module that carries the decorator, and a `[cli]` venv cannot do that. A separate module is importable in the venv you already have, so it is the only shape that gives you a real pre-deploy test loop as well.
+  Put that helper in a **separate module that imports nothing from `bioengine`**, not in the decorated class. **This covers every helper you intend to test, not just method bodies**: image decoding, payload shaping, PNG encoding, tile geometry. `import your_app` dies at `@bioengine.app` → `from ray import serve` before ANY function in that file is reachable, so a module-level helper sitting beside the decorated class is as untestable as the class itself. A helper *method* fixes `FieldInfo` but buys you nothing locally, because reaching it still means importing the module that carries the decorator, and a `[cli]` venv cannot do that. A separate module is importable in the venv you already have, so it is the only shape that gives you a real pre-deploy test loop as well.
   ```python
   # app_core.py — plain module, no bioengine import, importable in a [cli] venv
   def process(values: list, scale: float) -> dict:   # real defaults, no Field()
@@ -448,6 +449,12 @@ bioengine apps status my-app --logs 50
 bioengine apps status my-app --json
 #   → find result["my-app"]["service_ids"]["websocket_service_id"]
 #   → the same payload carries "static_site_url", the app's frontend URL
+#
+# POLL FOR A NON-EMPTY websocket_service_id, NOT FOR status == RUNNING. After a redeploy the
+# status can read RUNNING with both deployments HEALTHY and the right running_version, while
+# service_ids.websocket_service_id is still null — and get_service then raises
+# "AssertionError: Service ID must be a string." Every automated deploy-then-call loop hits
+# this, so gate on the field you are about to use.
 bioengine call <ws>/<worker_client_id>-<replica>:my-app ping --json
 
 # A method that takes arguments needs --arg/--args. A bare key=value is NOT
@@ -926,8 +933,9 @@ bioengine call '<workspace>/<worker_client_id>-<replica_id>:<app-id>' <method> \
 ```python
 from hypha_rpc import connect_to_server
 
-server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
-                                  "workspace": "bioimage-io"})
+# NO "workspace" key: a user token is bound to its own workspace and asking for
+# bioimage-io is refused. Cross-workspace get_service by exact id works anyway.
+server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
 # Resolve the concrete service ID via the worker:
 worker  = await server.get_service("bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker")

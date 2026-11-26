@@ -27,10 +27,25 @@ hangs with no upper bound. Scripts resolve over HTTP (see below):
 
 > **Who needs discovery, and who doesn't.** Everything below is for **external callers** — the CLI, a Python client, another service. An app's own frontend page (`frontend_entry`, served from the artifact's `static_site_url`) does **not** discover anything: BioEngine injects the fully-resolved `ws_service_id` and `webrtc_service_id` into the page URL as query params, so the frontend reads them off `window.location.search` and connects. See [app_templates.md § Frontend UI template](app_templates.md#frontend-ui-template).
 
+> **Do not pass `workspace` unless your token was minted for that workspace.** A token from
+> `/#/bioengine/token` with no `&workspace=` is bound to your OWN workspace, and asking to connect
+> as `bioimage-io` is refused outright, before anything else runs:
+>
+> ```
+> ConnectionAbortedError: Failed to establish connection: Failed to authenticate user:
+> Current workspace encoded in the token (ws-user-github|…) does not match the
+> specified workspace (bioimage-io)
+> ```
+>
+> Connect in your own workspace and address every `bioimage-io` service by its fully-qualified id,
+> which works across workspaces. This is the first call this skill asks you to make, so getting it
+> wrong costs a cycle before anything else can be tried.
+
 **Discovery recipe** (one ready-to-paste block):
 ```python
 from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token, "workspace": "bioimage-io"})
+# No "workspace" key: connect in YOUR workspace, then reach bioimage-io services by exact id.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
 # 1. Resolve a worker. Use the HTTP helper `worker_service_id()` defined in the next
 #    section of this file -- NOT `list_services`, which hangs against a busy workspace

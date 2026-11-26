@@ -50,8 +50,9 @@ Find the concrete ID via the worker:
 
 ```python
 from hypha_rpc import connect_to_server
-s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token,
-                             "workspace": "bioimage-io"})
+# NO "workspace" key. A token minted without `&workspace=` is bound to your own
+# workspace and connecting as bioimage-io is refused; reach its services by exact id.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 
 # 1. Pick a worker (KTH and deNBI both run model-runner today). Do NOT use
 #    `list_services` in a script: it hangs against a busy workspace, with no upper
@@ -138,11 +139,43 @@ capacity knob: at 50 clients, 26% were rejected even at a 10-second interval whi
 throughput stayed flat (368 against 374 at 20 clients), so beyond a certain load the service is
 limited downstream of admission and politeness is the only thing that still helps.
 
-⚠️ **Ask for `return_download_url=True`, and bound every status call.** Any input whose size is
-not the model's declared size is tiled server-side, and the assembled multi-tile array **fails to
-marshal back to the caller** — the `get_infer_status` call then never returns, so a client without a
-per-call timeout waits for ever rather than seeing an error. Asking for a download URL avoids the
-marshalling entirely. Measured on the live KTH app with Cellpose-SAM, same model and upload path:
+⚠️ **CHECK THE SHAPE YOU GET BACK. Do not assume an oversized input was tiled.** Whether a replica
+tiles an input larger than the model's declared size, or quietly runs one block and returns that,
+**differs between live replicas**. Measured on 2026-11-26, same model (`territorial-cricket`,
+declared `y=256, x=256`), same call, same day, one input of 768x1024:
+
+| replica | returned |
+|---|---|
+| `…-5867665999-vsrtp-…:model-runner` | `(1, 1, 768, 1024)`, tiled internally |
+| `…-9c4c8d75c-x24hj-…:model-runner` (after a pod roll) | `(1, 1, 256, 256)`, one block, **no warning** |
+
+The second case is the dangerous one, because nothing about it looks wrong: the array is
+well-formed, the job reports success, and a caller measuring an object count or an area fraction
+then measures a 256x256 CROP of its own image and reports it as the whole. In the run that found
+this, it surfaced only because an overlay step indexed a 768-row image with a 256-row mask and
+raised `IndexError`.
+
+So, whatever the model declares:
+
+```python
+# run_infer returns the output DICT, so index the output key before touching .shape.
+rdf = await mr.get_model_rdf(model_id=model_id)
+out_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
+
+result = await run_infer(mr, model_id, url)     # or your own submit+poll
+prob = np.asarray(result[out_key])
+if prob.shape[-2:] != image.shape[-2:]:
+    raise RuntimeError(f"model returned {prob.shape[-2:]} for an input of {image.shape[-2:]}")
+```
+
+and when the RDF declares a FIXED input size, tile client-side rather than relying on the server
+to do it. A failed assertion costs one run; a silently cropped measurement is wrong and looks fine.
+
+⚠️ **Ask for `return_download_url=True`, and bound every status call.** When an oversized input IS
+tiled server-side, the assembled multi-tile array **fails to marshal back to the caller** — the
+`get_infer_status` call then never returns, so a client without a per-call timeout waits for ever
+rather than seeing an error. Asking for a download URL avoids the marshalling entirely. Measured on
+the live KTH app with Cellpose-SAM, same model and upload path:
 
 | input | inline result | `return_download_url=True` |
 |---|---|---|
@@ -255,8 +288,8 @@ from hypha_rpc import connect_to_server
 import asyncio, time, httpx, numpy as np, io
 
 # 1. Resolve the concrete model-runner service ID (see "Service ID — discover before calling" above)
-s = await connect_to_server({"server_url": "https://hypha.aicell.io",
-                             "token": token, "workspace": "bioimage-io"})
+# NO "workspace" key, for the same reason as above.
+s = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": token})
 # worker_service_id() resolves over HTTP instead of enumerating by RPC, because
 # `list_services` hangs against a busy workspace — see references/service_ids.md.
 worker = await s.get_service(worker_service_id("bioimage-io", "bioengine-worker-kth"))
@@ -313,6 +346,12 @@ The screening pool is the **union** of two model sources; gather both before sco
 1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
 2. **Cellpose-3 models** need no separate source from 2.11.2: `search_models` returns them and `mr.infer` runs them like anything else. Note they declare large minimum input sizes (see the banner at the top), so a too-small array fails before inference rather than during it.
 
+> **Loop models OUTSIDE, images INSIDE.** The runner keeps one warm child and evicts it whenever
+> the model changes, logging `🔄 [predict] Evicting warm child (model switch) before loading …`.
+> Alternating models within one request stream therefore pays a respawn, about 8 s observed, on
+> every single call. Driving all images for one model, then moving to the next, pays it once per
+> model. The loop below is written that way.
+
 ```python
 # Run multiple models and save all outputs.
 # Assumes `mr` is the resolved model-runner handle (see "Direct Python — the actual API" above)
@@ -320,13 +359,15 @@ The screening pool is the **union** of two model sources; gather both before sco
 import numpy as np
 
 model_ids = ["affable-shark", "ambitious-ant", "chatty-frog"]
+image_urls = [test_url]                           # however many you have
 results = {}
-for model_id in model_ids:
+for model_id in model_ids:                        # models OUTSIDE: one eviction each
     rdf = await mr.get_model_rdf(model_id=model_id)
     out_key = rdf["outputs"][0].get("id") or rdf["outputs"][0].get("name")
-    r = await run_infer(mr, model_id, test_url)   # submit + poll; see § Async job API
-    results[model_id] = np.asarray(r[out_key])
-    np.save(f"comparison_results/{model_id}_output.npy", results[model_id])
+    for i, url in enumerate(image_urls):          # images INSIDE: the child stays warm
+        r = await run_infer(mr, model_id, url)    # submit + poll; see § Async job API
+        results[(model_id, i)] = np.asarray(r[out_key])
+        np.save(f"comparison_results/{model_id}_{i}_output.npy", results[(model_id, i)])
 ```
 
 ### Step 3: Read model documentation before running
@@ -752,6 +793,12 @@ bioengine call bioimage-io/model-runner get_test_status --args "{\"test_run_id\"
 bioengine call bioimage-io/model-runner test --args '{"model_id": "ambitious-ant", "cache": "skip"}' --json
 ```
 
+> **`cache` matters more on repeated `infer` than on `test`.** The default `"check"` re-verifies
+> the cached model package against upstream on EVERY call, which is paid per call when you drive
+> one model over many tiles or many images. Measured on a tiled 768x1024 run: `cache="reuse"`,
+> plus a bounded fan-out of 4 concurrent tiles, took one image from about 30 s per 256x256 tile to
+> 277 s for the whole image. Use `"reuse"` once you have run the model successfully at least once.
+
 In Python, `report = await run_test(mr, "ambitious-ant")` submits and polls in one call (see [§ Async job API](#async-job-api--infer-and-test-return-job-ids)). Pass `custom_environment=True` for a model that declares a `dependencies` conda env (test-only; the report auto-publishes to the `bioimage-io/test-reports` collection).
 
 ## Inference retry on OOM
@@ -919,6 +966,25 @@ For Human Protein Atlas fluorescence images, use these keywords in order of reli
 | "HPA cell body" | `loyal-parrot` | 3-channel HPA whole-cell model. |
 | "BBBC-style nucleus segmentation" | `affable-shark` | UNet 2-channel (foreground + boundary). |
 | "Denoising / restoration" | `dazzling-spider` | Output key is `"prediction"`, not `"output0"`. |
+| "Mitochondria in EM (2D)" | `territorial-cricket` | BiaPy 2D U-Net trained on **Lucchi++**. Declares a fixed `256x256` single-channel input and returns ONE sigmoid probability channel under `output0`, so it needs connected-component labelling for a count. Alternatives with the same shape and training set: `poisonous-spider` (Attention U-Net), `gleeful-skunk` (Residual U-Net), `sensible-cat` (U-NeXt V2). |
+
+Two traps in that corner of the zoo, both measured 2026-11-26:
+
+- **`stupendous-sheep` (2D MitoNet) is advertised and currently unusable.** It is the only
+  mitochondria *instance* model, so it is the obvious first pick for a counting task, and
+  `search_models` returns it. Inference fails after ~12 s with
+  `ModuleNotFoundError: No module named 'empanada'` from the inference child: the runner's
+  environment lacks the package. `get_model_documentation` also returns an empty string for it,
+  while returning full READMEs for the BiaPy models beside it.
+- **The `shallow2deep` models are not standalone segmenters.** `hiding-blowfish`,
+  `dazzling-crab` and `independent-shrimp` are prediction *enhancers*, and their
+  `search_models` descriptions read exactly like a segmenter's.
+
+Ten BiaPy models answer `search_models(["mitochondria"])` with the identical description
+"Mitochondria segmentation for electron microscopy", and only the RDF tells 2D from 3D and
+Lucchi++ from MitoEM or VNC. `search_models` returns `{"model_id": ..., "description": ...}` and
+nothing else, so the axes, the declared size and the tags all need a `get_model_rdf` per
+candidate.
 
 When in doubt, call `search_models(keywords=[...])` first — these IDs are stable but the zoo evolves and fine-tuned variants of cellpose are published as their own nicknames.
 
