@@ -1,3 +1,4 @@
+import truthTable from './channelAxisTruthTable.json';
 import {
   axisRoles,
   displayedPlanes,
@@ -50,17 +51,19 @@ const TRAP: NgffAxis[] = [
 const SHAPE = [4, 3, 8, 8];
 
 /**
- * What the BROKER writes into the manifest for this store, under its approved
- * rule: type first, name only when no type is declared.
+ * What the SERVICE writes into the manifest for this store.
  *
- * Hardcoded rather than imported, because it comes from a Python module in
- * another repository that this suite cannot load. That is the honest limit of
- * this test and it is stated rather than hidden: it pins the browser to a
- * WRITTEN-DOWN expectation of the broker's answer, not to the broker itself.
- * The broker's own suite pins that answer on its side, and the two expectations
- * are the same three numbers.
+ * Read out of the generated truth table rather than written here. A review
+ * found why that matters: a hand-written expectation of the service is exactly
+ * how this browser can agree with somebody's reading of it instead, and mine
+ * did, on a store typed `"Channel"`. The table is produced by running the
+ * service's own parse and resolver, so this row is the service's answer rather
+ * than my belief about it. See `channelAxisTruthTable.test.ts`.
  */
-const BROKER_ROLES = { y: 2, x: 3, c: 1 };
+const TRAP_CASE = (truthTable as any).cases.find(
+  (c: any) => c.label === 'TRAP: spatial c beside channel ch',
+);
+const BROKER_ROLES = TRAP_CASE.roles as { y: number; x: number; c: number };
 
 describe('the viewer and the trainer agree on which dimension holds the channels', () => {
   it('the browser resolves the SAME channel axis the broker records', () => {
@@ -103,11 +106,14 @@ describe('the viewer and the trainer agree on which dimension holds the channels
     expect(byName).not.toBe(ngffChannelAxis(TRAP));
   });
 
-  it('a store whose channel axis is merely RENAMED cannot discriminate', () => {
-    // Said out loud so the fixture above is not "simplified" later. Here the
-    // name finds nothing and the type finds dimension 0, so a name-only
-    // resolver and a type-first one differ only in that one answers; on a
-    // conventional `c`/`channel` store they agree outright.
+  it('a CONVENTIONAL store cannot discriminate, and a renamed one only weakly', () => {
+    // Said out loud so the fixture above is not "simplified" later, and
+    // renamed because the first version of this case called a renamed store
+    // non-discriminating and then asserted that it discriminates. On a
+    // conventional `c`/`channel` store the two rules agree OUTRIGHT. On a
+    // renamed one they differ only in that one answers and the other does
+    // not, which catches a resolver that ignores types but not one that
+    // reads them wrongly. Only the TRAP above separates those.
     const renamed: NgffAxis[] = [
       { name: 'ch', type: 'channel' },
       { name: 'y', type: 'space' },

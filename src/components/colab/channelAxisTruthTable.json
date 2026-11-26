@@ -1,0 +1,291 @@
+{
+  "generated_from": "74cf7665fe58",
+  "cases": [
+    {
+      "label": "conventional c/channel",
+      "axes": [
+        {
+          "name": "c",
+          "type": "channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "renamed ch/channel",
+      "axes": [
+        {
+          "name": "ch",
+          "type": "channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "TRAP: spatial c beside channel ch",
+      "axes": [
+        {
+          "name": "c",
+          "type": "space"
+        },
+        {
+          "name": "ch",
+          "type": "channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 2,
+        "x": 3,
+        "c": 1
+      }
+    },
+    {
+      "label": "capitalised Channel",
+      "axes": [
+        {
+          "name": "ch",
+          "type": "Channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "shouted CHANNEL",
+      "axes": [
+        {
+          "name": "ch",
+          "type": "CHANNEL"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "TRAP, capitalised",
+      "axes": [
+        {
+          "name": "c",
+          "type": "space"
+        },
+        {
+          "name": "ch",
+          "type": "Channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 2,
+        "x": 3,
+        "c": 1
+      }
+    },
+    {
+      "label": "all spatial, one named c",
+      "axes": [
+        {
+          "name": "c",
+          "type": "space"
+        },
+        {
+          "name": "z",
+          "type": "space"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "roles": {
+        "y": 2,
+        "x": 3,
+        "c": null
+      }
+    },
+    {
+      "label": "partially typed, untyped c",
+      "axes": [
+        {
+          "name": "c"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": null
+      }
+    },
+    {
+      "label": "no types at all, named c",
+      "axes": [
+        {
+          "name": "c"
+        },
+        {
+          "name": "y"
+        },
+        {
+          "name": "x"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "no types at all, named ch",
+      "axes": [
+        {
+          "name": "ch"
+        },
+        {
+          "name": "y"
+        },
+        {
+          "name": "x"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": null
+      }
+    },
+    {
+      "label": "empty-string type counts as undeclared",
+      "axes": [
+        {
+          "name": "c",
+          "type": ""
+        },
+        {
+          "name": "y"
+        },
+        {
+          "name": "x"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": 0
+      }
+    },
+    {
+      "label": "non-string type counts as declared",
+      "axes": [
+        {
+          "name": "c",
+          "type": 5
+        },
+        {
+          "name": "y"
+        },
+        {
+          "name": "x"
+        }
+      ],
+      "roles": {
+        "y": 1,
+        "x": 2,
+        "c": null
+      }
+    },
+    {
+      "label": "two channel-typed axes",
+      "axes": [
+        {
+          "name": "ch",
+          "type": "channel"
+        },
+        {
+          "name": "c2",
+          "type": "channel"
+        },
+        {
+          "name": "y",
+          "type": "space"
+        },
+        {
+          "name": "x",
+          "type": "space"
+        }
+      ],
+      "raises": "NgffSourceError"
+    }
+  ]
+}

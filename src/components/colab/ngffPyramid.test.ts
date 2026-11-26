@@ -150,6 +150,41 @@ describe('openNgffPyramid, through to the guard', () => {
     await expect(pyramid.readLevelNative!(0)).rejects.toThrow(/at most 4/);
   });
 
+  it('DRAWS the channels of a store whose channel axis is not named "c"', async () => {
+    // The reader, not the resolver. A review found the resolver asserted on
+    // its own and the viewer's path never exercised with such a store, which
+    // leaves the claim "the viewer draws the multichannel image" resting on
+    // an inference across two modules.
+    //
+    // The fixture is the one that discriminates: a SPATIAL axis called `c`
+    // beside a CHANNEL axis called `ch`. A name-only resolver picks the
+    // spatial one, pins the real channel axis, and hands back FOUR bands of
+    // the wrong dimension; the type-first one picks `ch` and hands back the
+    // store's three channels.
+    const TRAP: Axis[] = [
+      { name: 'c', type: 'space' },
+      { name: 'ch', type: 'channel' },
+      { name: 'y', type: 'space' },
+      { name: 'x', type: 'space' },
+    ];
+    installStore(TRAP, [
+      // 4 spatial `c` slices, 3 channels, 8x8. Every voxel reads as its
+      // CHANNEL index plus one, so a band is attributable to one channel.
+      { shape: [4, 3, 8, 8], valueAt: (index) => index[1] + 1 },
+    ]);
+    const pyramid = await openNgffPyramid('https://example.invalid/trap.zarr');
+    const plane = await pyramid.readLevelNative!(0);
+
+    expect(plane.bands).toHaveLength(3);
+    expect(plane.width).toBe(8);
+    expect(plane.height).toBe(8);
+    // Each band is one CHANNEL, which is what says the right dimension was
+    // read: pinning `ch` instead would make every band identical.
+    expect(Array.from(plane.bands[0] as Uint8Array)).toEqual(new Array(64).fill(1));
+    expect(Array.from(plane.bands[1] as Uint8Array)).toEqual(new Array(64).fill(2));
+    expect(Array.from(plane.bands[2] as Uint8Array)).toEqual(new Array(64).fill(3));
+  });
+
   it('reports the levels it found, largest first', async () => {
     installStore(CYX, [
       { shape: [3, 4, 4], valueAt: (i) => i[0] + 1 },

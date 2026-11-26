@@ -208,11 +208,31 @@ describe('axisRoles', () => {
     expect(() => axisRoles(axes, 4)).toThrow(/at most one/);
   });
 
-  it('matches the type EXACTLY, as the broker does', () => {
-    // Not case-insensitive, on purpose. The broker compares the string, and a
-    // browser that was more tolerant here would be a new divergence dressed
-    // as tolerance: the two would disagree about a store typed "Channel".
-    expect(ngffChannelAxis([{ name: 'ch', type: 'Channel' }, { name: 'y' }, { name: 'x' }])).toBe(-1);
+  it('normalises the type the way the SERVICE does, before comparing', () => {
+    // This case used to assert the opposite, and it was wrong in the way that
+    // matters most here: it pinned a DIVERGENCE. I compared the raw string
+    // because I had checked my rule against the service's resolver alone, not
+    // against the parse step that lowercases every type before the resolver
+    // sees it. So a store typed "Channel" gave the service a channel axis and
+    // gave this browser none, and the trainer would have read those channels
+    // while the viewer pinned the axis and drew single-channel planes.
+    //
+    // The generated truth table is what holds this now, case by case against
+    // the service itself. These two are kept here because they are the ones
+    // that were wrong.
+    expect(ngffChannelAxis([{ name: 'ch', type: 'Channel' }, { name: 'y' }, { name: 'x' }])).toBe(0);
+    expect(ngffChannelAxis([{ name: 'ch', type: 'CHANNEL' }, { name: 'y' }, { name: 'x' }])).toBe(0);
+  });
+
+  it('counts a NON-STRING type as declared, as the service does', () => {
+    // `str(5)` is a declaration on that side, so the name must not be
+    // consulted. The browser used to treat anything but a string as "not
+    // declared" and fall through to the name, which answered 0 where the
+    // service answers none.
+    expect(ngffChannelAxis([{ name: 'c', type: 5 as any }, { name: 'y' }, { name: 'x' }])).toBe(-1);
+    // And an EMPTY one is not a declaration in either, because Python counts
+    // it falsy and this mirrors that.
+    expect(ngffChannelAxis([{ name: 'c', type: '' }, { name: 'y' }, { name: 'x' }])).toBe(0);
   });
 
   it('is case insensitive', () => {

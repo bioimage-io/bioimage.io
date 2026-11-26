@@ -110,15 +110,46 @@ export function parseMultiscales(attrs: unknown, multiscalePath?: string): NgffM
 const NGFF_CHANNEL_AXIS_TYPE = 'channel';
 
 /**
+ * One axis's declared type, normalised the way the service normalises it, or
+ * `null` for "not declared".
+ *
+ * MIRRORS `str(a["type"]).lower() if a["type"] else None`, which the service
+ * applies while PARSING, before its resolver ever sees a type. A review caught
+ * me comparing the raw string: I had checked my rule against the service's
+ * resolver alone and not against parse-then-resolve, so a store typed
+ * `"Channel"` gave the service a channel axis and gave this browser none. The
+ * trainer would have read those channels while the viewer pinned the axis and
+ * drew single-channel planes, which is the annotate-one-train-on-another split
+ * this whole change exists to prevent.
+ *
+ * Python's truthiness is mirrored too, not just the lowercasing: an empty
+ * string, a zero, a false, an empty list and an empty dict are all "not
+ * declared" there, and only `null`/`undefined` would be here by default. A
+ * NON-EMPTY non-string is "declared" in both, which is the part that matters;
+ * the string it stringifies to differs between the two languages and cannot
+ * matter, because nothing but the literal `channel` is ever compared equal.
+ */
+function declaredAxisType(raw: unknown): string | null {
+  if (raw === null || raw === undefined) return null;
+  if (typeof raw === 'string') return raw === '' ? null : raw.toLowerCase();
+  if (typeof raw === 'number') return raw === 0 || Number.isNaN(raw) ? null : String(raw).toLowerCase();
+  if (typeof raw === 'boolean') return raw ? 'true' : null;
+  if (Array.isArray(raw)) return raw.length === 0 ? null : 'declared';
+  if (typeof raw === 'object') return Object.keys(raw as object).length === 0 ? null : 'declared';
+  return String(raw).toLowerCase();
+}
+
+/**
  * The channel axis index, by TYPE where any type is declared, by NAME only
  * where none is. `-1` when there is no channel axis.
  *
- * MIRRORS `ngff_channel_axis` in the broker's `broker_core.py`, deliberately
- * and to the letter, including the exact string comparison. The viewer and the
- * trainer both take their channel axis from an answer shaped like this one,
- * and the whole point of this change is that they agree: a browser that was
- * case-insensitive here while the broker is case-sensitive would be a new
- * divergence dressed as tolerance.
+ * MIRRORS `ngff_channel_axis` in the service's `broker_core.py`, deliberately
+ * and including the normalisation the service applies BEFORE its resolver
+ * runs: see `declaredAxisType`. The viewer and the trainer both take their
+ * channel axis from an answer shaped like this one, and the whole point of
+ * this change is that they agree. My first version compared the raw string,
+ * having checked the resolver without its parse step, and a review measured
+ * the divergence that produced on a store typed `"Channel"`.
  *
  * THE TYPE IS THE AUTHORITY AND THE NAME IS THE FALLBACK, and the fallback is
  * reached only when the store declares NO types at all. Nothing in the spec
@@ -144,7 +175,7 @@ const NGFF_CHANNEL_AXIS_TYPE = 'channel';
  * would be the silent wrong answer this function exists to stop.
  */
 export function ngffChannelAxis(axes: NgffAxis[]): number {
-  const types = axes.map((a) => (typeof a.type === 'string' ? a.type : ''));
+  const types = axes.map((a) => declaredAxisType(a.type));
   const typed: number[] = [];
   types.forEach((t, i) => {
     if (t === NGFF_CHANNEL_AXIS_TYPE) typed.push(i);
@@ -160,7 +191,7 @@ export function ngffChannelAxis(axes: NgffAxis[]): number {
   if (typed.length === 1) return typed[0];
   // The store declares types and none of them is `channel`. That is an answer:
   // it has no channel axis, and the name is not consulted.
-  if (types.some((t) => t.length > 0)) return -1;
+  if (types.some((t) => t !== null)) return -1;
   // No types at all. `axes` was optional before OME-NGFF v0.4 and the order
   // was a convention about names, so the name is the only evidence there is.
   const names = axes.map((a) => (a.name || '').toLowerCase());
