@@ -57,12 +57,51 @@ def _set_files_version(files: list, version: str) -> list:
     return out
 
 
+class VersionReadFailed(Exception):
+    """The artifact's version list could not be read, so it is NOT known to be empty."""
+
+
+def _is_missing_artifact(exc: Exception) -> bool:
+    """True only when the server positively said this artifact does not exist.
+
+    The not-found case is an ordinary first release, so it must return "no versions".
+    Everything else -- a timeout, a dropped connection, an expired token -- must NOT,
+    because "I could not find out" and "there is nothing there" lead to opposite actions.
+
+    Matched on the message because the server raises a plain KeyError across RPC, so
+    there is no type to catch. Measured against the live artifact manager: a missing
+    artifact ends with
+
+        KeyError: "Artifact with ID '<ws>/<alias>' does not exist. Note: ..."
+
+    Both markers are required, and anything unrecognised is treated as a FAILURE rather
+    than as absence. That is the safe direction: if the server reworded this tomorrow,
+    a first release stops with an error a human can read, instead of silently publishing
+    over pre-releases it never tried to delete.
+    """
+    text = str(exc)
+    return "KeyError" in text and "does not exist" in text
+
+
 async def _existing_versions(server, artifact_id: str) -> list:
+    """The artifact's released versions, or [] if the artifact does not exist yet.
+
+    Raises VersionReadFailed if the list could not be read. Never conflate the two:
+    the caller uses this to decide whether a version is already published, how to
+    number the next pre-release, and which pre-releases to delete before publishing.
+    An empty list switches all three of those guards off at once.
+    """
     am = await server.get_service("public/artifact-manager")
     try:
         art = await am.read(artifact_id=artifact_id)
-    except Exception:
-        return []
+    except Exception as e:  # noqa: BLE001 - re-raised below unless it is a clean 404
+        if _is_missing_artifact(e):
+            return []
+        raise VersionReadFailed(
+            f"could not read the existing versions of {artifact_id}, so it is not known "
+            f"whether pre-releases are waiting to be cleaned up. Nothing was uploaded.\n"
+            f"  {e!r}"
+        ) from e
     return [v["version"] for v in (art.get("versions") or [])]
 
 
@@ -89,7 +128,14 @@ async def main() -> None:
 
     files = [f for f in create_file_list_from_directory(directory_path=args.directory)
              if "__pycache__" not in f.get("name", "")]
-    existing = await _existing_versions(server, artifact_id)
+    # Stop here rather than proceeding on an assumed-empty list. Both paths below
+    # read `existing` as authoritative: --release checks it to refuse republishing a
+    # version and to find the pre-releases to delete, and --dev numbers the next
+    # pre-release from it. A wrong empty switches all three off at once.
+    try:
+        existing = await _existing_versions(server, artifact_id)
+    except VersionReadFailed as e:
+        sys.exit(f"ERROR: {e}")
 
     if args.dev:
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev(\d+)$")
@@ -117,7 +163,9 @@ async def main() -> None:
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
         delete_version = getattr(worker, "delete_app_version", None)
         am = None
-        failed: list[tuple[str, str]] = []
+        # At most one, because the loop below stops at the first failure. A list here
+        # would be dead generality, and a plural message would misdescribe the state.
+        failed: "tuple[str, str] | None" = None
         for v in reversed([v for v in existing if dev_re.match(v)]):
             try:
                 if delete_version is not None:
@@ -128,13 +176,7 @@ async def main() -> None:
                     await am.delete(artifact_id=artifact_id, version=v)
                 print(f"  deleted pre-release {v}")
             except Exception as e:
-                # Print the whole thing. A remote error arrives as a traceback that is
-                # already truncated mid-frame by the transport, so trimming it again
-                # here ("...: RemoteError:Traceback (most recent call last):\n  File")
-                # removed the exception type and message, which is everything that
-                # distinguishes a permissions problem from a missing version.
-                print(f"  could not delete {v}: {e!r}", file=sys.stderr)
-                failed.append((v, repr(e)))
+                failed = (v, repr(e))
                 # STOP. Do not go on to older pre-releases. The loop walks newest-first, so
                 # once this delete has failed, `v` still exists and every remaining candidate
                 # now has a successor. Deleting one of those is the corrupting delete the
@@ -151,10 +193,14 @@ async def main() -> None:
             # so the guard then refuses forever and the pre-releases are stuck in the
             # version list for good. Publishing over a failed cleanup trades a
             # retryable error now for an unfixable one later.
-            print("\nERROR: refusing to publish the release: "
-                  f"{len(failed)} pre-release(s) could not be deleted.", file=sys.stderr)
-            for v, err in failed:
-                print(f"  {v}: {err}", file=sys.stderr)
+            #
+            # Printed once, here, and not also at the point of failure. A remote error
+            # arrives as a traceback the transport has already truncated mid-frame, so
+            # the full repr is what distinguishes a permissions problem from a missing
+            # version, and printing it twice only buries it.
+            stopped_at, err = failed
+            print(f"\nERROR: refusing to publish the release: pre-release {stopped_at} "
+                  f"could not be deleted.\n  {err}", file=sys.stderr)
             sys.exit("Nothing was published. Fix the cause above and re-run --release; "
                      "the deletes are only safe while these are still the newest versions.")
         await worker.upload_app(files=_set_files_version(files, base))
