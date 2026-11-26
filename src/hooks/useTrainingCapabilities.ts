@@ -3,10 +3,19 @@
  * base-model picker renders; the underlying fetch is cached per tab, so several
  * mounts cost one round-trip.
  *
- * Failure is not an error state the caller has to render. On failure the hook
- * returns `capabilities: null`, which the `isModelTrainable` helper reads as
- * "no verdict, leave everything enabled". `error` is exposed only so a caller
- * can log it or explain the missing greying, never to block the picker.
+ * On failure the hook returns `capabilities: null`, which the
+ * `isModelTrainable` helper reads as "no verdict, leave everything enabled".
+ * That stays true for the PICKER: a model list greyed against a GPU nobody
+ * could read is worse than an ungreyed one.
+ *
+ * It is NOT true for an action. This used to be documented as "failure is not
+ * an error state the caller has to render", on the grounds that
+ * `start_training` would reject an unfit model with a readable error. Measured
+ * 2026-10-25 against a service id that does not resolve: the page kept an
+ * armed "Start training" button and printed roughly 2 KB of Python traceback
+ * ending `KeyError: 'Service not found'`. So a caller that is about to let
+ * someone START something must read `error` and refuse, and the finetune page
+ * now does.
  */
 import { useEffect, useState } from 'react';
 import {
