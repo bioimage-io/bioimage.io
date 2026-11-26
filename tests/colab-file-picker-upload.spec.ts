@@ -278,24 +278,27 @@ test.describe('a browser with no File System Access API', () => {
       browserName === 'chromium',
       'the fallback is for browsers WITHOUT the File System Access API; run with --browser=firefox',
     );
-    // KNOWN FAILING, and the failure is in the service rather than here.
-    // Measured: `get_save_urls` mints with `put_file` BEFORE it re-stages the
-    // artifact, and the upload's finishing call COMMITS it (its own payload
-    // says `"committed": true`). So the first `put_file` after any upload
-    // throws "Artifact must be in staging mode" and every save on that
-    // dataset is refused. Filed against the service; this arm turns green by
-    // itself when the ordering is fixed, which is why it is marked rather
-    // than deleted.
-    //
-    // Everything up to the save is measured and passing: the image uploads,
-    // the annotate page opens on it, and the GeoJSON import reaches
-    // "Saving 1 annotations...".
-    test.fixme(
-      true,
-      'blocked on the service: get_save_urls mints before re-staging, so saving after an upload is refused',
-    );
+    // This arm was marked known-failing for a while, and the failure was in
+    // the service rather than here: `get_save_urls` minted with `put_file`
+    // BEFORE it re-staged the artifact, and the upload's finishing call
+    // COMMITS it (its own payload says `"committed": true`), so the first
+    // `put_file` after any upload threw "Artifact must be in staging mode"
+    // and every save on that dataset was refused. Fixed in the broker and
+    // re-measured against the deployed one: create, label, upload, finish,
+    // then `get_save_urls` succeeds. The mark is gone because the arm runs.
     test.setTimeout(300_000);
 
+    // One call, and it is the discriminator rather than a setup step.
+    //
+    // For a while this needed a retry loop, because `create_label` issued
+    // straight after the uploads returned a record that HELD the label while
+    // every later read said the dataset had none: the call had read an old
+    // copy of the record, written the label onto it, and lost the whole
+    // record to the writer holding the newer one, reporting success either
+    // way. The save then failed with "Unknown label". That is fixed in the
+    // service, and the single call is kept deliberately: if it ever stops
+    // persisting, `get_save_urls` refuses, the oracle below stays empty, and
+    // this arm goes red, which is exactly how the defect presented.
     await callHttp(token!, BROKER, 'create_label', { artifact_id: ARTIFACT_ID, name: 'cells' });
 
     await page.addInitScript(({ t, expiry }) => {
