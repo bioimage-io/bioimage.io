@@ -160,10 +160,21 @@ describe('uploadLocalImages', () => {
     expect(Math.max(...inFlight)).toBe(1);
   });
 
-  it('takes the BASENAME of a directory pick', async () => {
-    // A directory picker gives names carrying their folder, and the broker
-    // refuses a path rather than taking its basename, so this does it here
-    // where it is visible.
+  it('sends the BASENAME for a directory pick, where the folder is in webkitRelativePath', async () => {
+    // The real shape, which a review corrected me on: a browser puts the
+    // folder in `webkitRelativePath` and leaves `name` as the basename. The
+    // first version of this case fed a File whose `.name` held a slash, which
+    // no browser produces, so it covered an input that cannot happen.
+    const picked = fileOf('scan01.png');
+    Object.defineProperty(picked, 'webkitRelativePath', { value: 'plate1/scan01.png' });
+    await run([picked]);
+    expect(startLocalImageUpload).toHaveBeenCalledWith({}, 'bioimage-io/x', 'scan01.png');
+  });
+
+  it('still strips a path if one ever arrives in the name', async () => {
+    // Defensive, and kept because the service REFUSES a path rather than
+    // taking its basename: the cost of being wrong is a refused upload the
+    // user cannot explain.
     await run([fileOf('plate1/scan01.png')]);
     expect(startLocalImageUpload).toHaveBeenCalledWith({}, 'bioimage-io/x', 'scan01.png');
   });

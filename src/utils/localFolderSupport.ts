@@ -31,14 +31,18 @@ export function canMountLocalFolder(): boolean {
  * The sentence shown instead of a folder button that cannot work.
  *
  * It names the browsers rather than saying "your browser is unsupported",
- * because the first question a reader has is which one to open. It names the
- * file picker FIRST, because that is the one that does the same job in the
- * same place, and the other two are what to do instead.
+ * because the first question a reader has is which one to open, and it names
+ * the picker first, because that is what does the same job.
+ *
+ * It says "from the dataset's own page" rather than "with the file picker",
+ * and takes FOLDERS as well as files. Both were review findings on the first
+ * wording: this sentence is also shown while CREATING a dataset, where no
+ * picker exists yet, and the picker was never one file at a time.
  */
 export const NO_LOCAL_FOLDER_SUPPORT =
-  'Choosing a folder needs the File System Access API, which Chrome and Edge have and Firefox ' +
-  'and Safari do not. In this browser you can still add images one by one with the file picker, ' +
-  'open a dataset someone shared with you, or add images from a remote URL.';
+  'Mounting a folder needs the File System Access API, which Chrome and Edge have and Firefox ' +
+  'and Safari do not. In this browser you can still add images, or a whole folder of them, from ' +
+  "the dataset's own page, open a dataset someone shared with you, or add images from a remote URL.";
 
 /**
  * Turn a folder-picker failure into something worth reading.

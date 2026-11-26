@@ -48,12 +48,19 @@ export interface UploadLocalImagesOptions {
   put?: (url: string, body: ArrayBuffer) => Promise<{ ok: boolean; status: number }>;
 }
 
-/** `'scan01.png'` from a `File`, with no path, which is what the broker wants. */
+/**
+ * `'scan01.png'` from a `File`, with no path, which is what the service wants.
+ *
+ * A directory pick puts the folder in `webkitRelativePath`, NOT in `name`:
+ * a review pointed out that a `File` whose `.name` contains a slash is a shape
+ * browsers never produce. `name` is therefore the basename already, and this
+ * reads it; the relative path is stripped defensively because the service
+ * REFUSES a path rather than taking its basename, so the one place that could
+ * go wrong should be visible rather than assumed.
+ */
 function filenameOf(file: File): string {
-  // `webkitRelativePath` is set when the picker was a directory one, and it
-  // carries the folder. The broker REFUSES a path rather than taking its
-  // basename, so the basename is taken here, deliberately and visibly.
-  const raw = file.name || '';
+  const relative = (file as File & { webkitRelativePath?: string }).webkitRelativePath || '';
+  const raw = file.name || relative;
   const cut = Math.max(raw.lastIndexOf('/'), raw.lastIndexOf('\\'));
   return cut >= 0 ? raw.slice(cut + 1) : raw;
 }

@@ -1068,7 +1068,24 @@ print("Service registered successfully", end='')
 
   /** The hidden `<input type="file">` the mount button opens where mounting cannot work. */
   const filePickerRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * The folder picker, which is a SECOND input rather than a flag on the
+   * first: `webkitdirectory` changes what the dialog offers, so one input
+   * cannot be both.
+   */
+  const folderPickerRef = useRef<HTMLInputElement | null>(null);
+  /**
+   * The last picker batch's summary, which STAYS on screen after it finishes.
+   *
+   * Deliberately NOT what disables the button. A review measured the first
+   * version doing exactly that: the summary was set and never cleared, so
+   * "Add images" stayed disabled and a user could add one batch per page
+   * load. The status a reader keeps and the state a control is gated on are
+   * two different things and must not be one variable.
+   */
   const [pickedUpload, setPickedUpload] = useState<string | null>(null);
+  /** True only while a picker batch is actually in flight. */
+  const [pickedUploading, setPickedUploading] = useState(false);
 
   /**
    * Upload the files the user picked, through the broker's presigned PUT.
@@ -1086,6 +1103,7 @@ print("Service registered successfully", end='')
     event.target.value = '';
     if (files.length === 0) return;
     setError(null);
+    setPickedUploading(true);
     setPickedUpload(`Uploading 0 of ${files.length}...`);
     try {
       const outcomes = await uploadLocalImages({
@@ -1107,6 +1125,10 @@ print("Service registered successfully", end='')
     } catch (err) {
       setPickedUpload(null);
       setError((err as Error).message || 'Could not upload those images.');
+    } finally {
+      // ALWAYS, so a failure cannot leave the button disabled for ever. That
+      // is the shape of the defect this flag was split out to fix.
+      setPickedUploading(false);
     }
   };
 
@@ -1892,7 +1914,7 @@ print("Service registered successfully", end='')
           <>
             <button
               onClick={folderMounted ? handleUnmount : handleUploadClick}
-              disabled={mounting || waitingForKernel || !!pickedUpload}
+              disabled={mounting || waitingForKernel || pickedUploading}
               className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
             >
               {waitingForKernel
@@ -1908,12 +1930,23 @@ print("Service registered successfully", end='')
                   // a file dialog would be the page describing itself wrongly.
                   'Add images'}
             </button>
-            {/* The non-Chromium route. Hidden rather than absent, because the
-                button above opens it: a second visible control for the same
-                job would make the user choose between two things they cannot
-                tell apart. `webkitdirectory` is NOT set, because it is as
-                Chromium-specific as the API this exists to replace, and a
-                multi-file pick works everywhere. */}
+            {/* The non-Chromium route, in two inputs: files and a folder.
+                Hidden rather than absent, because the buttons above open
+                them.
+
+                `webkitdirectory` IS set on the second one, and my first
+                version said it could not be, on the grounds that it is as
+                Chromium-specific as the API this exists to replace. A review
+                measured that and it is false: `'webkitdirectory' in input` is
+                true on Firefox and on WebKit while `showDirectoryPicker` is
+                false on both. Firefox has shipped it since 50 and Safari
+                since 11.1. Leaving it off made a user with a folder of images
+                multi-select by hand, which is the case the row names.
+
+                It is NOT the same thing as mounting: this copies the files it
+                is given, where a mount keeps a live handle on the folder. So
+                it is offered beside the file pick rather than as a
+                replacement for the mount button. */}
             <input
               ref={filePickerRef}
               type="file"
@@ -1923,6 +1956,27 @@ print("Service registered successfully", end='')
               className="hidden"
               data-testid="local-image-picker"
             />
+            <input
+              ref={folderPickerRef}
+              type="file"
+              multiple
+              // @ts-expect-error -- not in React's HTMLInputElement types, but
+              // shipped in every browser this fallback is for.
+              webkitdirectory=""
+              directory=""
+              onChange={handlePickedFiles}
+              className="hidden"
+              data-testid="local-folder-picker"
+            />
+            {!canMountLocalFolder() && (
+              <button
+                onClick={() => folderPickerRef.current?.click()}
+                disabled={pickedUploading}
+                className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
+              >
+                Add a folder
+              </button>
+            )}
             {pickedUpload && (
               <span className="text-xs text-gray-500" data-testid="picked-upload-status">
                 {pickedUpload}
