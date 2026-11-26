@@ -28,6 +28,13 @@ import { BASE_URL } from './baseUrl';
  */
 
 const ALIAS = process.env.EXPORT_DATASET_ALIAS;
+/**
+ * Which run to export. Optional, and worth setting: a dataset accumulates
+ * runs, `.first()` then means "whichever the page happens to list first", and
+ * two runs of different model types produce packages that differ by a factor
+ * of twenty-five in size and by whether they build at all.
+ */
+const RUN_ID = process.env.EXPORT_RUN_ID;
 const LABEL = process.env.EXPORT_LABEL || 'cells';
 const HYPHA_SERVER_URL = process.env.REACT_APP_HYPHA_SERVER_URL || 'https://hypha.aicell.io';
 const AM = 'public/services/artifact-manager';
@@ -65,7 +72,17 @@ test.describe('exporting a finished run as a model', () => {
     // The run has to be LISTED as this dataset's before anything can be
     // exported from it: the page finds a dataset's runs by the `<alias>/`
     // prefix on the training label.
-    const exportButton = page.getByRole('button', { name: /export as model/i }).first();
+    // The CARD, which is the innermost div holding BOTH the id and the
+    // button. Filtering on the id alone resolves to the little element that
+    // prints the id, which has no button inside it.
+    const runCard = RUN_ID
+      ? page
+        .locator('div')
+        .filter({ hasText: RUN_ID })
+        .filter({ has: page.getByRole('button', { name: /export as model/i }) })
+        .last()
+      : page;
+    const exportButton = runCard.getByRole('button', { name: /export as model/i }).first();
     await expect(exportButton).toBeVisible({ timeout: 180_000 });
     await page.screenshot({ path: testInfo.outputPath('01-run-listed.png'), fullPage: true });
 
