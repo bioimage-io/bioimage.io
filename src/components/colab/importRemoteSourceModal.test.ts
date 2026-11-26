@@ -30,11 +30,14 @@ describe('channelDisplayNote', () => {
   });
 
   it('says nothing when the store names no channels at all', () => {
-    // The probe returns NULL, not an empty list, for a store with no omero
-    // metadata. This helper is handed a count, so it never saw the
-    // difference, and the belief written here was what let two callers read
-    // `.length` off that null and unmount the page. The caller normalises it
-    // now; `ImportRemoteSourceModal.render.test.tsx` holds that.
+    // The probe returns NULL, not an empty list, whenever the store names no
+    // channels: no omero block, an omero block with an empty `channels`
+    // list, or channels that carry neither a label nor a name. This helper is
+    // handed a COUNT, so it never saw the difference, and the belief written
+    // here (that the probe returns an empty list) was what let two callers
+    // read `.length` off that null and unmount the page. The caller
+    // normalises it now; `ImportRemoteSourceModal.render.test.tsx` holds
+    // that.
     expect(channelDisplayNote(0)).toBeNull();
   });
 });

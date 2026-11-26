@@ -193,7 +193,14 @@ export interface NgffProbe {
   height: number;
   dtype: string;
   /**
-   * Channel names, or NULL when the store carries no omero metadata.
+   * Channel names, or NULL when the store names none.
+   *
+   * THREE cases produce null, not one. A review found the first version of
+   * this comment said only "no omero metadata", which is the commonest of
+   * them and narrower than the truth: `ngff_channel_names` also returns None
+   * when an omero block is PRESENT with an empty `channels` list, and when no
+   * channel in it carries a `label` or a `name`. A caller reading the narrow
+   * version would think a store with an omero block is safe.
    *
    * Declared as a plain array until a store without that block was tried in a
    * browser: the broker sends null, two unguarded `probe.channels.length`
