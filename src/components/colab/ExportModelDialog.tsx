@@ -400,6 +400,28 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
               {exportStatus?.message && (
                 <p className="text-xs text-gray-400 mt-2">{exportStatus.message}</p>
               )}
+              {/* Said BEFORE the loss rather than after it, because after it
+                  there is nothing left to say it with.
+
+                  The export id lives only in this component. Nothing writes it
+                  to storage or to the url, so a reload unmounts the dialog and
+                  the id is gone: the page cannot poll the export again, and
+                  the user is not shown a refusal, they are shown nothing at
+                  all. The panel simply disappears while the service carries on
+                  building.
+
+                  Keeping the id would not rescue it on its own. An anonymous
+                  reload arrives as a DIFFERENT caller, and the service binds
+                  an export to the identity that created it, so the restored
+                  poll would be refused. Recovering an export across a reload
+                  therefore needs a durable identity, which is a product
+                  decision and is proposed on its issue rather than built
+                  here. */}
+              <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-4 max-w-sm">
+                Keep this tab open. This export is tied to the sign-in that started it, so
+                reloading or closing the page loses track of it and it cannot be picked up again
+                from here.
+              </p>
             </div>
           )}
 

@@ -74,4 +74,34 @@ describe('the export dialog, while an export runs', () => {
     expect(code).toMatch(/aria-labelledby="export-model-dialog-title"/);
     expect(code).toMatch(/id="export-model-dialog-title"/);
   });
+
+  it('warns, while the export runs, that a reload loses it', () => {
+    // Said BEFORE the loss, because after it there is nothing left to say it
+    // with. The export id lives only in the component: nothing writes it to
+    // storage or the url, so a reload unmounts the dialog and the id is gone.
+    // The user is not shown a refusal, they are shown nothing at all, which
+    // is how the very first run of this flow ended.
+    expect(code).toMatch(/Keep this tab open/);
+    expect(code).toMatch(/reloading or closing the page loses track of it/);
+  });
+
+  it('keeps that warning OUT of the finished and failed states', () => {
+    // It belongs to the in-progress block only. A warning about losing an
+    // export that has already finished is noise, and one shown beside an
+    // error blames the wrong thing. This asserts the string sits inside the
+    // building/creating/pushing branch rather than anywhere in the file.
+    const inProgress = code.split("{(phase === 'building'")[1] || '';
+    const upToErrorBranch = inProgress.split("{phase === 'error'")[0] || '';
+    expect(upToErrorBranch).toMatch(/Keep this tab open/);
+  });
+
+  it('does not claim the export can be recovered, because it cannot', () => {
+    // Keeping the id would not rescue it on its own: an anonymous reload is a
+    // DIFFERENT caller and the service binds an export to its creator, so a
+    // restored poll is refused. Promising recovery would be a lie the page
+    // cannot keep.
+    expect(code).not.toMatch(/resume (the|this) export/i);
+    expect(code).not.toMatch(/pick up where you left off/i);
+  });
+
 });
