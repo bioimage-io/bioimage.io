@@ -56,6 +56,11 @@ describe('the sentence an unsupported browser gets', () => {
     // The reader's first question is which browser to open.
     expect(NO_LOCAL_FOLDER_SUPPORT).toMatch(/Chrome and Edge/);
     expect(NO_LOCAL_FOLDER_SUPPORT).toMatch(/Firefox and Safari/);
+    // And it names the route that now does the same job in the same place.
+    // Before the picker existed this sentence could only send the reader
+    // somewhere else, and keeping that wording would understate what the
+    // page can do.
+    expect(NO_LOCAL_FOLDER_SUPPORT).toMatch(/file picker/);
   });
 
   it('names the routes that still work, so the page is not a dead end', () => {

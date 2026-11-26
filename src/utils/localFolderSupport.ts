@@ -10,13 +10,16 @@
  * scientist nothing they can act on, and it reads like a broken page rather
  * than an unsupported browser.
  *
- * WHAT THIS DOES NOT FIX. There is no browser-side upload path for local
- * images: every upload goes through the data-provider service the mounted
- * folder registers, and the broker has no method to mint a presigned PUT for
- * one. So on a browser without the API a user cannot add local images at all,
- * and the frontend cannot change that on its own. This module makes the limit
- * legible and names the routes that do work; the capability itself is tracked
- * separately.
+ * WHAT THIS IS STILL FOR, now that the limit is smaller. Adding IMAGES no
+ * longer needs a mount: the broker mints a presigned PUT for one local image,
+ * and a file picker uploads through it, so every browser can contribute its
+ * own data. What still needs the API is picking a FOLDER, which is how a
+ * dataset is created from one in a single step and how a mounted folder keeps
+ * its images available without uploading them.
+ *
+ * So the sentence below is no longer a dead end, and it must not read like
+ * one. It names the browsers, because the first question a reader has is which
+ * one to open, and it names what they can do HERE rather than only elsewhere.
  */
 
 /** True when this browser can hand back a directory handle. */
@@ -28,13 +31,14 @@ export function canMountLocalFolder(): boolean {
  * The sentence shown instead of a folder button that cannot work.
  *
  * It names the browsers rather than saying "your browser is unsupported",
- * because the first question a reader has is which one to open. It also names
- * the two routes that need no local folder, so the page is not a dead end.
+ * because the first question a reader has is which one to open. It names the
+ * file picker FIRST, because that is the one that does the same job in the
+ * same place, and the other two are what to do instead.
  */
 export const NO_LOCAL_FOLDER_SUPPORT =
-  'Mounting a local folder needs the File System Access API, which Chrome and Edge have and ' +
-  'Firefox and Safari do not. In this browser you can still open a dataset someone shared with ' +
-  'you, or add images from a remote URL.';
+  'Choosing a folder needs the File System Access API, which Chrome and Edge have and Firefox ' +
+  'and Safari do not. In this browser you can still add images one by one with the file picker, ' +
+  'open a dataset someone shared with you, or add images from a remote URL.';
 
 /**
  * Turn a folder-picker failure into something worth reading.

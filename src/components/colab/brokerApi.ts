@@ -817,6 +817,83 @@ export function rewriteMissingPlanesSupport(err: unknown, wanted: unknown): unkn
 }
 
 /**
+ * What the STARTING call of a local-image upload answers (broker v0.12.11+).
+ *
+ * Two shapes, discriminated by `already`. A stem the dataset already has is
+ * not an error: the user picked a file whose name is taken, and the page says
+ * so rather than overwriting somebody's image and orphaning its annotations.
+ */
+export type LocalImageUploadStart =
+  | {
+      already: false;
+      stem: string;
+      path: string;
+      put_url: string;
+      max_bytes: number;
+      /**
+       * Names the marker the starting call wrote, and the finishing call
+       * REQUIRES it. The finish may have to delete the object, because the
+       * size ceiling is enforced after the bytes land, and the one thing it
+       * must never delete is an image the dataset already had. No listing can
+       * tell those apart, so the fact is recorded when it is created.
+       */
+      mint_id: string;
+    }
+  | { already: true; stem: string; path: string };
+
+/**
+ * Mint a presigned PUT for ONE local image (broker v0.12.11+). Manager role.
+ *
+ * The only route by which an image the user holds locally enters a dataset
+ * without mounting a folder, which is what a browser with no File System
+ * Access API cannot do.
+ *
+ * The manifest entry is NOT written by this call. The object lands at
+ * `images/<stem><ext>` and the ordinary listing reconciliation turns it into a
+ * `local` entry, which is exactly what happens to an image uploaded through a
+ * mount. That is what makes the two indistinguishable afterwards rather than
+ * merely similar.
+ */
+export async function startLocalImageUpload(
+  server: any,
+  artifactId: string,
+  filename: string,
+): Promise<LocalImageUploadStart> {
+  return callBroker(server, (broker) =>
+    broker.upload_local_image({
+      artifact_id: artifactId,
+      filename,
+      done: false,
+      _rkwargs: true,
+    }),
+  );
+}
+
+/**
+ * Finish a local-image upload, after the bytes have landed.
+ *
+ * `mintId` is the `mint_id` the starting call returned. A finish without it,
+ * or with one minted for a different path, is refused and changes nothing at
+ * all, so there is no version of this worth calling without the value.
+ */
+export async function finishLocalImageUpload(
+  server: any,
+  artifactId: string,
+  filename: string,
+  mintId: string,
+): Promise<{ stem: string; path: string }> {
+  return callBroker(server, (broker) =>
+    broker.upload_local_image({
+      artifact_id: artifactId,
+      filename,
+      done: true,
+      mint_id: mintId,
+      _rkwargs: true,
+    }),
+  );
+}
+
+/**
  * Undo an `importNgffImage` (broker v0.10.0). Manager-min role.
  *
  * A remote entry has no file, so deleting one is not "remove the file and

@@ -59,6 +59,11 @@ import { ExportedCheckpoint, listExportedCheckpoints } from '../../utils/finetun
 import { supportsInitCheckpoint } from '../../utils/trainingModels';
 import AnnotationStatsView from './AnnotationStatsView';
 import LabelSelectDialog from './LabelSelectDialog';
+import {
+  LOCAL_IMAGE_ACCEPT,
+  summariseUploads,
+  uploadLocalImages,
+} from './uploadLocalImages';
 import ShareModal from './ShareModal';
 import DeleteArtifactModal from './DeleteArtifactModal';
 import LoginButton, { hasSavedToken } from '../LoginButton';
@@ -1061,12 +1066,61 @@ print("Service registered successfully", end='')
     mountLocalFolder(handle);
   }, [waitingForKernel, executeCode, mountDirectory, mountLocalFolder]);
 
+  /** The hidden `<input type="file">` the mount button opens where mounting cannot work. */
+  const filePickerRef = useRef<HTMLInputElement | null>(null);
+  const [pickedUpload, setPickedUpload] = useState<string | null>(null);
+
+  /**
+   * Upload the files the user picked, through the broker's presigned PUT.
+   *
+   * This is the whole of the non-Chromium route. It starts no kernel and
+   * mounts nothing: the bytes go straight from the browser to storage, and
+   * the dataset's ordinary listing reconciliation turns each object into a
+   * `local` image, exactly as it does for one uploaded through a mount.
+   */
+  const handlePickedFiles = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(event.target.files || []);
+    // Cleared immediately so picking the SAME file twice still fires a change
+    // event. Without this a failed upload could not be retried from the
+    // picker at all.
+    event.target.value = '';
+    if (files.length === 0) return;
+    setError(null);
+    setPickedUpload(`Uploading 0 of ${files.length}...`);
+    try {
+      const outcomes = await uploadLocalImages({
+        server,
+        artifactId,
+        files,
+        onProgress: (done, total) => setPickedUpload(`Uploading ${done} of ${total}...`),
+      });
+      setPickedUpload(summariseUploads(outcomes));
+      // Only the failures and the skips need naming individually; the counts
+      // are in the summary.
+      const bad = outcomes.filter((o) => o.status === 'failed' || o.status === 'skipped');
+      if (bad.length > 0) {
+        setError(bad.map((o) => `${o.filename}: ${(o as any).reason}`).join('\n'));
+      }
+      // The images list is keyed off `refreshTick`, so bumping it is how a
+      // newly uploaded image appears without a reload.
+      setRefreshTick((t) => t + 1);
+    } catch (err) {
+      setPickedUpload(null);
+      setError((err as Error).message || 'Could not upload those images.');
+    }
+  };
+
   const handleUploadClick = async () => {
     // Checked BEFORE the kernel is requested as well as before the picker is
     // called: on a browser without the API, starting a kernel for a mount that
     // cannot happen leaves the page busy for nothing.
+    //
+    // No longer a dead end. A browser without the API gets the file picker
+    // below, which uploads through the broker's presigned PUT instead of
+    // through the data-provider service a mount registers. Nothing here
+    // starts a kernel, because that route needs none.
     if (!canMountLocalFolder()) {
-      setError(NO_LOCAL_FOLDER_SUPPORT);
+      filePickerRef.current?.click();
       return;
     }
     requestKernel();
@@ -1835,19 +1889,46 @@ print("Service registered successfully", end='')
       {/* Action bar */}
       <div className="flex flex-wrap items-center gap-2 mb-4">
         {!finetuneViewOpen && (
-          <button
-            onClick={folderMounted ? handleUnmount : handleUploadClick}
-            disabled={mounting || waitingForKernel}
-            className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
-          >
-            {waitingForKernel
-              ? 'Waiting for kernel...'
-              : mounting
-              ? 'Mounting...'
-              : folderMounted
-              ? 'Unmount folder'
-              : 'Mount local folder'}
-          </button>
+          <>
+            <button
+              onClick={folderMounted ? handleUnmount : handleUploadClick}
+              disabled={mounting || waitingForKernel || !!pickedUpload}
+              className="px-3.5 py-2 bg-white border border-gray-200 rounded-lg hover:border-purple-300 hover:bg-purple-50 text-sm font-medium text-gray-700 transition-colors disabled:opacity-60"
+            >
+              {waitingForKernel
+                ? 'Waiting for kernel...'
+                : mounting
+                ? 'Mounting...'
+                : folderMounted
+                ? 'Unmount folder'
+                : canMountLocalFolder()
+                ? 'Mount local folder'
+                : // No folder to mount in this browser, so the button says what
+                  // it will actually do. Naming the mount here and then opening
+                  // a file dialog would be the page describing itself wrongly.
+                  'Add images'}
+            </button>
+            {/* The non-Chromium route. Hidden rather than absent, because the
+                button above opens it: a second visible control for the same
+                job would make the user choose between two things they cannot
+                tell apart. `webkitdirectory` is NOT set, because it is as
+                Chromium-specific as the API this exists to replace, and a
+                multi-file pick works everywhere. */}
+            <input
+              ref={filePickerRef}
+              type="file"
+              multiple
+              accept={LOCAL_IMAGE_ACCEPT}
+              onChange={handlePickedFiles}
+              className="hidden"
+              data-testid="local-image-picker"
+            />
+            {pickedUpload && (
+              <span className="text-xs text-gray-500" data-testid="picked-upload-status">
+                {pickedUpload}
+              </span>
+            )}
+          </>
         )}
         {!finetuneViewOpen && localImages.length > 0 && (
           <button
