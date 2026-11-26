@@ -627,18 +627,30 @@ print('CLAHE packages ready')
   // of the generic error banner).
   const [permissionDenied, setPermissionDenied] = useState(false);
 
-  // Auto-open the tutorial on a first visit, but ONLY once an image has
-  // actually loaded.
+  // Auto-open the tutorial on a first visit, but ONLY once ACCESS IS KNOWN.
   //
   // It used to open on mount, before access was known. Measured on the live
   // page, logged out, against a dataset the visitor may not read: the
   // thirteen-step guide opened ON TOP of the "This dataset is private" card,
   // so the first thing a visitor met was a tour of tools they cannot use,
-  // covering the sentence that explains why. Waiting for a loaded image also
-  // means `tutorial-seen` is not burned on that visit, so the guide still
-  // appears the first time they open a dataset they CAN read.
+  // covering the sentence that explains why. And because it writes the
+  // once-ever flag as it opens, that visit BURNED the guide: the visitor never
+  // saw it again, including on the first dataset they could read.
+  //
+  // `hasLoadedOnce` is not the condition, and a review measured why. The
+  // `&image=<stem>` deep link sets it as soon as the service resolves (see the
+  // fast path below), which happens BEFORE `get_dataset_index` has answered,
+  // and `permissionDenied` comes from that answer. So on such a link the gate
+  // saw `hasLoadedOnce` true and `permissionDenied` still false, opened the
+  // guide and burned the flag; the effect under this one then hid it again
+  // when the denial arrived. Measured logged out against a private dataset:
+  // with `&image=`, guide shown and flag '1'; without it, neither.
+  //
+  // `datasetIndex` is the honest condition, because it is set only when
+  // `get_dataset_index` SUCCEEDED. Both are kept: the index proves access, and
+  // `hasLoadedOnce` keeps the guide from opening over a still-loading page.
   useEffect(() => {
-    if (permissionDenied || !hasLoadedOnce) return;
+    if (permissionDenied || !datasetIndex || !hasLoadedOnce) return;
     try {
       const seen = localStorage.getItem('bioimage-annotation-tutorial-seen');
       if (!seen) {
@@ -646,7 +658,7 @@ print('CLAHE packages ready')
         localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
       }
     } catch { /* ignore */ }
-  }, [permissionDenied, hasLoadedOnce]);
+  }, [permissionDenied, datasetIndex, hasLoadedOnce]);
 
   // And close it if a denial arrives while it is open, for the same reason.
   useEffect(() => {

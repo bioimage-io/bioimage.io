@@ -37,8 +37,13 @@ const PUBLIC_DATASET = 'annotation-mst3ebzz-o5px';
 const PRIVATE_DATASET = 'annotation-mnxnayjn-gd8c';
 const LABEL = 'cells';
 
-const annotateUrl = (alias: string) =>
-  `/#/colab/annotate?session_id=${encodeURIComponent(alias)}&label=${encodeURIComponent(LABEL)}`;
+const annotateUrl = (alias: string, imageStem?: string) =>
+  `/#/colab/annotate?session_id=${encodeURIComponent(alias)}&label=${encodeURIComponent(LABEL)}` +
+  (imageStem ? `&image=${encodeURIComponent(imageStem)}` : '');
+
+/** The once-ever onboarding flag, read as the page writes it. */
+const tutorialFlag = (page: import('@playwright/test').Page) =>
+  page.evaluate(() => localStorage.getItem('bioimage-annotation-tutorial-seen'));
 
 /** Fails the test if anything put a token back. */
 async function assertLoggedOut(page: import('@playwright/test').Page) {
@@ -94,12 +99,43 @@ test.describe('a visitor with no account', () => {
     await page.screenshot({ path: 'test-results/anon-private-refused.png' });
   });
 
+  test('a private dataset reached by an &image= DEEP LINK neither shows nor burns the guide', async ({
+    page,
+  }) => {
+    // The same refusal, by the URL a reader copies out of the address bar.
+    // Found in review, and it is the harder half: the deep-link fast path sets
+    // `hasLoadedOnce` as soon as the service resolves, which is BEFORE
+    // get_dataset_index has answered, so a gate reading `hasLoadedOnce` saw no
+    // denial yet, opened the guide and wrote the once-ever flag. The guide was
+    // then hidden when the denial arrived, which is why the previous arm
+    // passed while this one did not.
+    //
+    // The FLAG is the assertion that matters. A visitor who arrives on such a
+    // link and logs in later never sees the guide at all, and nothing on
+    // screen afterwards shows that it was spent.
+    test.setTimeout(180000);
+    await page.addInitScript(() => localStorage.removeItem('bioimage-annotation-tutorial-seen'));
+    await page.goto(annotateUrl(PRIVATE_DATASET, 'any-stem'));
+    await assertLoggedOut(page);
+
+    await expect(page.getByText('This dataset is private', { exact: false })).toBeVisible({
+      timeout: 90000,
+    });
+    await expect(page.getByText('Welcome to the BioImage.IO Annotation Tool', { exact: false })).toHaveCount(0);
+    await expect(page.getByRole('button', { name: /skip guide/i })).toHaveCount(0);
+    expect(await tutorialFlag(page), 'the once-ever guide must not be spent on a refusal').toBeNull();
+    await expect(page.locator('canvas')).toHaveCount(0);
+
+    await page.screenshot({ path: 'test-results/anon-private-deeplink-refused.png' });
+  });
+
   test('CONTROL: the guide DOES still open on a dataset the visitor can read', async ({ page }) => {
-    // Without this, the previous test would pass just as well if the fix had
-    // disabled the onboarding guide outright. The gate is "an image loaded
-    // and access was not denied", so this arm proves the first half still
-    // fires. `tutorial-seen` is cleared first, because the guide is a
-    // once-ever dialog and a leftover flag would make this pass vacuously.
+    // Without this, the two refusal arms would pass just as well if the fix
+    // had disabled the onboarding guide outright. The gate is "the dataset
+    // index came back, the page is past loading, and access was not denied",
+    // so this arm proves the positive half still fires. `tutorial-seen` is
+    // cleared first, because the guide is a once-ever dialog and a leftover
+    // flag would make this pass vacuously.
     test.setTimeout(180000);
     await page.addInitScript(() => localStorage.removeItem('bioimage-annotation-tutorial-seen'));
     await page.goto(annotateUrl(PUBLIC_DATASET));
@@ -108,5 +144,8 @@ test.describe('a visitor with no account', () => {
     await expect(
       page.getByText('Welcome to the BioImage.IO Annotation Tool', { exact: false }),
     ).toBeVisible({ timeout: 90000 });
+    // And the flag IS written here, which is the other side of the deep-link
+    // arm's assertion: the gate moved, it did not stop writing.
+    await expect.poll(() => tutorialFlag(page), { timeout: 30000 }).toBe('1');
   });
 });
