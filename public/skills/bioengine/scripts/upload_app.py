@@ -117,6 +117,7 @@ async def main() -> None:
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev\d+$")
         delete_version = getattr(worker, "delete_app_version", None)
         am = None
+        failed: list[str] = []
         for v in reversed([v for v in existing if dev_re.match(v)]):
             try:
                 if delete_version is not None:
@@ -127,7 +128,28 @@ async def main() -> None:
                     await am.delete(artifact_id=artifact_id, version=v)
                 print(f"  deleted pre-release {v}")
             except Exception as e:
-                print(f"  could not delete {v}: {str(e)[:80]}")
+                # A remote traceback puts the exception TYPE and MESSAGE at the
+                # END, so truncating from the front keeps only "RemoteError:
+                # Traceback (most recent call last): File" and discards the
+                # part that says what went wrong. Report the type, and the tail.
+                # The LAST non-empty line of a traceback is conventionally
+                # "ExcType: message", which is the part worth keeping.
+                lines = [ln.strip() for ln in str(e).splitlines() if ln.strip()]
+                summary = lines[-1] if lines else repr(e)
+                failed.append(f"{v}: {type(e).__name__}: {summary[:200]}")
+                print(f"  could not delete {v}: {failed[-1]}")
+        if failed:
+            # Abort BEFORE publishing. This is the last moment a pre-release can
+            # be deleted: once a higher version is committed the version guard
+            # correctly refuses to remove them, so publishing over a failed
+            # cleanup strands them permanently.
+            raise RuntimeError(
+                "refusing to publish "
+                f"{artifact_id}@{base}: {len(failed)} pre-release(s) could not "
+                "be deleted, and they cannot be removed once a higher version "
+                "is committed. Delete them manually, then re-run. Failures: "
+                + "; ".join(failed)
+            )
         await worker.upload_app(files=_set_files_version(files, base))
         print(f"published release {artifact_id}@{base}")
         try:
