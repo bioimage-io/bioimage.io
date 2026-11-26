@@ -106,6 +106,67 @@ export function parseMultiscales(attrs: unknown, multiscalePath?: string): NgffM
   return { datasetPaths, axes };
 }
 
+/** The axis type OME-NGFF gives the channel dimension. */
+const NGFF_CHANNEL_AXIS_TYPE = 'channel';
+
+/**
+ * The channel axis index, by TYPE where any type is declared, by NAME only
+ * where none is. `-1` when there is no channel axis.
+ *
+ * MIRRORS `ngff_channel_axis` in the broker's `broker_core.py`, deliberately
+ * and to the letter, including the exact string comparison. The viewer and the
+ * trainer both take their channel axis from an answer shaped like this one,
+ * and the whole point of this change is that they agree: a browser that was
+ * case-insensitive here while the broker is case-sensitive would be a new
+ * divergence dressed as tolerance.
+ *
+ * THE TYPE IS THE AUTHORITY AND THE NAME IS THE FALLBACK, and the fallback is
+ * reached only when the store declares NO types at all. Nothing in the spec
+ * requires a channel axis to be called `c`, so reading only the name reported
+ * a store that called it `ch` as having none.
+ *
+ * "Where no type is declared" is the condition, and "where no axis is typed
+ * `channel`" is NOT. A review of the broker's half measured the difference and
+ * it is the whole rule: under the looser condition a store declaring every
+ * axis `space`, which says in terms that it has no channels, still had its
+ * `c`-named SPATIAL axis reported as channels. A declared type that is not
+ * `channel` is an answer, not a gap.
+ *
+ * A store that types only SOME of its axes counts as type-declaring. That is
+ * the strict reading, and its cost is that such a store reports no channel
+ * axis, which makes a multichannel crop REFUSE: loud and visible. The cost of
+ * the lax reading is reporting a spatial axis as channels, which is silent and
+ * gives the viewer and the trainer the same wrong answer. A refusal is the one
+ * to prefer.
+ *
+ * MORE THAN ONE axis typed `channel` is REFUSED rather than guessed. The spec
+ * allows at most one, so such a store is malformed, and picking the first
+ * would be the silent wrong answer this function exists to stop.
+ */
+export function ngffChannelAxis(axes: NgffAxis[]): number {
+  const types = axes.map((a) => (typeof a.type === 'string' ? a.type : ''));
+  const typed: number[] = [];
+  types.forEach((t, i) => {
+    if (t === NGFF_CHANNEL_AXIS_TYPE) typed.push(i);
+  });
+  if (typed.length > 1) {
+    const named = typed.map((i) => `"${axes[i].name}"`).join(', ');
+    throw new Error(
+      `This OME-Zarr store declares ${typed.length} axes of type 'channel' (${named}). `
+      + 'OME-NGFF allows at most one, so which dimension holds the channels cannot be '
+      + "decided. Fix the store's axis metadata.",
+    );
+  }
+  if (typed.length === 1) return typed[0];
+  // The store declares types and none of them is `channel`. That is an answer:
+  // it has no channel axis, and the name is not consulted.
+  if (types.some((t) => t.length > 0)) return -1;
+  // No types at all. `axes` was optional before OME-NGFF v0.4 and the order
+  // was a convention about names, so the name is the only evidence there is.
+  const names = axes.map((a) => (a.name || '').toLowerCase());
+  return names.indexOf('c');
+}
+
 /**
  * Map axes onto array dimensions.
  *
@@ -118,7 +179,11 @@ export function axisRoles(axes: NgffAxis[], rank: number): AxisRoles {
   const names = axes.map((a) => (a.name || '').toLowerCase());
   let y = names.indexOf('y');
   let x = names.indexOf('x');
-  let c = names.indexOf('c');
+  // By type where any is declared, by name only where none is, and REFUSING a
+  // store that declares two channel axes. See `ngffChannelAxis`, which mirrors
+  // the broker's function of the same shape so the viewer and the trainer
+  // cannot disagree about which dimension holds the channels.
+  let c = ngffChannelAxis(axes);
 
   const usable = axes.length === rank && y >= 0 && x >= 0;
   if (!usable) {

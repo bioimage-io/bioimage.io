@@ -13,6 +13,7 @@ import {
   assertNoChannelTruncation,
   assertPlaneIsResolvable,
   axisRoles,
+  ngffChannelAxis,
   chunkToBands,
   describeDtype,
   displayedPlanes,
@@ -124,6 +125,94 @@ describe('axisRoles', () => {
   it('handles a channel axis that is not leading', () => {
     const axes = [{ name: 'y' }, { name: 'x' }, { name: 'c' }];
     expect(axisRoles(axes, 3)).toEqual({ y: 0, x: 1, c: 2, indexed: [] });
+  });
+
+  it('finds the channel axis by its NGFF TYPE, not by the name "c"', () => {
+    // Nothing in the spec requires the channel axis to be called `c`, and
+    // stores in the wild call it "ch". Matching the name alone reported such a
+    // store as having NO channel axis, which is not cosmetic: the dimension
+    // then counts as one to pin, and a multichannel crop is refused by the
+    // trainer with a message asking for a plane on an axis the user never
+    // chose.
+    const axes = [
+      { name: 'ch', type: 'channel' },
+      { name: 'y', type: 'space' },
+      { name: 'x', type: 'space' },
+    ];
+    expect(axisRoles(axes, 3)).toEqual({ y: 1, x: 2, c: 0, indexed: [] });
+  });
+
+  it('does NOT consult the name once the store declares ANY type', () => {
+    // THE DISCRIMINATING CASE, and the one a review of the broker's half
+    // caught. A store declaring every axis `space` says in terms that it has
+    // no channels, so a `c`-named SPATIAL axis must not be reported as
+    // channels. "No axis is typed channel" is NOT the condition; "no type is
+    // declared" is.
+    const spatialC = [
+      { name: 'c', type: 'space' },
+      { name: 'z', type: 'space' },
+      { name: 'y', type: 'space' },
+      { name: 'x', type: 'space' },
+    ];
+    expect(ngffChannelAxis(spatialC)).toBe(-1);
+    expect(axisRoles(spatialC, 4).c).toBeNull();
+    // And the spatial `c` is then a dimension to PIN, not channels.
+    expect(axisRoles(spatialC, 4).indexed).toEqual([0, 1]);
+  });
+
+  it('prefers the TYPED axis over one that merely happens to be named c', () => {
+    // The fixture that separates a real implementation from a name-only one:
+    // a spatial axis called `c` beside a channel axis called `ch`. A store
+    // whose channel axis is only renamed is passed by either.
+    const axes = [
+      { name: 'c', type: 'space' },
+      { name: 'ch', type: 'channel' },
+      { name: 'y', type: 'space' },
+      { name: 'x', type: 'space' },
+    ];
+    expect(axisRoles(axes, 4)).toEqual({ y: 2, x: 3, c: 1, indexed: [0] });
+  });
+
+  it('treats a PARTIALLY typed store as type-declaring', () => {
+    // The strict reading, deliberately. Its cost is that such a store reports
+    // no channel axis and a multichannel crop is refused, which is loud. The
+    // lax reading reports a spatial axis as channels, which is silent and
+    // gives the viewer and the trainer the same wrong answer.
+    const axes = [{ name: 'c' }, { name: 'y', type: 'space' }, { name: 'x' }];
+    expect(ngffChannelAxis(axes)).toBe(-1);
+  });
+
+  it('falls back to the name when NO type is declared at all', () => {
+    // `axes` was optional before OME-NGFF v0.4 and the order was a convention
+    // about names, so for such a store the name is the only evidence there is.
+    expect(ngffChannelAxis([{ name: 'c' }, { name: 'y' }, { name: 'x' }])).toBe(0);
+    expect(axisRoles([{ name: 'c' }, { name: 'y' }, { name: 'x' }], 3).c).toBe(0);
+  });
+
+  it('REFUSES a store declaring two channel axes rather than guessing', () => {
+    // The spec allows at most one, so such a store is malformed. Picking the
+    // first would be the silent wrong answer this rule exists to stop: the
+    // viewer and the trainer would still agree with each other and both be
+    // wrong about the image.
+    const axes = [
+      { name: 'ch', type: 'channel' },
+      { name: 'c2', type: 'channel' },
+      { name: 'y', type: 'space' },
+      { name: 'x', type: 'space' },
+    ];
+    expect(() => ngffChannelAxis(axes)).toThrow(/declares 2 axes of type 'channel'/);
+    expect(() => ngffChannelAxis(axes)).toThrow(/"ch", "c2"/);
+    expect(() => ngffChannelAxis(axes)).toThrow(/at most one/);
+    // And the refusal reaches the caller rather than being swallowed into a
+    // silent "no channel axis".
+    expect(() => axisRoles(axes, 4)).toThrow(/at most one/);
+  });
+
+  it('matches the type EXACTLY, as the broker does', () => {
+    // Not case-insensitive, on purpose. The broker compares the string, and a
+    // browser that was more tolerant here would be a new divergence dressed
+    // as tolerance: the two would disagree about a store typed "Channel".
+    expect(ngffChannelAxis([{ name: 'ch', type: 'Channel' }, { name: 'y' }, { name: 'x' }])).toBe(-1);
   });
 
   it('is case insensitive', () => {
