@@ -60,6 +60,7 @@
     "postinstall": "node scripts/copy-ort-wasm.js",
     "test": "react-scripts test",
     "pretest": "node scripts/check-no-agent-environment.js",
+    "typecheck:tests": "npx -y -p typescript@5.6 tsc --noEmit -p tsconfig.tests.json",
     "eject": "react-scripts eject",
     "check-prebuilt-images": "node scripts/check-prebuilt-image-tags.js",
     "check-agent-env": "node scripts/check-no-agent-environment.js"

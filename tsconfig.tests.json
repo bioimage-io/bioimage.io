@@ -1,0 +1,26 @@
+{
+  // Typecheck for the Playwright specs in tests/, which the main tsconfig does
+  // not cover: its `include` is ["src", "src/types"], so nothing in this repo
+  // ever type-checked a spec. A mistake of exactly the kind the language exists
+  // to catch could sit in a spec and be found only if a reader noticed it.
+  //
+  // Separate from tsconfig.json rather than folded into it, for two reasons.
+  // The specs run under Node through Playwright, not in a browser, so they want
+  // a different target from the application bundle. And `react-scripts build`
+  // reads tsconfig.json and rewrites parts of it, so widening that file's
+  // `include` would put the specs into the production build's view.
+  //
+  // Run it with:  npm run typecheck:tests   (npm, NOT pnpm: see tests/README.md)
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "noEmit": true,
+    // The app targets es5. Applying that here produced three TS2802 errors in
+    // one spec for iterating a NodeList, which is not a defect in the spec: it
+    // is an es5 target applied to code that only ever runs in Node. These are
+    // the two options the specs actually need.
+    "target": "es2020",
+    "lib": ["es2020", "dom", "dom.iterable"],
+    "types": ["node"]
+  },
+  "include": ["tests"]
+}
