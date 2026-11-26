@@ -16,6 +16,7 @@ import HelpTutorial from '../components/annotate/HelpTutorial';
 import SamBoxModelDialog from '../components/annotate/SamBoxModelDialog';
 import { useHyphaService, AnnotationServiceConfig, AllAnnotatedResult, NoImagesResult, CellposeFlowsResult, maskDataToPolygons } from '../components/annotate/hooks/useHyphaService';
 import { DatasetIndex, BrokerRole, classifyBrokerError, getDataset } from '../components/colab/brokerApi';
+import { imageLoadBanner } from '../components/colab/imageLoadBanner';
 import { toArtifactId } from '../components/colab/datasetApi';
 import { openImageSource, ImageSourceHandle } from '../components/colab/imageSource';
 import { imageSourceRefFor } from '../components/colab/brokerApi';
@@ -1061,6 +1062,7 @@ print('CLAHE packages ready')
       if (mySeq === imageLoadSeqRef.current) {
         const reason = err?.message || 'Failed to load image';
         setError(reason);
+        const banner = imageLoadBanner(err);
         // SHOWN, which `setError` alone does not do once the session has
         // loaded. Measured on the live page: a remote OME-Zarr store the
         // viewer refuses (its z axis is resampled and no slice was recorded)
@@ -1075,7 +1077,22 @@ print('CLAHE packages ready')
         // image. An explanation that disappears after a few seconds is not
         // much better than none, because the state it explains does not
         // disappear with it.
-        imageErrorBannerRef.current = addBanner(reason, 'error', 0);
+        //
+        // NOT `reason` verbatim any more, and not always shown. The first
+        // version of this put `err.message` straight on screen, and on a
+        // dataset the visitor may not read that message is the broker's
+        // refusal as Hypha delivers it: a raw Ray traceback, measured at
+        // 6,115 characters with an internal cluster IP in it, beside the
+        // refusal card that already says the one useful thing. See
+        // `imageLoadBanner` for the three cases and why each is what it is.
+        if (banner.show) {
+          imageErrorBannerRef.current = addBanner(
+            banner.message,
+            'error',
+            0,
+            banner.details,
+          );
+        }
       }
     } finally {
       if (mySeq === imageLoadSeqRef.current) setIsLoadingImage(false);

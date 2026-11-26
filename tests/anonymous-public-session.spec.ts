@@ -126,6 +126,21 @@ test.describe('a visitor with no account', () => {
     expect(await tutorialFlag(page), 'the once-ever guide must not be spent on a refusal').toBeNull();
     await expect(page.locator('canvas')).toHaveCount(0);
 
+    // AND no raw traceback anywhere on the page. Measured before this was
+    // fixed: the deep link's failed image load put the broker's refusal on
+    // screen as the service delivered it, 6,115 characters of Python holding
+    // an internal cluster IP, `/tmp/ray/session` paths and a module's line
+    // numbers, beside the one sentence this visitor could act on. They have
+    // no access to this dataset; they are owed a refusal, not the internals
+    // of the thing refusing.
+    await expect(page.getByText('Traceback')).toHaveCount(0);
+    const shown = await page.locator('body').innerText();
+    expect(shown).not.toMatch(/Traceback \(most recent call last\)/);
+    expect(shown).not.toMatch(/\/tmp\/ray/);
+    expect(shown).not.toMatch(/broker\.py/);
+    // An IPv4 literal, which is how the cluster address appeared.
+    expect(shown).not.toMatch(/\b\d{1,3}\.\d{1,3}\.\d{1,3}\.\d{1,3}\b/);
+
     await page.screenshot({ path: 'test-results/anon-private-deeplink-refused.png' });
   });
 
