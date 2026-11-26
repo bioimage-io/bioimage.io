@@ -881,6 +881,24 @@ describe('materialisation refuses rather than dropping channels', () => {
     expect(() => assertNoChannelTruncation(4, 4, MAX)).not.toThrow();
   });
 
+  it('advises a remedy this page actually offers', () => {
+    // The refusal used to say "Import a region or a channel subset instead".
+    // A region keeps every channel, so it does not change the outcome, and
+    // there is no channel-subset control anywhere in the page. Naming a
+    // remedy that does not exist is worse than naming none: it sends the
+    // reader looking for a button that was never built.
+    let message = '';
+    try {
+      assertNoChannelTruncation(10, MAX, MAX);
+    } catch (err: any) {
+      message = String(err?.message ?? '');
+    }
+    expect(message).not.toMatch(/channel subset/i);
+    expect(message).toMatch(/region/i);
+    expect(message).toMatch(/does not change/i);
+    expect(message).toMatch(/at most 4 channels/i);
+  });
+
   it('does not refuse on an unknown channel count', () => {
     // A count we could not read is not evidence of truncation, and refusing
     // on it would block stores that are perfectly fine.

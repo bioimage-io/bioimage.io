@@ -584,8 +584,16 @@ export function displayedPlanesForProbe(
  * anywhere would say so. Refusing is the only honest option, and it is checked
  * against the ARRAY SHAPE rather than omero metadata, which undercounts.
  *
- * Separate from the caller so it can be tested without standing up a zarr
- * store: the pyramid module has no test harness, this one does.
+ * The message names a remedy the page can actually carry out. It used to
+ * offer "a region or a channel subset", and neither was true: a region keeps
+ * every channel, so it changes nothing here, and there is no channel-subset
+ * control anywhere in the annotator. Naming a control that was never built
+ * sends the reader hunting for it.
+ *
+ * Separate from the caller so it can also be tested without standing up a
+ * zarr store. `ngffPyramid.test.ts` covers the other half, driving a wide
+ * store through the reader into this guard, because every function here can
+ * be right while the composition that reaches them is wrong.
  */
 export function assertNoChannelTruncation(
   storeChannels: number,
@@ -595,8 +603,9 @@ export function assertNoChannelTruncation(
   if (!Number.isFinite(storeChannels) || storeChannels <= bandCount) return;
   throw new Error(
     `This OME-Zarr store has ${storeChannels} channels, and the annotator can copy at most `
-    + `${maxBands}. Import a region or a channel subset instead, so the copy is not missing `
-    + 'channels the original has.',
+    + `${maxBands}, so a copy would be missing channels the original has. Importing a region `
+    + 'does not change that, because a region keeps every channel. To train on these pixels, '
+    + `link a store written with at most ${maxBands} channels.`,
   );
 }
 
