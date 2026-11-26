@@ -192,7 +192,18 @@ export interface NgffProbe {
   width: number;
   height: number;
   dtype: string;
-  channels: string[];
+  /**
+   * Channel names, or NULL when the store carries no omero metadata.
+   *
+   * Declared as a plain array until a store without that block was tried in a
+   * browser: the broker sends null, two unguarded `probe.channels.length`
+   * reads threw, and the whole page unmounted to an empty body. Stores written
+   * by anything other than a converter that emits omero (plain `zarr`, a
+   * `coarsen`-built pyramid) hit this on the FIRST action of the import flow.
+   * The type now says what the service sends, so a new reader is warned by
+   * tsc rather than by a blank page.
+   */
+  channels: string[] | null;
   levels: number;
   content_hint: string | null;
   /** Default stem the broker would derive from the URL, for the name field. */

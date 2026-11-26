@@ -30,8 +30,11 @@ describe('channelDisplayNote', () => {
   });
 
   it('says nothing when the store names no channels at all', () => {
-    // The probe returns an empty list for a store with no omero metadata, and
-    // the decode seam then reads the single band it finds.
+    // The probe returns NULL, not an empty list, for a store with no omero
+    // metadata. This helper is handed a count, so it never saw the
+    // difference, and the belief written here was what let two callers read
+    // `.length` off that null and unmount the page. The caller normalises it
+    // now; `ImportRemoteSourceModal.render.test.tsx` holds that.
     expect(channelDisplayNote(0)).toBeNull();
   });
 });

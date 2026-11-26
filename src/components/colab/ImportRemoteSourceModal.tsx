@@ -343,7 +343,11 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
   const height = region ? region.height : probe?.height ?? 0;
   const bytes = probe ? materialiseBytes(width, height, probe.dtype, probe.channels) : 0;
   const tooLargeToCopy = !!probe && bytes > 0 && bytes > probe.max_materialise_bytes;
-  const channelNote = probe ? channelDisplayNote(probe.channels.length) : null;
+  // A store with no omero block reports null here, not an empty list, and
+  // reading `.length` off it used to unmount the whole page. Normalised once,
+  // so the two readers below cannot disagree about it.
+  const channelNames = probe?.channels ?? [];
+  const channelNote = probe ? channelDisplayNote(channelNames.length) : null;
 
   /**
    * "z slice 4 of 9", one clause per non-singleton axis.
@@ -486,8 +490,8 @@ const ImportRemoteSourceModal: React.FC<ImportRemoteSourceModalProps> = ({
                     {probe.levels === 1 ? 'level' : 'levels'}, {describeDtype(probe.dtype)}
                   </p>
                   <p className="text-xs text-gray-500 truncate">
-                    {probe.channels.length > 0
-                      ? probe.channels.join(', ')
+                    {channelNames.length > 0
+                      ? channelNames.join(', ')
                       : 'No channel names in the store'}
                   </p>
                   {/* The untokened root, so a credential in the pasted URL is
