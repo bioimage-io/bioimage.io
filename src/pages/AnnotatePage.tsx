@@ -485,6 +485,13 @@ const AnnotatePage: React.FC<AnnotatePageProps> = ({ backTo }) => {
   // saved annotation for it, so a fast switch between two images must not let
   // the slower restore paint the wrong image's masks onto the canvas.
   const imageLoadSeqRef = useRef(0);
+  /**
+   * The banner explaining why the current image could not be opened.
+   *
+   * Held so the next load can take it down. It has no timeout, because the
+   * empty viewer it explains has none either.
+   */
+  const imageErrorBannerRef = useRef<number | null>(null);
   // True once the canvas has been mutated since the last point at which it
   // matched what is stored (image open, restore, or a successful save).
   // Annotation lives only in the OpenLayers vector source until Save, so this
@@ -935,6 +942,13 @@ print('CLAHE packages ready')
     if (vs) vs.clear();
     useAnnotationStore.setState({ undoStack: [], canUndo: false });
     hasUnsavedRef.current = false;
+    // A previous image's failure is not this one's. Cleared here rather than
+    // in the catch, so a banner that is still on screen from the last attempt
+    // cannot be read as describing the image now loading.
+    if (imageErrorBannerRef.current !== null) {
+      removeBanner(imageErrorBannerRef.current);
+      imageErrorBannerRef.current = null;
+    }
     const bannerId = showBanner ? addBanner('Loading image...', 'loading', 0) : 0;
     try {
       // Either a presigned file URL or a remote OME-Zarr store root; the
@@ -1016,7 +1030,25 @@ print('CLAHE packages ready')
       console.error('[AnnotatePage] loadImageByStem failed:', err);
       // Same sequence guard as the success path: a load the user has already
       // switched away from must not replace the current image with its error.
-      if (mySeq === imageLoadSeqRef.current) setError(err.message || 'Failed to load image');
+      if (mySeq === imageLoadSeqRef.current) {
+        const reason = err?.message || 'Failed to load image';
+        setError(reason);
+        // SHOWN, which `setError` alone does not do once the session has
+        // loaded. Measured on the live page: a remote OME-Zarr store the
+        // viewer refuses (its z axis is resampled and no slice was recorded)
+        // left the annotation toolbar over an empty canvas with no message at
+        // all, for as long as the page was left open. The refusal reached only
+        // console.error. The reason is the status overlay's condition, which
+        // includes `!hasLoadedOnce`: once the SESSION has loaded, a failure to
+        // load one IMAGE had nowhere to appear. That is true of every
+        // per-image failure, not only this one.
+        //
+        // Timeout 0, so it stays until the user dismisses it or opens another
+        // image. An explanation that disappears after a few seconds is not
+        // much better than none, because the state it explains does not
+        // disappear with it.
+        imageErrorBannerRef.current = addBanner(reason, 'error', 0);
+      }
     } finally {
       if (mySeq === imageLoadSeqRef.current) setIsLoadingImage(false);
       if (bannerId) removeBanner(bannerId);
