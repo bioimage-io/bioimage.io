@@ -156,7 +156,17 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
         _rkwargs: true,
       });
 
-      setStatusMessage('Building package... (usually about 20 seconds)');
+      // NO ESTIMATE. This said "usually about 20 seconds" and was measured at
+      // fifteen times that: a cpsam export spent about five minutes building
+      // and was still staging ten minutes later. A number that wrong is worse
+      // than none, because a user reads it and concludes the page has hung,
+      // which is what the first measured run looked like from the outside.
+      //
+      // It is also set ONCE, before the poll loop, so it could not have
+      // followed the work even if the number were right. The service reports
+      // its own sub-phases in `status.message`, and that is what the panel
+      // shows underneath now.
+      setStatusMessage('Building the package. This can take several minutes for a large model.');
       let finalStatus: ExportStatus | null = null;
       while (!localAbort.aborted) {
         const status: ExportStatus = await svc.get_export_status({ export_id, _rkwargs: true });
@@ -246,12 +256,22 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
 
   return (
     <div className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-50" onClick={handleClose}>
+      {/* A dialog ROLE, like the import dialog next door. Without it this was
+          a plain overlay: a screen reader announced nothing, and nothing could
+          address it as a dialog. Found by writing the end-to-end export check,
+          which could locate the button that opens it and then not the thing it
+          opened. */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="export-model-dialog-title"
         className="bg-white rounded-2xl shadow-lg max-w-lg w-full mx-4 max-h-[85vh] flex flex-col animate-scaleIn"
         onClick={(e) => e.stopPropagation()}
       >
         <div className="p-5 border-b border-gray-200 flex items-center justify-between">
-          <h2 className="text-base font-semibold text-gray-900">Export as model</h2>
+          <h2 id="export-model-dialog-title" className="text-base font-semibold text-gray-900">
+            Export as model
+          </h2>
           {(phase === 'form' || phase === 'done' || phase === 'error') && (
             <button onClick={handleClose} className="text-gray-400 hover:text-gray-600 transition-colors">
               <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -364,7 +384,11 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
                   />
                 </div>
               )}
-              {phase === 'building' && exportStatus?.message && (
+              {/* In EVERY in-progress phase, not only while building. The
+                  service names its own sub-phases here ("staging package"),
+                  and hiding them after the build is what left the panel
+                  saying one frozen sentence for ten minutes. */}
+              {exportStatus?.message && (
                 <p className="text-xs text-gray-400 mt-2">{exportStatus.message}</p>
               )}
             </div>
