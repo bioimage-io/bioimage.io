@@ -17,10 +17,17 @@ import { imageLoadBanner } from './imageLoadBanner';
  * the text.
  */
 
-/** A broker refusal, as the page receives it. */
+/**
+ * A broker refusal, as the page receives it.
+ *
+ * `RemoteError:` is the prefix the wire really carries. The first version of
+ * this fixture said `RemoteException:`, which a reviewer measured as wrong;
+ * the regex is unanchored so nothing behaved differently, but a fixture whose
+ * header calls itself the real shape should be it.
+ */
 const PERMISSION_TRACEBACK = new Error(
   [
-    'RemoteException: Traceback (most recent call last):',
+    'RemoteError: Traceback (most recent call last):',
     '  File "/tmp/ray/session_2026-11-19_11-14-32_549568_1/runtime_resources/py_modules_files/_x/bioengine/_app/decorators.py", line 144, in wrapper',
     '    return await f(*args, **kwargs)',
     '  File "/home/bioengine/apps/bioimage-io-annotation-broker/source/broker.py", line 209, in _require_role',
@@ -32,7 +39,7 @@ const PERMISSION_TRACEBACK = new Error(
 /** A service fault that is NOT about permission, delivered the same way. */
 const FAULT_TRACEBACK = new Error(
   [
-    'RemoteException: Traceback (most recent call last):',
+    'RemoteError: Traceback (most recent call last):',
     // The container's own home, part of the traceback shape this fixture
     // reproduces. Marked on the line, which is where the check reads it.
     '  File "/home/ray/anaconda3/lib/python3.11/site-packages/ray/serve/_private/replica.py", line 3657, in call_user_method',  // agent-env-check: allow
@@ -48,11 +55,27 @@ const OUR_REFUSAL = new Error(
 );
 
 describe('imageLoadBanner', () => {
-  it('shows NOTHING for a permission refusal', () => {
-    // The page already has a surface for this: the "This dataset is private"
-    // card with a Login button. A second telling beside it is noise, and this
-    // is the case whose error text is the service's internals.
-    expect(imageLoadBanner(PERMISSION_TRACEBACK)).toEqual({ show: false, message: '' });
+  it('shows NOTHING for a permission refusal, but SAYS the access was denied', () => {
+    // The card with a Login button is the surface for this, and the second
+    // half of this assertion is what makes the first one honest. A review
+    // found the hole: the image-load catch never set `permissionDenied`, so
+    // on a role revoked mid-session the user was left looking at the previous
+    // image with no card, no banner and no sentence. Silence is only
+    // defensible while something else is saying it.
+    expect(imageLoadBanner(PERMISSION_TRACEBACK)).toEqual({
+      show: false,
+      message: '',
+      deniesAccess: true,
+    });
+  });
+
+  it('does NOT claim a denial for any other failure', () => {
+    // The control. A flag that was always set would put the access card up on
+    // a service fault and on our own refusals, which is a worse lie than the
+    // one it replaced.
+    expect(imageLoadBanner(FAULT_TRACEBACK).deniesAccess).toBeUndefined();
+    expect(imageLoadBanner(OUR_REFUSAL).deniesAccess).toBeUndefined();
+    expect(imageLoadBanner(new Error('')).deniesAccess).toBeUndefined();
   });
 
   it('never puts a remote traceback in the banner TEXT', () => {

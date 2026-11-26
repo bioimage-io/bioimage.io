@@ -1085,6 +1085,16 @@ print('CLAHE packages ready')
         // 6,115 characters with an internal cluster IP in it, beside the
         // refusal card that already says the one useful thing. See
         // `imageLoadBanner` for the three cases and why each is what it is.
+        if (banner.deniesAccess) {
+          // The card, and its own recheck poll, come up because of this line.
+          // Silence is only honest while something else says it, and until a
+          // review found the hole nothing did: `permissionDenied` is set at
+          // mount time and in the save path, never here, so a role revoked
+          // mid-session left the user looking at the previous image with no
+          // card, no banner and no sentence at all. The save path at the
+          // bottom of this file does the same thing on the same error shape.
+          setPermissionDenied(true);
+        }
         if (banner.show) {
           imageErrorBannerRef.current = addBanner(
             banner.message,

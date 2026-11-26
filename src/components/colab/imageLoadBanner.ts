@@ -39,6 +39,18 @@ export interface ImageLoadBanner {
   message: string;
   /** Raw error text, for the banner's details popup. Absent when the message IS the raw text. */
   details?: string;
+  /**
+   * The load was refused for lack of access, and the CALLER must put the
+   * access card up.
+   *
+   * Separate from `show` because silence is only honest while something else
+   * says it. A review found the hole: the image-load catch never set
+   * `permissionDenied`, which is set at mount time and in the save path and
+   * nowhere else, so a role revoked mid-session left the user looking at the
+   * previous image with no card, no banner and no sentence. The fix had
+   * replaced an unreadable error with none at all.
+   */
+  deniesAccess?: boolean;
 }
 
 /**
@@ -66,11 +78,12 @@ function classifiedSentence(err: unknown): string {
 }
 
 export function imageLoadBanner(err: unknown): ImageLoadBanner {
-  // A refusal has its own card. Suppressed BEFORE anything is read off the
-  // error, because this is the case where the error text is the service's
-  // internals and the reader has no access to this dataset at all.
+  // A refusal has its own card, and `deniesAccess` is how the caller is told
+  // to put it up. Suppressed BEFORE anything is read off the error, because
+  // this is the case where the error text is the service's internals and the
+  // reader has no access to this dataset at all.
   if (classifyBrokerError(err) === 'permission-denied') {
-    return { show: false, message: '' };
+    return { show: false, message: '', deniesAccess: true };
   }
 
   const raw = String((err as Error)?.message ?? err ?? '').trim();
