@@ -54,6 +54,16 @@ describe('the export dialog, while an export runs', () => {
     expect(code).not.toMatch(/phase === 'building' && exportStatus\?\.message/);
   });
 
+  it('names the package SIZE once it knows it', () => {
+    // The only thing that predicts the upload wait, and it is known by then:
+    // measured at 1.07 GB for a cpsam export, of which the weights file alone
+    // is 1.22 GB uncompressed. A spinner with no number beside a gigabyte is
+    // how a working page looks broken.
+    expect(code).toMatch(/Uploading model files \(\$\{\(finalStatus\.size_bytes \/ 1e9\)\.toFixed\(2\)\} GB\)/);
+    // And it falls back rather than printing "undefined GB".
+    expect(code).toMatch(/finalStatus\.size_bytes\s*\?/);
+  });
+
   it('is addressable as a dialog', () => {
     // It was a plain overlay: no role, no aria-modal, no label, where the
     // import dialog next door has all three. A screen reader announced

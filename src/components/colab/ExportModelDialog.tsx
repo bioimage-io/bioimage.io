@@ -236,7 +236,16 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
 
       if (localAbort.aborted) return;
       setPhase('pushing');
-      setStatusMessage('Uploading model files...');
+      // The SIZE, because it is the only thing that predicts this wait and it
+      // is known by now. Measured on a cpsam export: 1.07 GB of package, of
+      // which model_weights.pth is 1.22 GB uncompressed. The bytes do not
+      // pass through the browser (the service PUTs them to the presigned URLs
+      // minted just above), but the user is still waiting on them.
+      setStatusMessage(
+        finalStatus.size_bytes
+          ? `Uploading model files (${(finalStatus.size_bytes / 1e9).toFixed(2)} GB)...`
+          : 'Uploading model files...',
+      );
       const filesMap: Record<string, string> = {};
       for (const f of finalStatus.files || []) {
         const putUrl = await artifactManager.put_file({ artifact_id: artifact.id, file_path: f.name, _rkwargs: true });
