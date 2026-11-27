@@ -49,6 +49,8 @@ Search for runnable deep learning models in the BioImage.IO collection.
 ]
 ```
 
+**Those two fields are all there is, and a missing field comes back as `None` rather than an error.** Through the Python client each result is a `dotdict`, so `result.name`, `result.tags` and `result.nickname` all evaluate to `None` — not because the values are empty but because the keys are not there, and a dotdict answers `None` for anything it does not have. A typo'd field name does the same. Measured: `dict(result)` works and gives exactly `['model_id', 'description']` with real values, so do not read a `None` as "this model has no name". Fetch the rest with [`get_model_rdf`](#get_model_rdf) when you need it.
+
 ### HTTP Usage
 
 ```bash
@@ -124,6 +126,30 @@ Key fields:
     }
 }
 ```
+
+### Reading `axes` before you call `infer`
+
+This block is not decoration: it is the contract your array has to satisfy, and `infer` has **no
+axes parameter**, so there is nowhere to declare what your dimensions mean. The array must already
+be shaped the way the model declares.
+
+For the input above that is four dimensions in this order: batch, channel, y, x. So a plain 2-D
+image of shape `(H, W)` is refused, and the fix is to add the two leading axes rather than to pass
+an axis hint:
+
+```python
+arr = image.astype("float32")          # (H, W)
+arr = arr[None, None, ...]             # (1, 1, H, W) -> batch, channel, y, x
+```
+
+A `channel` axis with `channel_names` of length N wants N channels, not 1, and a `batch` axis with
+no size is free.
+
+**`size: {"min": 64, "step": 16}` is a grid, not a minimum.** A valid spatial size is
+`min + k*step` for a whole number `k`, so this input accepts 64, 80, 96, 112 and so on, and
+refuses 100. Where `step` is `0` the size is fixed at `min`. Crop or pad to a size on the grid
+before calling. This is unrelated to `default_blocksize_parameter` on [`infer`](#infer), which
+overrides the tiling block size used internally and does not change what shape you may submit.
 
 ### Known Issue
 
