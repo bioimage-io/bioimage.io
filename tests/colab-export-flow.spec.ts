@@ -54,6 +54,58 @@ const token = readEnvToken('HYPHA_TOKEN');
 
 test.use({ baseURL: BASE_URL, viewport: { width: 1280, height: 1000 } });
 
+/**
+ * Drafts this suite created, deleted even when a test fails.
+ *
+ * The in-test cleanup only runs on the happy path, so three runs that failed
+ * at an assertion AFTER the artifact was created left three drafts in the
+ * public collection, found by hand a day later. A test that litters when it
+ * fails litters exactly when somebody is already busy.
+ */
+const created: string[] = [];
+/** Every model name this suite typed, so a draft can be found by name. */
+const namesUsed: string[] = [];
+
+test.afterAll(async () => {
+  if (!token) return;
+  const seen = new Set(created);
+
+  // BY NAME as well as by id, because the id is only learned from the done
+  // panel. A run that fails before reaching it has still created the draft,
+  // which is exactly what happened three times: the in-test cleanup ran only
+  // on the happy path and left three drafts in the public collection, found
+  // by hand a day later.
+  try {
+    const res = await fetch(`${HYPHA_SERVER_URL}/${AM}/list`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: 'bioimage-io/bioimage.io', stage: true, limit: 200 }),
+    });
+    const drafts = res.ok ? await res.json() : [];
+    for (const d of Array.isArray(drafts) ? drafts : []) {
+      if (namesUsed.includes(d?.manifest?.name) && d?.id) seen.add(d.id);
+    }
+  } catch (err) {
+    console.log(`[export] afterAll could not list drafts: ${String(err).slice(0, 120)}`);
+  }
+
+  for (const artifactId of seen) {
+    try {
+      const res = await fetch(`${HYPHA_SERVER_URL}/${AM}/delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artifact_id: artifactId }),
+      });
+      // A 403 here is the collection's rule, not a bug in this suite: a user
+      // token cannot always delete what it created. Said rather than hidden,
+      // so the leftover is findable.
+      console.log(`[export] afterAll delete ${artifactId} -> ${res.status}`);
+    } catch (err) {
+      console.log(`[export] afterAll could not delete ${artifactId}: ${String(err).slice(0, 120)}`);
+    }
+  }
+});
+
 test.describe('exporting a finished run as a model', () => {
   test.skip(!token, 'HYPHA_TOKEN not available');
   test.skip(!ALIAS, 'EXPORT_DATASET_ALIAS not set: needs a dataset with a run this token owns');
@@ -91,6 +143,7 @@ test.describe('exporting a finished run as a model', () => {
     await expect(dialog).toBeVisible({ timeout: 60_000 });
 
     const name = `Export flow check ${Date.now()}`;
+    namesUsed.push(name);
     await dialog.getByPlaceholder(/My Cell Segmentation Model/i).fill(name);
     await page.screenshot({ path: testInfo.outputPath('02-dialog-filled.png'), fullPage: true });
 
@@ -160,6 +213,7 @@ test.describe('exporting a finished run as a model', () => {
     const artifactHref = await artifactLink.getAttribute('href');
     const artifactId = decodeURIComponent((artifactHref || '').replace(/^#\/edit\//, '').replace(/\/stage$/, ''));
     console.log(`[export] created artifact ${artifactId}`);
+    if (artifactId) created.push(artifactId);
     if (artifactId) {
       const res2 = await fetch(`${HYPHA_SERVER_URL}/${AM}/delete`, {
         method: 'POST',

@@ -115,6 +115,17 @@ describe('the export dialog, while an export runs', () => {
     expect(code).toMatch(/The export itself carries on/);
   });
 
+  it('tells the reader where the draft is, once there IS one', () => {
+    // Measured: a reload during the BUILD leaves nothing, because the
+    // artifact is created only when the build reports ready, and a reload
+    // during the UPLOAD leaves a draft, which appeared in the collection
+    // with no files in it. The same sentence for both phases would send a
+    // reader looking for nothing in one case and leave a draft of theirs
+    // unmentioned in the other.
+    expect(code).toMatch(/phase !== 'building' && \(/);
+    expect(code).toMatch(/look for it under My Artifacts/);
+  });
+
   it('keeps that warning OUT of the finished and failed states', () => {
     // It belongs to the in-progress block only. A warning about losing an
     // export that has already finished is noise, and one shown beside an

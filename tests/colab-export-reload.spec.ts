@@ -61,7 +61,7 @@ test.describe('a reload in the middle of an export', () => {
   test.skip(!token, 'HYPHA_TOKEN not available');
   test.skip(!ALIAS, 'EXPORT_DATASET_ALIAS not set: needs a dataset with a run this token owns');
 
-  test('is warned about first, and afterwards there is nothing left to see', async ({
+  test('is warned about first, and during the BUILD leaves nothing behind', async ({
     page,
   }, testInfo) => {
     test.setTimeout(600_000);
@@ -95,7 +95,12 @@ test.describe('a reload in the middle of an export', () => {
     // HALF ONE: the warning is on screen while the export runs, which is the
     // only moment it can still be acted on.
     await expect(dialog.getByText(/keep this tab open/i)).toBeVisible({ timeout: 120_000 });
-    await expect(dialog.getByText(/reloading or closing the page loses track of it/i)).toBeVisible();
+    await expect(
+      dialog.getByText(/does not keep track of an export across a reload/i),
+    ).toBeVisible();
+    // And it does not blame the sign-in, which is the claim a review showed
+    // my own measurement had refuted.
+    await expect(dialog.getByText(/tied to the sign-in/i)).toHaveCount(0);
     await page.screenshot({ path: testInfo.outputPath('01-warned-while-building.png'), fullPage: true });
 
     // HALF TWO: reload while it is still building, and record what is left.
