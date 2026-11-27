@@ -128,6 +128,22 @@ def artifact_workspace(worker_service_id, explicit=None):
     return "bioimage-io"
 
 
+def _warn_if_elsewhere(returned, derived):
+    """Say so if the upload did not land where the id was built for.
+
+    `upload_app` RETURNS the artifact id it actually wrote. The id above is
+    derived from the worker service id before any upload happens, because the
+    script has to read the existing versions first, so the two are independent
+    answers to the same question. They agree today. If they ever disagree, the
+    derivation is wrong and every later call in this run is aimed at the wrong
+    artifact, so say it loudly rather than failing three steps later with a
+    KeyError about a version list.
+    """
+    if isinstance(returned, str) and returned and returned != derived:
+        print(f"WARNING: upload_app wrote {returned!r} but this run is using "
+              f"{derived!r}. The derived workspace is wrong; pass --workspace "
+              f"{returned.split('/')[0]!r} or report it.", file=sys.stderr)
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("directory")
@@ -168,7 +184,8 @@ async def main() -> None:
         dev_re = re.compile(rf"^{re.escape(base)}[-.]dev(\d+)$")
         n = max([int(dev_re.match(v).group(1)) for v in existing if dev_re.match(v)] or [0]) + 1
         version = f"{base}-dev{n}"
-        await worker.upload_app(files=_set_files_version(files, version))
+        returned = await worker.upload_app(files=_set_files_version(files, version))
+        _warn_if_elsewhere(returned, artifact_id)
         await worker.deploy_app(artifact_id=artifact_id, application_id=f"{app_id}-dev",
                                 version=version, disable_gpu=args.disable_gpu, hypha_token=args.token)
         print(f"uploaded + deployed {artifact_id}@{version} as application_id={app_id}-dev")
@@ -230,7 +247,8 @@ async def main() -> None:
                   f"could not be deleted.\n  {err}", file=sys.stderr)
             sys.exit("Nothing was published. Fix the cause above and re-run --release; "
                      "the deletes are only safe while these are still the newest versions.")
-        await worker.upload_app(files=_set_files_version(files, base))
+        returned = await worker.upload_app(files=_set_files_version(files, base))
+        _warn_if_elsewhere(returned, artifact_id)
         print(f"published release {artifact_id}@{base}")
         try:
             await worker.stop_app(application_id=f"{app_id}-dev")
