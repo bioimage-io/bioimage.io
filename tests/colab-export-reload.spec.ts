@@ -163,6 +163,16 @@ test.describe('a reload in the middle of an export', () => {
       body.replace(/\s+/g, ' ').slice(0, 400));
   });
 
+  // MEASURED, and the two moments really do differ:
+  //
+  //     reloading as the upload starts        0, 0, 0, 0, 0, 0 files
+  //     reloading 60 s in, push in flight     4, 4, 4, 4, 4, 4 files
+  //
+  // So an abandoned export can leave a PARTLY filled draft, and the count
+  // does not grow afterwards: whatever had reached the store stays, and the
+  // rest never arrives. "Will stay empty" would have been false here, which
+  // is why the dialog says the draft may be incomplete instead.
+  //
   // TWO MOMENTS INSIDE THE UPLOAD, because they are not the same event.
   // The page sets "Uploading model files", then mints presigned URLs in a
   // short loop, and only THEN calls push_export, which is the long part: the
