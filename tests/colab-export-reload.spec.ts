@@ -11,25 +11,32 @@ import fs from 'fs';
  * shown an error. They are shown nothing, which is worse, because a page that
  * says nothing looks like a page where nothing happened.
  *
- * Keeping the id would not rescue it either: an anonymous reload arrives as a
- * different caller and the service binds an export to its creator, so a
- * restored poll is refused. Recovering an export across a reload needs the
- * identity to survive the reload, which is a product decision and is not
- * taken here.
+ * Keeping the id WOULD be enough to re-attach, and an earlier version of this
+ * header said the opposite. Measured: only a signed-in owner can reach the
+ * dialog, that token sits in localStorage and survives the reload, and a
+ * second connection carrying it polled an export the first connection had
+ * started. The export is bound to the USER, not to the socket. So recovery
+ * is a piece of work on this page rather than an identity problem, which is
+ * why it is a proposal on the issue and not built here.
  *
  * So the page says so BEFORE the loss, and this measures both halves: the
  * warning is on screen while the export runs, and after a reload there is
  * nothing left, in particular no raw service refusal.
  *
- * The reload happens while the package is still BUILDING, which is also the
- * point at which nothing has been created yet: the artifact is created only
- * once the build reports ready, so this leaves nothing behind to clean up.
+ * TWO PHASES, because the warning shows in three and they do not leave the
+ * same thing behind. Reloading while the package is still BUILDING leaves
+ * nothing at all: the artifact is created only once the build reports ready.
+ * Reloading while it is PUSHING is the opposite, the artifact exists by
+ * then, so the second arm goes looking for it and records what it finds.
+ * A review asked for that, having noticed the first version measured one
+ * phase and let the page speak for three.
  *
  * LIVE: it starts a real export on the trainer. Needs `EXPORT_DATASET_ALIAS`
  * to name a dataset with a finished run this token owns.
  */
 
 const ALIAS = process.env.EXPORT_DATASET_ALIAS;
+const HYPHA_SERVER_URL = process.env.REACT_APP_HYPHA_SERVER_URL || 'https://hypha.aicell.io';
 /**
  * Which run to export, optional. Worth setting: a dataset accumulates runs,
  * and on this trainer a micro-sam run's export FAILS during the build, which
@@ -110,5 +117,76 @@ test.describe('a reload in the middle of an export', () => {
     // Written into the run so the measurement is readable without the image.
     console.log('[reload] after the reload the page shows:',
       body.replace(/\s+/g, ' ').slice(0, 400));
+  });
+
+  test('during the UPLOAD, leaves a draft the user can be told about', async ({
+    page,
+  }, testInfo) => {
+    // The other side of the same warning. By the upload the page has already
+    // created a staged artifact, so a reload here does not leave nothing: it
+    // leaves a draft in My Artifacts that the service may even finish
+    // filling. This records which of those is true, because the row asks
+    // what the user is left with and the first version of this spec only
+    // measured the phase where the answer is "nothing".
+    test.setTimeout(1_800_000);
+
+    await page.addInitScript(({ t, expiry }) => {
+      localStorage.setItem('token', t);
+      localStorage.setItem('tokenExpiry', expiry);
+      localStorage.setItem('bioimage-annotation-tutorial-seen', '1');
+    }, { t: token!, expiry: new Date(Date.now() + 3 * 60 * 60 * 1000).toISOString() });
+
+    await page.goto(`/#/colab/${ALIAS}/finetune`);
+    const runCard = RUN_ID
+      ? page
+        .locator('div')
+        .filter({ hasText: RUN_ID })
+        .filter({ has: page.getByRole('button', { name: /export as model/i }) })
+        .last()
+      : page;
+    const exportButton = runCard.getByRole('button', { name: /export as model/i }).first();
+    await expect(exportButton).toBeVisible({ timeout: 180_000 });
+    await exportButton.click();
+
+    const dialog = page.getByRole('dialog');
+    await expect(dialog).toBeVisible({ timeout: 60_000 });
+    const name = `Reload during upload ${Date.now()}`;
+    await dialog.getByPlaceholder(/My Cell Segmentation Model/i).fill(name);
+    await dialog.getByRole('button', { name: /^export as model$/i }).click();
+
+    // Wait for the UPLOAD, which is the phase this arm is about. The build
+    // takes minutes, so this is the long part of the test.
+    await expect(dialog.getByText(/Uploading model files/i)).toBeVisible({ timeout: 1_500_000 });
+    await page.screenshot({ path: testInfo.outputPath('03-uploading.png'), fullPage: true });
+
+    await page.reload();
+    await expect(page.getByRole('button', { name: /export as model/i }).first()).toBeVisible({
+      timeout: 180_000,
+    });
+    await page.waitForTimeout(15_000);
+    await page.screenshot({ path: testInfo.outputPath('04-after-reload-upload.png'), fullPage: true });
+
+    const body = await page.locator('body').innerText();
+    expect(body).not.toMatch(/NotTheOwner/i);
+    expect(body).not.toMatch(/Traceback/i);
+
+    // AND THE DRAFT: the page created an artifact before uploading, so ask
+    // the collection whether it is there. This is the answer the row wants
+    // recorded, whichever way it comes out.
+    const listed = await page.request.post(
+      `${HYPHA_SERVER_URL}/public/services/artifact-manager/list`,
+      {
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        data: { parent_id: 'bioimage-io/bioimage.io', stage: true, limit: 100 },
+      },
+    );
+    const drafts = listed.ok() ? await listed.json() : [];
+    const mine = (Array.isArray(drafts) ? drafts : []).filter(
+      (d: any) => (d?.manifest?.name || '') === name,
+    );
+    console.log(`[reload] after reloading during the upload, drafts named "${name}": ${mine.length}`);
+    if (mine.length) {
+      console.log('[reload] draft id:', mine[0].id, 'files:', JSON.stringify(mine[0].manifest?.weights || {}).slice(0, 200));
+    }
   });
 });

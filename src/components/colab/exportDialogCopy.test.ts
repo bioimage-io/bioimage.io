@@ -54,6 +54,15 @@ describe('the export dialog, while an export runs', () => {
     expect(code).not.toMatch(/phase === 'building' && exportStatus\?\.message/);
   });
 
+  it('drops the build\'s sub-phase when the build is over', () => {
+    // Polling stops at READY, so an exportStatus left in place shows the
+    // build's last message frozen under the two phases that follow it. A
+    // review caught that "staging package" was still on screen under
+    // "Uploading model files", which is the stale sub-phase this dialog was
+    // just fixed for, one phase along.
+    expect(code).toMatch(/setExportStatus\(null\);\s*\n\s*setPhase\('creating'\)/);
+  });
+
   it('names the package SIZE once it knows it', () => {
     // The only thing that predicts the upload wait, and it is known by then:
     // measured at 1.07 GB for a cpsam export, of which the weights file alone
@@ -82,24 +91,48 @@ describe('the export dialog, while an export runs', () => {
     // The user is not shown a refusal, they are shown nothing at all, which
     // is how the very first run of this flow ended.
     expect(code).toMatch(/Keep this tab open/);
-    expect(code).toMatch(/reloading or closing the page loses track of it/);
+    expect(code).toMatch(/does not keep track of an export across a reload/);
+  });
+
+  it('blames the PAGE, not the sign-in', () => {
+    // An earlier version read "This export is tied to the sign-in that
+    // started it". A review caught that my own measurement had refuted it:
+    // only a signed-in owner can reach this dialog, the token survives the
+    // reload in localStorage, and a second connection carrying it polled an
+    // export the first had started. Telling the user their sign-in is the
+    // problem points them at an action that would change nothing.
+    expect(code).not.toMatch(/tied to the sign-in/);
+    expect(code).not.toMatch(/sign in again to/i);
+    // And it says the export is not cancelled by the reload, which is the
+    // other thing a reader needs to know.
+    expect(code).toMatch(/The export itself carries on/);
   });
 
   it('keeps that warning OUT of the finished and failed states', () => {
     // It belongs to the in-progress block only. A warning about losing an
     // export that has already finished is noise, and one shown beside an
-    // error blames the wrong thing. This asserts the string sits inside the
-    // building/creating/pushing branch rather than anywhere in the file.
-    const inProgress = code.split("{(phase === 'building'")[1] || '';
-    const upToErrorBranch = inProgress.split("{phase === 'error'")[0] || '';
-    expect(upToErrorBranch).toMatch(/Keep this tab open/);
+    // error blames the wrong thing.
+    //
+    // A review pointed out that the first version of this case checked only
+    // that the string was PRESENT in the in-progress branch, which its name
+    // does not say and which a copy pasted into every branch would satisfy.
+    // It now cuts the file at the branch boundaries and asserts the absence
+    // where the name promises it.
+    const [, afterInProgress = ''] = code.split("{(phase === 'building'");
+    const [inProgress = '', rest = ''] = afterInProgress.split("{phase === 'done'");
+    expect(inProgress).toMatch(/Keep this tab open/);
+    // Everything from the done branch onwards, which includes the error
+    // branch below it.
+    expect(rest).not.toMatch(/Keep this tab open/);
+    expect(rest.length).toBeGreaterThan(200);
   });
 
   it('does not claim the export can be recovered, because it cannot', () => {
-    // Keeping the id would not rescue it on its own: an anonymous reload is a
-    // DIFFERENT caller and the service binds an export to its creator, so a
-    // restored poll is refused. Promising recovery would be a lie the page
-    // cannot keep.
+    // The page must not promise recovery it does not perform. Note this is
+    // NOT because recovery is impossible: measured, the export is bound to
+    // the user and a second connection with the same token can poll it, so
+    // keeping the id would be enough. It is simply not done, and a sentence
+    // offering it would be describing a page that does not exist.
     expect(code).not.toMatch(/resume (the|this) export/i);
     expect(code).not.toMatch(/pick up where you left off/i);
   });

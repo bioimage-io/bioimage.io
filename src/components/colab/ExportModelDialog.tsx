@@ -183,6 +183,12 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
       }
       if (localAbort.aborted || !finalStatus) return;
 
+      // The build's last sub-phase goes with the build. Polling stops at
+      // READY, so leaving `exportStatus` in place would show "staging
+      // package" frozen under "Creating the model artifact" and then under
+      // the upload, which is the same stale-sub-phase defect this dialog was
+      // just fixed for, one phase along.
+      setExportStatus(null);
       setPhase('creating');
       setStatusMessage('Creating the model artifact...');
       const collection = await artifactManager.read({ artifact_id: 'bioimage-io/bioimage.io', _rkwargs: true });
@@ -403,24 +409,27 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
               {/* Said BEFORE the loss rather than after it, because after it
                   there is nothing left to say it with.
 
-                  The export id lives only in this component. Nothing writes it
-                  to storage or to the url, so a reload unmounts the dialog and
-                  the id is gone: the page cannot poll the export again, and
-                  the user is not shown a refusal, they are shown nothing at
-                  all. The panel simply disappears while the service carries on
-                  building.
+                  THE REASON IS THIS PAGE, not the sign-in. The export id
+                  lives only in this component: nothing writes it to storage
+                  or to the url, so a reload unmounts the dialog and the id is
+                  gone. The service carries on building, the page cannot ask
+                  about it again, and the user is shown nothing at all rather
+                  than a refusal.
 
-                  Keeping the id would not rescue it on its own. An anonymous
-                  reload arrives as a DIFFERENT caller, and the service binds
-                  an export to the identity that created it, so the restored
-                  poll would be refused. Recovering an export across a reload
-                  therefore needs a durable identity, which is a product
-                  decision and is proposed on its issue rather than built
-                  here. */}
+                  An earlier version of this comment and of the sentence below
+                  blamed the identity, on the reasoning that a reload arrives
+                  as a different caller. MEASURED, and it is not so: only a
+                  signed-in owner can reach this dialog, that token is in
+                  localStorage and survives the reload, and a second
+                  connection carrying it polled an export the first connection
+                  had started. The export is bound to the USER, not to the
+                  socket. So keeping the id across a reload WOULD be enough to
+                  re-attach, which makes recovery a piece of work rather than
+                  an identity problem, and it is proposed on the issue rather
+                  than built here. */}
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-4 max-w-sm">
-                Keep this tab open. This export is tied to the sign-in that started it, so
-                reloading or closing the page loses track of it and it cannot be picked up again
-                from here.
+                Keep this tab open. This page does not keep track of an export across a reload, so
+                reloading or closing it loses sight of this one. The export itself carries on.
               </p>
             </div>
           )}

@@ -98,8 +98,13 @@ test.describe('exporting a finished run as a model', () => {
     page.on('console', (m) => { if (/error|export/i.test(m.text())) logs.push(`${m.type()}: ${m.text().slice(0, 260)}`); });
     page.on('pageerror', (e) => logs.push(`pageerror: ${e.message.slice(0, 260)}`));
     await dialog.getByRole('button', { name: /^export as model$/i }).click();
-    // TEMPORARY: watch the phase, because a first run reached eight minutes
-    // with the dialog GONE from the page and no error on screen.
+    // The phase is logged while it runs, and it is not temporary scaffolding:
+    // an export takes about a quarter of an hour, and a run that fails with
+    // no line in the log leaves nothing to tell a service failure from a
+    // selector that stopped matching. One line per fifteen seconds is cheap
+    // and it is the only record of where a long run got to. It stops as soon
+    // as the dialog reports a terminal state, so a passing run does not sit
+    // in it.
     for (let i = 0; i < 120; i++) {
       await page.waitForTimeout(15_000);
       const count = await page.getByRole('dialog').count();
@@ -124,12 +129,31 @@ test.describe('exporting a finished run as a model', () => {
     const href = await download.getAttribute('href');
     expect(href, 'the done panel must carry a signed download URL').toBeTruthy();
 
-    const res = await page.request.get(href!);
-    expect(res.status(), `the package URL must answer: ${href}`).toBe(200);
-    const bytes = (await res.body()).length;
-    console.log(`[export] package is ${bytes} bytes from ${href!.split('?')[0]}`);
-    // A real package, not an error document served with a 200.
-    expect(bytes).toBeGreaterThan(10_000);
+    // THE SIZE COMES FROM A RANGED REQUEST, not from the length of a body
+    // this test read, and that distinction is a measured one. Reading the
+    // whole object here returned 581,818,177 bytes for a package the store
+    // reports as 1,072,179,768: a short read of 54%, which the old assertion
+    // (`> 10_000`) accepted silently and which I then reported as the
+    // package's size. `Content-Range` is answered by the store itself, so it
+    // cannot be truncated on the way.
+    const probe = await page.request.get(href!, { headers: { Range: 'bytes=0-0' } });
+    expect(probe.status(), `the package URL must answer: ${href}`).toBe(206);
+    const total = Number((probe.headers()['content-range'] || '').split('/')[1]);
+    console.log(`[export] package is ${total} bytes at ${href!.split('?')[0]}`);
+    // A real package, not an error document served with a 200. A cellpose
+    // export is over a gigabyte, so this is two orders of magnitude below
+    // what it should be and still rules out an error page.
+    expect(total).toBeGreaterThan(10_000_000);
+
+    // And bytes really flow, since a size in a header is not a download.
+    const chunk = await page.request.get(href!, { headers: { Range: 'bytes=0-1048575' } });
+    expect(chunk.status()).toBe(206);
+    expect((await chunk.body()).length).toBe(1_048_576);
+    // The first four bytes of a zip, so what arrives is the archive and not
+    // an error document the store served inside a 206.
+    const head4 = (await chunk.body()).subarray(0, 4);
+    expect(head4[0]).toBe(0x50);
+    expect(head4[1]).toBe(0x4b);
 
     // CLEAN UP the artifact this created, and say so if it cannot be removed.
     const artifactLink = dialog.getByRole('link', { name: /open artifact page/i });
