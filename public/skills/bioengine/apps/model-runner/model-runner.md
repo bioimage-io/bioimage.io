@@ -194,7 +194,7 @@ import asyncio, io, random, time, urllib.request
 import numpy as np
 
 async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
-                    return_download_url=True, **kwargs):
+                    status_timeout=180, return_download_url=True, **kwargs):
     """Submit an inference job and block until the result dict is ready.
 
     ``return_download_url=True`` is the default deliberately — see the warning below.
@@ -205,15 +205,32 @@ async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
     while True:
         # wait_for is NOT optional: for some inputs the status call does not return at all,
         # and without a per-call bound the client waits for ever rather than erroring.
-        st = await asyncio.wait_for(mr.get_infer_status(request_id=request_id), timeout=30)
-        if st["completed_at"] is not None:                 # queue_position == 0
+        #
+        # But do NOT make that bound tight. The FIRST poll after the job finishes is the one
+        # that materialises the result: the app reads the output arrays off its shared storage
+        # and mints a presigned URL per output before answering. That poll therefore takes
+        # time proportional to the output, and a short cap aborts exactly the call that was
+        # about to hand you the answer. 180 s is a bound against a hang, not a latency budget.
+        st = await asyncio.wait_for(mr.get_infer_status(request_id=request_id),
+                                    timeout=status_timeout)
+        if st["completed_at"] is not None:        # or st["state"] in {completed, failed, cancelled}
             result = st["result"]
             if isinstance(result, dict) and "error" in result:
                 raise RuntimeError(f"inference failed: {result['error']}")
             if return_download_url:
-                # each value is a presigned .npy URL rather than an inline array
-                return {k: np.load(io.BytesIO(urllib.request.urlopen(v).read()),
-                                   allow_pickle=False) if isinstance(v, str) else v
+                # Each value is a presigned .npy URL rather than an inline array.
+                #
+                # to_thread matters in app code: urlopen is blocking, and awaiting it directly
+                # inside a Ray Serve replica stalls that replica's event loop for the whole
+                # download, so every other caller it is serving waits too.
+                def fetch(url):
+                    # urllib sends `Accept-Encoding: identity`, so the body arrives
+                    # uncompressed and np.load can read it straight. A client that OFFERS gzip
+                    # must also decompress: requests and aiohttp do, a plain curl does not
+                    # (see the curl section below).
+                    with urllib.request.urlopen(url) as r:
+                        return np.load(io.BytesIO(r.read()), allow_pickle=False)
+                return {k: (await asyncio.to_thread(fetch, v)) if isinstance(v, str) else v
                         for k, v in result.items()}
             return result
         if time.monotonic() > deadline:
@@ -1060,7 +1077,7 @@ If you hit it, record the model id, the RDF format version, the app's version an
 Three steps, and none of the names are guessable from the signature, so copy them:
 
 ```python
-import io, numpy as np, urllib.request
+import asyncio, io, numpy as np, urllib.request
 from PIL import Image
 
 # 1. ask for a slot. The kwarg is `file_type` (NOT `suffix`), and it must be one of
@@ -1068,12 +1085,18 @@ from PIL import Image
 slot = await mr.get_upload_url(file_type=".png")
 # -> {"upload_url": "https://…", "file_path": "…"}   NOTE: "upload_url", not "url"
 
-# 2. PUT the bytes yourself — the worker does not fetch them for you
+# 2. PUT the bytes yourself — the worker does not fetch them for you.
+#    urlopen is blocking, so inside app code hand it to a thread: awaiting it on the
+#    event loop stalls the replica for the whole upload.
 buf = io.BytesIO()
 Image.fromarray(arr.astype("uint8")).save(buf, format="PNG")
-urllib.request.urlopen(urllib.request.Request(
-    slot["upload_url"], data=buf.getvalue(), method="PUT",
-    headers={"Content-Type": "application/octet-stream"}))
+
+def put(url, data):
+    urllib.request.urlopen(urllib.request.Request(
+        url, data=data, method="PUT",
+        headers={"Content-Type": "application/octet-stream"}))
+
+await asyncio.to_thread(put, slot["upload_url"], buf.getvalue())
 
 # 3. infer on the RETURNED PATH, not the URL
 result = await run_infer(mr, model_id, slot["file_path"])   # submit + poll

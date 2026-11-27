@@ -265,7 +265,7 @@ curl -fsSL -X PUT --data-binary @/path/to/image.npy "$UPLOAD_URL"
 
 Run inference on a bioimage.io model.
 
-**Asynchronous.** `infer` enqueues a job and returns a `request_id` string immediately. Poll `get_infer_status(request_id=...)` until `completed_at` is set (`queue_position == 0`); its `result` is the output dict (or `{"error": "..."}` on failure). See [`get_infer_status`](#get_infer_status) below.
+**Asynchronous.** `infer` enqueues a job and returns a `request_id` string immediately. Poll `get_infer_status(request_id=...)` until `completed_at` is set; its `result` is the output dict (or `{"error": "..."}` on failure). See [`get_infer_status`](#get_infer_status) below.
 
 ### Parameters
 
@@ -353,21 +353,27 @@ Poll for an `infer` job's progress and result.
 
 ### Response
 
-Shared progress dict — terminal when `completed_at` is not `null` (`queue_position == 0`):
+Shared progress dict — terminal when `completed_at` is not `null`, or equivalently when `state` is one of `completed`, `failed` or `cancelled`:
 
 ```json
 {
-  "queue_position": 0,
+  "state": "completed",
   "submitted_at": 1735689590.0,
-  "model_download": 1735689600.0,
-  "env_setup": null,
-  "running": 1735689630.0,
   "completed_at": 1735689645.0,
-  "result": {"output0": "https://…/temp/uuid.npy?X-Amz-…"}
+  "result": {"output0": "https://…/temp/uuid.npy?X-Amz-…"},
+  "stages": {
+    "model_download": {"start": 1735689600.0, "end": 1735689612.0},
+    "env_setup":      {"start": null, "end": null, "queue_position": null},
+    "run":            {"start": 1735689630.0, "end": 1735689645.0, "queue_position": 0}
+  }
 }
 ```
 
-`result` holds the output dict on success or `{"error": "..."}` on failure. Requests live in memory per Entry replica and expire ~1 h after completion.
+`state` is one of `queued`, `model_download`, `running`, `completed`, `failed` or `cancelled`.
+
+**The per-stage timestamps and the queue position live under `stages`, not at the top level.** There is no top-level `queue_position`, `model_download`, `env_setup` or `running`: a loop that reads those gets `None` or a `KeyError`. The queue position for the GPU queue is `stages.run.queue_position`, and `stages.env_setup` is unused on the infer path.
+
+`result` holds the output dict on success or `{"error": "..."}` on failure. A request expires 60 minutes after completion, and an unknown or expired id raises `KeyError` naming that window.
 
 ---
 
