@@ -105,12 +105,37 @@ async def _existing_versions(server, artifact_id: str) -> list:
     return [v["version"] for v in (art.get("versions") or [])]
 
 
+def artifact_workspace(worker_service_id, explicit=None):
+    """Workspace the app's artifact lives in.
+
+    NOT the caller's. ``upload_app`` puts the bundle in the WORKER's workspace,
+    so that is where the artifact id has to point. Building it from
+    ``server.config.workspace`` works only when you happen to be signed in as
+    that workspace: a personal token makes it ``ws-user-github|<id>`` and every
+    later call fails with
+
+        KeyError: "Artifact with ID 'ws-user-github|<id>/<app>' does not exist"
+
+    A fully-qualified worker id carries the workspace in front of the slash
+    (``bioimage-io/bioengine-worker-…:bioengine-worker``), which is the one
+    place the answer is always right. ``--workspace`` overrides it, and an
+    unqualified worker id falls back to the public workspace.
+    """
+    if explicit:
+        return explicit
+    if "/" in worker_service_id:
+        return worker_service_id.split("/", 1)[0]
+    return "bioimage-io"
+
+
 async def main() -> None:
     ap = argparse.ArgumentParser()
     ap.add_argument("directory")
     ap.add_argument("--worker", required=True, help="worker service id (…:bioengine-worker)")
     ap.add_argument("--token", default=os.environ.get("HYPHA_TOKEN"))
     ap.add_argument("--app-id", help="application_id (defaults to the manifest id)")
+    ap.add_argument("--workspace", help="workspace the app's artifact lives in "
+                    "(default: the worker's, read off --worker)")
     ap.add_argument("--disable-gpu", action="store_true", help="deploy the -dev instance CPU-only")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dev", action="store_true", help="upload next <version>-devN + deploy <app>-dev")
@@ -123,8 +148,10 @@ async def main() -> None:
 
     server = await connect_to_server({"server_url": SERVER_URL, "token": args.token})
     worker = await server.get_service(args.worker)
-    workspace = server.config.workspace
-    artifact_id = f"{workspace}/{manifest['id']}"
+    # The artifact lives where upload_app put it, which is the worker's
+    # workspace. server.config.workspace is the CALLER's and is wrong whenever
+    # you sign in with a personal token.
+    artifact_id = f"{artifact_workspace(args.worker, args.workspace)}/{manifest['id']}"
 
     files = [f for f in create_file_list_from_directory(directory_path=args.directory)
              if "__pycache__" not in f.get("name", "")]
