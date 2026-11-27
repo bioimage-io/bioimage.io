@@ -344,6 +344,13 @@ def normalize_percentile(img, pmin=1.0, pmax=99.8):
 The screening pool is the **union** of two model sources; gather both before scoring:
 
 1. **model-runner models that pass the inference check.** Derive "passes the inference check" from the `bioimage-io/test-reports` collection: each per-model child artifact carries `manifest["score"]` (`+1` valid format, `+2` inference check passed, `+4` reproducible core test, `+0…1` metadata completeness). A model passes the inference check when **`score >= 3`** (the `+2` tier). `search_models(ignore_checks=False)` also returns only passing models and is the convenient default; use the test-reports score when you need the explicit signal.
+
+   **Passing the check is not the same as being runnable on the live runner.** Two models in that
+   pool have been reported failing every call: `stupendous-sheep`, whose inference child cannot
+   import `empanada`, and `good-microbe`. So make the FIRST call of a screening pass a one-image
+   smoke call per candidate and drop whatever fails, instead of discovering it part way through a
+   run of hundreds of calls. The cost is one call per candidate; the alternative is a screening
+   table with holes in it and no record of why.
 2. **Cellpose-3 models** need no separate source from 2.11.2: `search_models` returns them and `mr.infer` runs them like anything else. Note they declare large minimum input sizes (see the banner at the top), so a too-small array fails before inference rather than during it.
 
 > **Loop models OUTSIDE, images INSIDE.** The runner keeps one warm child and evicts it whenever
@@ -995,9 +1002,31 @@ When in doubt, call `search_models(keywords=[...])` first — these IDs are stab
 | `inputs` type | Behaviour |
 |---|---|
 | `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
-| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. |
+| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. A BARE path is resolved as the tensor named `input0` only, so for any model whose first input is called something else, pass the dict form below instead. |
 | `numpy.ndarray` | Sent over RPC, which means the decoded array is held in the proxy actor's memory for the whole call. Fine for one caller, and the wrong choice under concurrency — see the note after the example. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
-| `dict[str, np.ndarray \| str]` | Multi-input models. Key matches `rdf.inputs[i].id`. |
+| `dict[str, np.ndarray \| str]` | Multi-input models, AND the safe default for a single-input one. Key matches `rdf.inputs[i].id`. |
+
+**Read the TAIL of a failure, not the head.** A remote error arrives as a traceback that the
+transport has already truncated mid-frame, so the first lines are frame noise and the exception
+type and message are at the END. Printing `repr(e)` and reading the last line is the difference
+between "RemoteError:Traceback (most recent call last):" and
+"ModuleNotFoundError: No module named 'empanada'".
+
+**Use the dict form by default, keyed from the RDF**, rather than the bare path:
+
+```python
+rdf = await mr.get_model_rdf(model_id=model_id)
+key = rdf["inputs"][0]["id"]            # 0.5.x; see the fallback below for 0.4.x
+result = await run_infer(mr, model_id, {key: file_path})
+```
+
+Two errors come from getting this wrong, and neither says what is wrong:
+
+| error | cause |
+|---|---|
+| `block with members [] does not overlap with sample members []` | A bare path or array was sent for a model whose first input is not called `input0`, so the worker built a sample with no members the model recognises. |
+| `'InputTensorDescr' object has no attribute 'id'` | An RDF 0.4.x input descriptor was read as if it were 0.5.x. On 0.4.x the field is `name`, so take `rdf["inputs"][0].get("id") or rdf["inputs"][0].get("name")`, which is what the screening examples below already do for the OUTPUT key. |
+
 
 ### Uploading a local image — the full contract
 
