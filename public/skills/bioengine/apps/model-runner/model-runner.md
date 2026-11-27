@@ -96,6 +96,43 @@ All commands accept `--json` for machine-parseable output.
 
 > **`infer()` and `test()` are asynchronous.** Each returns a **job id** immediately, not a result. Poll `get_infer_status(request_id=...)` / `get_test_status(test_run_id=...)` until the job is terminal (`completed_at` set, `queue_position == 0`); the `result` field then holds the inference dict / test report, or `{"error": "..."}` on failure. The `bioengine call` CLI does **not** poll for you — do it in a loop, or use the Python helpers in [§ Async job API](#async-job-api--infer-and-test-return-job-ids) below.
 
+## Input size — upload to a URL, and keep inline arrays small
+
+**Nothing in model-runner enforces an input size limit.** Measured 2026-11-27 against the app
+source: the only `MAX_*` ceiling anywhere in it governs the conda environment cache
+(`CONDA_ENV_CACHE_MAX_GB`), not your data. So an oversized input does **not** come back as a clean
+"too large" error — it degrades instead: a slow call, a saturated admission slot, a result you
+cannot read, or a replica under memory pressure that every other caller is sharing. The numbers
+below are **advisory ceilings, not limits the service will enforce for you.**
+
+| how you pass `inputs` | how the bytes travel | advisory ceiling |
+|---|---|---|
+| `get_upload_url()` + HTTP PUT, then `inputs="<file_path>"` | **straight to S3 over HTTP, bypassing Hypha entirely** | **the go-to way for anything over ~16 MB.** A single presigned PUT is bounded by the storage backend (5 GB for an S3-compatible single-object PUT); tile or pyramid beyond a few hundred MB |
+| a direct `https://` URL | fetched server-side by the worker, off your RPC call | same |
+| `inputs=<np.ndarray>` inline | across the **one** Hypha websocket that app's proxy owns, in 256 KB chunks | keep under **16 MB**; do not exceed **64 MB** |
+
+`get_upload_url` **requires an authenticated caller** — it refuses an anonymous connection, so if
+you connected without a token this path is closed to you and you are stuck with the inline array
+or a URL you host yourself.
+
+### Why the inline array is the constrained path, and why a transfer test will mislead you
+
+- Every byte crosses that single websocket in **256 KB chunks** (`hypha_rpc` 0.21.40
+  `CHUNK_SIZE = 262144`; anything larger is split and sent sequentially).
+- Measured 2026-11-27 on that transport: **52 MB/s, and a single 128 MB payload moved in 2.4 s
+  with no disconnect.** So transport is **not** the binding constraint up to at least 128 MB.
+  That is precisely why the ceiling above is *lower than what a transfer survives*: a successful
+  send tells you nothing about what the array then costs everyone else.
+- The binding constraints are downstream. The proxy holds your decoded payload in actor memory
+  for as long as the request is queued; a submit holds an admission slot for **0.74–2.8 s** and a
+  large array lengthens that; and model-runner runs on a **single replica** whose memory and GPU
+  every concurrent caller shares.
+- An inline array also has to come **back**. Results above a few MB are unreadable inline — see
+  the `return_download_url` warning in [§ Async job API](#async-job-api--infer-and-test-return-job-ids).
+
+**So: send a URL by default.** Reach for an inline `np.ndarray` only for small arrays — a single
+tile, a thumbnail, a quick shape check — and never as the way you move a dataset.
+
 ## Async job API — `infer()` and `test()` return job ids
 
 Both `infer()` and `test()` are **submit-and-poll**. Calling them enqueues a background job on the worker and returns a short id string right away; you then poll a status method until the job is terminal and read its `result`. This keeps the GPU free while requests queue and lets large downloads happen off the RPC call.
