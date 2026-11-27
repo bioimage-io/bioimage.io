@@ -220,9 +220,11 @@ async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
             if return_download_url:
                 # Each value is a presigned .npy URL rather than an inline array.
                 #
-                # to_thread matters in app code: urlopen is blocking, and awaiting it directly
-                # inside a Ray Serve replica stalls that replica's event loop for the whole
-                # download, so every other caller it is serving waits too.
+                # Offloading matters in app code: urlopen is blocking, and awaiting it
+                # directly inside a Ray Serve replica stalls that replica's event loop for
+                # the whole download, so every other caller it is serving waits too.
+                # run_in_executor rather than asyncio.to_thread, which needs Python 3.9 and
+                # raises AttributeError on 3.8.
                 def fetch(url):
                     # urllib sends `Accept-Encoding: identity`, so the body arrives
                     # uncompressed and np.load can read it straight. A client that OFFERS gzip
@@ -230,7 +232,8 @@ async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
                     # (see the curl section below).
                     with urllib.request.urlopen(url) as r:
                         return np.load(io.BytesIO(r.read()), allow_pickle=False)
-                return {k: (await asyncio.to_thread(fetch, v)) if isinstance(v, str) else v
+                loop = asyncio.get_event_loop()
+                return {k: (await loop.run_in_executor(None, fetch, v)) if isinstance(v, str) else v
                         for k, v in result.items()}
             return result
         if time.monotonic() > deadline:
@@ -1087,7 +1090,8 @@ slot = await mr.get_upload_url(file_type=".png")
 
 # 2. PUT the bytes yourself — the worker does not fetch them for you.
 #    urlopen is blocking, so inside app code hand it to a thread: awaiting it on the
-#    event loop stalls the replica for the whole upload.
+#    event loop stalls the replica for the whole upload. run_in_executor works on
+#    every supported Python; asyncio.to_thread needs 3.9.
 buf = io.BytesIO()
 Image.fromarray(arr.astype("uint8")).save(buf, format="PNG")
 
@@ -1096,7 +1100,8 @@ def put(url, data):
         url, data=data, method="PUT",
         headers={"Content-Type": "application/octet-stream"}))
 
-await asyncio.to_thread(put, slot["upload_url"], buf.getvalue())
+await asyncio.get_event_loop().run_in_executor(
+    None, put, slot["upload_url"], buf.getvalue())
 
 # 3. infer on the RETURNED PATH, not the URL
 result = await run_infer(mr, model_id, slot["file_path"])   # submit + poll
