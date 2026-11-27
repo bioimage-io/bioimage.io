@@ -172,6 +172,22 @@ describe('the export dialog, while an export runs', () => {
     expect(rest.length).toBeGreaterThan(200);
   });
 
+  it('shows a SENTENCE when an export fails, and hides the service text', () => {
+    // It rendered `{errorMessage}` straight from the service. On a real
+    // failure that is six frames of Ray internals, a process id, a container
+    // ip and a Python object address, with `RuntimeError: BioImage.IO export
+    // failed (rc=1)` at the bottom.
+    expect(code).toMatch(/import \{ exportFailureMessage \} from '\.\/exportFailureMessage'/);
+    expect(code).toMatch(/const failure = exportFailureMessage\(err\)/);
+    expect(code).toMatch(/setErrorMessage\(failure\.sentence\)/);
+    expect(code).toMatch(/setErrorDetails\(failure\.details\)/);
+    // The raw text is kept, under a toggle, not thrown away.
+    expect(code).toMatch(/data-testid="export-error-details"/);
+    expect(code).toMatch(/<details/);
+    // And the error branch no longer puts the service's text in the headline.
+    expect(code).not.toMatch(/setErrorMessage\(\(err as Error\)\.message/);
+  });
+
   it('does not claim the export can be recovered, because it cannot', () => {
     // The page must not promise recovery it does not perform. Note this is
     // NOT because recovery is impossible: measured, the export is bound to

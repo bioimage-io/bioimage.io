@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { resolvePinnedTrainingService } from '../../utils/trainingServicePin';
+import { exportFailureMessage } from './exportFailureMessage';
 import { buildReviewerPermissions } from '../../utils/roles';
 import { FINETUNE_RESUME_CONFIG_KEY } from '../../utils/finetuneCheckpoints';
 import { Spinner } from './Finetune';
@@ -114,6 +115,8 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
   const [statusMessage, setStatusMessage] = useState('');
   const [exportStatus, setExportStatus] = useState<ExportStatus | null>(null);
   const [errorMessage, setErrorMessage] = useState('');
+  /** The service's own text, shown under a toggle rather than as the headline. */
+  const [errorDetails, setErrorDetails] = useState<string | undefined>(undefined);
   const [artifactId, setArtifactId] = useState<string | null>(null);
 
   const abortRef = useRef<{ aborted: boolean }>({ aborted: false });
@@ -136,6 +139,7 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
     abortRef.current = { aborted: false };
     const localAbort = abortRef.current;
     setErrorMessage('');
+    setErrorDetails(undefined);
     // The draft belongs to THIS attempt. Left over from a previous one, it
     // made the next export announce a draft from its build phase onward,
     // about an artifact the new attempt had not created.
@@ -273,7 +277,12 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
       setPhase('done');
     } catch (err) {
       if (localAbort.aborted) return;
-      setErrorMessage((err as Error).message || 'Export failed.');
+      // NOT the raw text. A failed export used to print six frames of Ray
+      // internals, a process id and a container address, with the one line
+      // that means anything at the bottom.
+      const failure = exportFailureMessage(err);
+      setErrorMessage(failure.sentence);
+      setErrorDetails(failure.details);
       setPhase('error');
     }
   };
@@ -464,6 +473,19 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
           {phase === 'error' && (
             <div className="space-y-3">
               <div className="p-3 bg-red-50 border border-red-200 rounded-lg text-sm text-red-600">{errorMessage}</div>
+              {errorDetails && (
+                <details className="text-xs text-gray-500">
+                  <summary className="cursor-pointer hover:text-gray-700">
+                    What the training service reported
+                  </summary>
+                  <pre
+                    className="mt-2 p-2 bg-gray-50 border border-gray-200 rounded-lg overflow-x-auto whitespace-pre-wrap max-h-48 text-[11px] text-gray-600"
+                    data-testid="export-error-details"
+                  >
+                    {errorDetails}
+                  </pre>
+                </details>
+              )}
               <button
                 type="button"
                 onClick={() => setPhase('form')}
