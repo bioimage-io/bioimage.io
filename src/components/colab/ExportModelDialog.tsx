@@ -183,12 +183,17 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
       }
       if (localAbort.aborted || !finalStatus) return;
 
-      // The build's last sub-phase goes with the build. Polling stops at
-      // READY, so leaving `exportStatus` in place would show "staging
-      // package" frozen under "Creating the model artifact" and then under
-      // the upload, which is the same stale-sub-phase defect this dialog was
-      // just fixed for, one phase along.
-      setExportStatus(null);
+      // The build's last sub-phase goes with the build: polling stops at
+      // READY, so leaving the MESSAGE in place shows "staging package"
+      // frozen under the two phases that follow, which is the same
+      // stale-sub-phase defect this dialog was just fixed for, one phase
+      // along.
+      //
+      // The message only, NOT the whole status. Clearing the status dropped
+      // the done panel's Download link with it, because that link reads
+      // `exportStatus.download_url`, and the live run caught an export that
+      // finished with nothing to download.
+      setExportStatus({ ...finalStatus, message: undefined });
       setPhase('creating');
       setStatusMessage('Creating the model artifact...');
       const collection = await artifactManager.read({ artifact_id: 'bioimage-io/bioimage.io', _rkwargs: true });

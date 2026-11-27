@@ -60,7 +60,14 @@ describe('the export dialog, while an export runs', () => {
     // review caught that "staging package" was still on screen under
     // "Uploading model files", which is the stale sub-phase this dialog was
     // just fixed for, one phase along.
-    expect(code).toMatch(/setExportStatus\(null\);\s*\n\s*setPhase\('creating'\)/);
+    expect(code).toMatch(/setExportStatus\(\{ \.\.\.finalStatus, message: undefined \}\)/);
+    // The MESSAGE only. Clearing the whole status took the done panel's
+    // download link with it, because that link reads
+    // `exportStatus.download_url`, and a live run then finished an export
+    // with nothing to download. This is the assertion that would have
+    // caught it without a fifteen-minute run.
+    expect(code).not.toMatch(/setExportStatus\(null\)/);
+    expect(code).toMatch(/exportStatus\?\.download_url/);
   });
 
   it('names the package SIZE once it knows it', () => {
