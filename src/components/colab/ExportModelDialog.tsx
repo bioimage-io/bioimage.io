@@ -434,20 +434,23 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
                   than built here. */}
               <p className="text-xs text-amber-700 bg-amber-50 border border-amber-200 rounded-md px-3 py-2 mt-4 max-w-sm">
                 Keep this tab open. This page does not keep track of an export across a reload, so
-                reloading or closing it loses sight of this one. The export itself carries on.
-                {/* PHASE-AWARE, because what a reload leaves behind is not
-                    the same in all three. MEASURED: reloading while the
-                    package builds leaves nothing, since the artifact is
-                    created only once the build reports ready, and reloading
-                    during the upload leaves a draft (one appeared in the
-                    collection, with no files in it yet). Telling the reader
-                    "nothing is left" in the second case would send them
-                    looking for nothing while a draft of theirs sat in My
-                    Artifacts. */}
-                {phase !== 'building' && (
+                reloading or closing it loses this one and you would have to start it again.
+                {/* NOT "the export carries on". A review caught that as a
+                    promise of something that never arrives: the service does
+                    finish building the package, but it is this PAGE that
+                    turns it into an artifact and uploads the files, so once
+                    the page is gone nothing collects the result. A reader
+                    told the export continues waits for a model that will
+                    not appear.
+
+                    KEYED OFF THE ARTIFACT, not the phase. `creating` begins
+                    before `artifactManager.create` returns, so a phase test
+                    announces a draft that does not exist yet. */}
+                {artifactId && (
                   <>
                     {' '}
-                    The model draft already exists by now, so look for it under My Artifacts.
+                    A draft model has already been created and will stay empty, so delete it from
+                    My Artifacts before exporting again.
                   </>
                 )}
               </p>

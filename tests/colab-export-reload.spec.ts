@@ -202,6 +202,9 @@ test.describe('a reload in the middle of an export', () => {
     // Wait for the UPLOAD, which is the phase this arm is about. The build
     // takes minutes, so this is the long part of the test.
     await expect(dialog.getByText(/Uploading model files/i)).toBeVisible({ timeout: 1_500_000 });
+    // The draft sentence is on screen BEFORE the reload, which is the only
+    // moment it can be acted on. Round 2 noted the arm never checked it.
+    await expect(dialog.getByText(/A draft model has already been created/i)).toBeVisible();
     await page.screenshot({ path: testInfo.outputPath('03-uploading.png'), fullPage: true });
 
     await page.reload();
@@ -215,23 +218,54 @@ test.describe('a reload in the middle of an export', () => {
     expect(body).not.toMatch(/NotTheOwner/i);
     expect(body).not.toMatch(/Traceback/i);
 
-    // AND THE DRAFT: the page created an artifact before uploading, so ask
-    // the collection whether it is there. This is the answer the row wants
-    // recorded, whichever way it comes out.
-    const listed = await page.request.post(
-      `${HYPHA_SERVER_URL}/public/services/artifact-manager/list`,
-      {
-        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
-        data: { parent_id: 'bioimage-io/bioimage.io', stage: true, limit: 100 },
-      },
-    );
-    const drafts = listed.ok() ? await listed.json() : [];
-    const mine = (Array.isArray(drafts) ? drafts : []).filter(
-      (d: any) => (d?.manifest?.name || '') === name,
-    );
-    console.log(`[reload] after reloading during the upload, drafts named "${name}": ${mine.length}`);
-    if (mine.length) {
-      console.log('[reload] draft id:', mine[0].id, 'files:', JSON.stringify(mine[0].manifest?.weights || {}).slice(0, 200));
+    // AND THE DRAFT. The page created an artifact before uploading, so this
+    // asks the collection for it and then watches whether anything ever
+    // lands in it. ASSERTED, not logged: a round-2 review pointed out that
+    // a console line passes with zero drafts and proves nothing, and the
+    // sentence the dialog now shows depends on this answer.
+    const findDraft = async () => {
+      const listed = await page.request.post(
+        `${HYPHA_SERVER_URL}/public/services/artifact-manager/list`,
+        {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          data: { parent_id: 'bioimage-io/bioimage.io', stage: true, limit: 200 },
+        },
+      );
+      const drafts = listed.ok() ? await listed.json() : [];
+      return (Array.isArray(drafts) ? drafts : []).find(
+        (d: any) => (d?.manifest?.name || '') === name,
+      );
+    };
+
+    const draft = await findDraft();
+    expect(draft, `a draft named "${name}" should exist after reloading mid-upload`).toBeTruthy();
+    console.log(`[reload] draft left behind: ${draft.id}`);
+
+    // DOES IT FILL? The page was the thing uploading, so the expectation is
+    // that it does not, and the dialog's sentence says so. A file listing,
+    // not a manifest key: the manifest this page writes has no `weights`
+    // entry at all, so reading one printed the same empty object for a
+    // finished export and an abandoned one.
+    const filesAt = async () => {
+      const res = await page.request.post(
+        `${HYPHA_SERVER_URL}/public/services/artifact-manager/list_files`,
+        {
+          headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+          data: { artifact_id: draft.id, stage: true },
+        },
+      );
+      const files = res.ok() ? await res.json() : [];
+      return Array.isArray(files) ? files.length : 0;
+    };
+
+    const counts: number[] = [];
+    for (let i = 0; i < 6; i++) {
+      counts.push(await filesAt());
+      await page.waitForTimeout(30_000);
     }
+    console.log(`[reload] files in the abandoned draft over three minutes: ${counts.join(', ')}`);
+    // The claim the dialog makes. If a later service ever does finish the
+    // push, this goes red and the sentence must change with it.
+    expect(Math.max(...counts)).toBe(0);
   });
 });

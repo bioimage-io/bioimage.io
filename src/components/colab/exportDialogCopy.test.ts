@@ -99,6 +99,12 @@ describe('the export dialog, while an export runs', () => {
     // is how the very first run of this flow ended.
     expect(code).toMatch(/Keep this tab open/);
     expect(code).toMatch(/does not keep track of an export across a reload/);
+    // NOT "the export itself carries on": a review showed that promises an
+    // outcome that never arrives. The service does finish the package, but
+    // this page is what turns it into an artifact and uploads the files, so
+    // once the page is gone nothing collects the result.
+    expect(code).not.toMatch(/export itself carries on/);
+    expect(code).toMatch(/you would have to start it again/);
   });
 
   it('blames the PAGE, not the sign-in', () => {
@@ -110,9 +116,11 @@ describe('the export dialog, while an export runs', () => {
     // problem points them at an action that would change nothing.
     expect(code).not.toMatch(/tied to the sign-in/);
     expect(code).not.toMatch(/sign in again to/i);
-    // And it says the export is not cancelled by the reload, which is the
-    // other thing a reader needs to know.
-    expect(code).toMatch(/The export itself carries on/);
+    // And it does NOT say the export carries on, which was the next false
+    // thing after the sign-in claim: the service finishes the package, but
+    // this page is what turns it into an artifact, so nothing collects the
+    // result once the page is gone.
+    expect(code).not.toMatch(/The export itself carries on/);
   });
 
   it('tells the reader where the draft is, once there IS one', () => {
@@ -122,8 +130,12 @@ describe('the export dialog, while an export runs', () => {
     // with no files in it. The same sentence for both phases would send a
     // reader looking for nothing in one case and leave a draft of theirs
     // unmentioned in the other.
-    expect(code).toMatch(/phase !== 'building' && \(/);
-    expect(code).toMatch(/look for it under My Artifacts/);
+    // Keyed off the ARTIFACT, not the phase: `creating` begins before
+    // `artifactManager.create` returns, so a phase test announces a draft
+    // that does not exist yet.
+    expect(code).toMatch(/\{artifactId && \(/);
+    expect(code).not.toMatch(/phase !== 'building' && \(/);
+    expect(code).toMatch(/delete it from\s*\n?\s*My Artifacts before exporting again/);
   });
 
   it('keeps that warning OUT of the finished and failed states', () => {
@@ -136,11 +148,19 @@ describe('the export dialog, while an export runs', () => {
     // does not say and which a copy pasted into every branch would satisfy.
     // It now cuts the file at the branch boundaries and asserts the absence
     // where the name promises it.
+    // CUT AT BOTH, because the branches are not in the order the first
+    // version assumed. A review measured it: `error` sits ABOVE `done` in
+    // this file, so splitting only at `done` left the error branch inside
+    // the in-progress half, and pasting the warning there PASSED.
     const [, afterInProgress = ''] = code.split("{(phase === 'building'");
-    const [inProgress = '', rest = ''] = afterInProgress.split("{phase === 'done'");
+    const errorAt = afterInProgress.indexOf("{phase === 'error'");
+    const doneAt = afterInProgress.indexOf("{phase === 'done'");
+    expect(errorAt).toBeGreaterThan(-1);
+    expect(doneAt).toBeGreaterThan(-1);
+    const firstTerminal = Math.min(errorAt, doneAt);
+    const inProgress = afterInProgress.slice(0, firstTerminal);
+    const rest = afterInProgress.slice(firstTerminal);
     expect(inProgress).toMatch(/Keep this tab open/);
-    // Everything from the done branch onwards, which includes the error
-    // branch below it.
     expect(rest).not.toMatch(/Keep this tab open/);
     expect(rest.length).toBeGreaterThan(200);
   });
