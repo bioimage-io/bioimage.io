@@ -57,6 +57,43 @@ function readEnvToken(name: string): string | undefined {
 
 const token = readEnvToken('HYPHA_TOKEN');
 
+/**
+ * The drafts this spec ABANDONS on purpose, cleaned up afterwards.
+ *
+ * The upload arm exists to show that a reload leaves a draft behind, so it
+ * leaves one every time it runs. Leaving it in the public collection is a
+ * different thing from measuring it, and the sibling export suite already
+ * litters this way: three failed runs left three drafts that were found by
+ * hand a day later.
+ */
+const namesUsed: string[] = [];
+
+test.afterAll(async () => {
+  if (!token || namesUsed.length === 0) return;
+  try {
+    const res = await fetch(`${HYPHA_SERVER_URL}/public/services/artifact-manager/list`, {
+      method: 'POST',
+      headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+      body: JSON.stringify({ parent_id: 'bioimage-io/bioimage.io', stage: true, limit: 200 }),
+    });
+    const drafts = res.ok ? await res.json() : [];
+    for (const d of Array.isArray(drafts) ? drafts : []) {
+      if (!namesUsed.includes(d?.manifest?.name) || !d?.id) continue;
+      const del = await fetch(`${HYPHA_SERVER_URL}/public/services/artifact-manager/delete`, {
+        method: 'POST',
+        headers: { Authorization: `Bearer ${token}`, 'Content-Type': 'application/json' },
+        body: JSON.stringify({ artifact_id: d.id }),
+      });
+      // A 403 is the collection's rule rather than a defect here: a user
+      // token cannot always delete what it created. Logged so the leftover
+      // is findable instead of silent.
+      console.log(`[reload] afterAll delete ${d.id} -> ${del.status}`);
+    }
+  } catch (err) {
+    console.log(`[reload] afterAll cleanup failed: ${String(err).slice(0, 140)}`);
+  }
+});
+
 test.describe('a reload in the middle of an export', () => {
   test.skip(!token, 'HYPHA_TOKEN not available');
   test.skip(!ALIAS, 'EXPORT_DATASET_ALIAS not set: needs a dataset with a run this token owns');
@@ -89,7 +126,9 @@ test.describe('a reload in the middle of an export', () => {
 
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 60_000 });
-    await dialog.getByPlaceholder(/My Cell Segmentation Model/i).fill(`Reload check ${Date.now()}`);
+    const buildName = `Reload check ${Date.now()}`;
+    namesUsed.push(buildName);
+    await dialog.getByPlaceholder(/My Cell Segmentation Model/i).fill(buildName);
     await dialog.getByRole('button', { name: /^export as model$/i }).click();
 
     // HALF ONE: the warning is on screen while the export runs, which is the
@@ -156,6 +195,7 @@ test.describe('a reload in the middle of an export', () => {
     const dialog = page.getByRole('dialog');
     await expect(dialog).toBeVisible({ timeout: 60_000 });
     const name = `Reload during upload ${Date.now()}`;
+    namesUsed.push(name);
     await dialog.getByPlaceholder(/My Cell Segmentation Model/i).fill(name);
     await dialog.getByRole('button', { name: /^export as model$/i }).click();
 
