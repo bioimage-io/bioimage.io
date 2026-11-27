@@ -651,7 +651,13 @@ def cmr_nhd_binary(y_clean_bin, y_pert_bin):
     return 1.0 - n_disagree / n_union
 
 def per_image_cmr(clean_out, pert_out, threshold=0.5):
-    """Reduce two raw model outputs to one CMR-NHD score (mean across output channels)."""
+    """Reduce two raw model outputs to one CMR-NHD score (mean across output channels).
+
+    ONLY for outputs whose channels are INDEPENDENT binary masks, the
+    sigmoid-style case. It thresholds each channel at `threshold` and averages, so
+    on a SOFTMAX output whose channels are mutually exclusive classes it is
+    wrong in two different ways. Reduce by argmax first: see the note below.
+    """
     ca, pa = np.asarray(clean_out), np.asarray(pert_out)
     while ca.ndim > 3 and ca.shape[0] == 1:
         ca, pa = ca[0], pa[0]
@@ -670,6 +676,13 @@ def per_image_cmr(clean_out, pert_out, threshold=0.5):
         "fg_clean": fg_clean,   # foreground fraction, for mode-collapse detection
         "fg_pert": fg_pert,
     }
+
+def argmax_class_mask(out, class_index):
+    """Binary mask for one class of a SOFTMAX output: argmax, not a threshold."""
+    a = np.asarray(out)
+    while a.ndim > 3 and a.shape[0] == 1:
+        a = a[0]
+    return a.argmax(axis=0) == class_index
 
 # ---- driver loop --------------------------------------------------------------
 model_ids = ["affable-shark", "resourceful-otter", "stupendous-blowfish"]
@@ -718,6 +731,36 @@ for r, m in enumerate(ranking, 1):
     flag = "  ⚠ MODE-COLLAPSE" if m in collapsed else ""
     print(f"  {r}. {m:32s} CMR={scores[m]:.4f}  fg={fg_mean[m]:.3f}{flag}")
 ```
+
+### Softmax outputs break the per-channel threshold, in two measured ways
+
+`per_image_cmr` thresholds each channel independently, which is right for a sigmoid-style output
+whose channels are separate binary masks and wrong for a **softmax** output whose channels are
+mutually exclusive classes (the 3-class UNets below, for example). Both failures are quiet:
+
+- **Everything reads as no data.** With three classes summing to 1, a pixel can have every channel
+  below 0.5. Measured on a synthetic `(1, 3, 8, 8)` softmax whose predicted class flips at
+  **every** pixel (argmax agreement 0.0), with channel values 0.40/0.35/0.25 before and
+  0.25/0.35/0.40 after: `per_image_cmr` returns `cmr = nan` and `per_channel = [nan, nan, nan]`.
+  A driver loop that skips NaNs drops the image entirely, so a total change of prediction
+  disappears from the results.
+- **A real collapse is diluted.** Measured on a softmax where the background class is unchanged
+  and a 9-pixel nucleus blob vanishes completely: the nucleus channel scores `0.0`, the background
+  channel `0.859`, the empty class `nan`, and the reported mean is **0.43**. That reads as
+  partial robustness for a prediction that was destroyed, because agreement on background is
+  averaged in with the class you care about.
+
+For a softmax output, reduce to one class first and compare masks, using `argmax_class_mask`
+above:
+
+```python
+k = 2                                             # the class of interest
+yc, yp = argmax_class_mask(r_clean[out_key], k), argmax_class_mask(r_pert[out_key], k)
+score = cmr_nhd_binary(yc, yp)
+```
+
+Pick `k` from the model's own channel meanings rather than by guessing: the HPA section below
+gives the per-model mapping, and `get_model_rdf`'s `channel_names` is the authority for others.
 
 ### Mode collapse — the main failure mode
 
