@@ -104,16 +104,25 @@ The shared status shape (same for infer and test):
 
 ```python
 {
-  "queue_position": int,          # 1-based rank in line; 1 = running now, 0 = done
-  "submitted_at":   float,        # unix ts when queued
-  "model_download": float | None, # ts the download step started
-  "env_setup":      float | None, # ts (custom-env test runs only; None otherwise)
-  "running":        float | None, # ts the GPU work started
-  "completed_at":   float | None, # ts finished; None until terminal
-  "result":         dict | None,  # inference dict / test report on success,
-                                  # {"error": "..."} on failure, None until done
+  "state":        str,          # queued | model_download | running | completed | failed | cancelled
+  "submitted_at": float,        # unix ts when queued
+  "completed_at": float | None, # ts finished; None until terminal
+  "result":       dict | None,  # inference dict / test report on success,
+                                # {"error": "..."} on failure, None until done
+  "stages": {                   # per-stage timeline AND the queue position
+    "model_download": {"start": float | None, "end": float | None},
+    "env_setup":      {"start": float | None, "end": float | None,
+                       "queue_position": int | None},   # custom-env test runs only
+    "run":            {"start": float | None, "end": float | None,
+                       "queue_position": int | None},   # shared test+infer GPU queue
+  },
 }
 ```
+
+**The stage timestamps and the queue position are inside `stages`.** There is no top-level
+`queue_position`, `model_download`, `env_setup` or `running`: a loop that reads those gets `None`
+or a `KeyError`. Terminal is `completed_at is not None`, or equivalently `state` in
+`{completed, failed, cancelled}`.
 
 Job registries are **in-memory per Entry replica** and expire after completion (infer ~1 h, test ~24 h). A job id is only known to the replica that created it, and is lost on replica restart — poll it through to completion rather than stashing the id for later.
 
