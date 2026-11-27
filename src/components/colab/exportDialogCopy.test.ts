@@ -135,7 +135,14 @@ describe('the export dialog, while an export runs', () => {
     // that does not exist yet.
     expect(code).toMatch(/\{artifactId && \(/);
     expect(code).not.toMatch(/phase !== 'building' && \(/);
-    expect(code).toMatch(/delete it from\s*\n?\s*My Artifacts before exporting again/);
+    expect(code).toMatch(/may be incomplete/);
+    expect(code).toMatch(/Check My\s*\n?\s*Artifacts, and delete it before exporting again/);
+    // NOT "will stay empty". That was measured at the front edge of the
+    // upload, before the service had even been asked to push, so it says
+    // nothing about a reload during the minutes when a gigabyte is actually
+    // streaming. The sentence claims only what holds in both cases until
+    // the second one is measured.
+    expect(code).not.toMatch(/will stay empty/);
   });
 
   it('keeps that warning OUT of the finished and failed states', () => {

@@ -163,9 +163,17 @@ test.describe('a reload in the middle of an export', () => {
       body.replace(/\s+/g, ' ').slice(0, 400));
   });
 
-  test('during the UPLOAD, leaves a draft the user can be told about', async ({
-    page,
-  }, testInfo) => {
+  // TWO MOMENTS INSIDE THE UPLOAD, because they are not the same event.
+  // The page sets "Uploading model files", then mints presigned URLs in a
+  // short loop, and only THEN calls push_export, which is the long part: the
+  // service streams about a gigabyte to those URLs. A reload at the front
+  // edge lands before the push is even sent, so an empty draft afterwards
+  // says nothing about an abandoned push. A review caught my first
+  // measurement making exactly that mistake.
+  for (const [when, settle] of [['as it starts', 0], ['once the push is in flight', 60_000]] as const) {
+    test(`during the UPLOAD ${when}, records what the draft does`, async ({
+      page,
+    }, testInfo) => {
     // The other side of the same warning. By the upload the page has already
     // created a staged artifact, so a reload here does not leave nothing: it
     // leaves a draft in My Artifacts that the service may even finish
@@ -205,6 +213,8 @@ test.describe('a reload in the middle of an export', () => {
     // The draft sentence is on screen BEFORE the reload, which is the only
     // moment it can be acted on. Round 2 noted the arm never checked it.
     await expect(dialog.getByText(/A draft model has already been created/i)).toBeVisible();
+    // Let the push get under way for the second case.
+    if (settle) await page.waitForTimeout(settle);
     await page.screenshot({ path: testInfo.outputPath('03-uploading.png'), fullPage: true });
 
     await page.reload();
@@ -254,8 +264,14 @@ test.describe('a reload in the middle of an export', () => {
           data: { artifact_id: draft.id, stage: true },
         },
       );
-      const files = res.ok() ? await res.json() : [];
-      return Array.isArray(files) ? files.length : 0;
+      // A FAILED READ IS NOT AN EMPTY DRAFT. Without this, a 404 or a 403
+      // counts as zero files and `Math.max(...counts) === 0` passes while
+      // nothing was ever read, which is the vacuous green this arm exists
+      // to avoid.
+      expect(res.ok(), `list_files for ${draft.id} should answer`).toBe(true);
+      const files = await res.json();
+      expect(Array.isArray(files), 'list_files should return an array').toBe(true);
+      return files.length;
     };
 
     const counts: number[] = [];
@@ -263,9 +279,13 @@ test.describe('a reload in the middle of an export', () => {
       counts.push(await filesAt());
       await page.waitForTimeout(30_000);
     }
-    console.log(`[reload] files in the abandoned draft over three minutes: ${counts.join(', ')}`);
-    // The claim the dialog makes. If a later service ever does finish the
-    // push, this goes red and the sentence must change with it.
-    expect(Math.max(...counts)).toBe(0);
+    console.log(`[reload] (${when}) files in the abandoned draft over three minutes: ${counts.join(', ')}`);
+    // RECORDED, not asserted to be zero. Whether an abandoned push keeps
+    // filling the draft is the thing being measured here, and asserting the
+    // answer I expect would make the measurement incapable of surprising
+    // me. What IS asserted is that the reads happened at all, which
+    // `filesAt` does.
+    expect(counts).toHaveLength(6);
   });
+  }
 });

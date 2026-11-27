@@ -136,6 +136,10 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
     abortRef.current = { aborted: false };
     const localAbort = abortRef.current;
     setErrorMessage('');
+    // The draft belongs to THIS attempt. Left over from a previous one, it
+    // made the next export announce a draft from its build phase onward,
+    // about an artifact the new attempt had not created.
+    setArtifactId(null);
 
     try {
       setPhase('building');
@@ -449,8 +453,8 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
                 {artifactId && (
                   <>
                     {' '}
-                    A draft model has already been created and will stay empty, so delete it from
-                    My Artifacts before exporting again.
+                    A draft model has already been created and may be incomplete. Check My
+                    Artifacts, and delete it before exporting again.
                   </>
                 )}
               </p>
