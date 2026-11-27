@@ -115,6 +115,28 @@ describe('exportFailureMessage', () => {
     expect(sentence).not.toContain('KeyError');
   });
 
+  it.each([
+    ['a pip warning', 'WARNING: Running pip as the root user can result in broken permissions'],
+    ['a conda note', 'Note: you may need to restart the kernel to use updated packages.'],
+    ['conda tidying up', 'PermissionError: [Errno 13] Permission denied: /opt/conda/pkgs/urls.txt'],
+    ['a bare capitalised line', 'Building: wheel for micro-sam'],
+  ])('does not quote %s from the build log as the reason', (_label, lastLine) => {
+    // The regression this file exists to prevent, and it is the SECOND time
+    // this class of bug reached a sentence: the first was "The training
+    // service said: ... 2 |" on a live page. Widening the exception pattern
+    // to see `training.NotTheOwner` made the LAST capitalised line win, and
+    // the trainer appends the subprocess's output AFTER the exception, so
+    // ordinary build noise became "the reason".
+    //
+    // Each of these is a real line from that kind of output, placed where
+    // it does the damage: last.
+    const raw = `${REAL_FAILURE_WITH_LOG}\n${lastLine}`;
+    const { sentence } = exportFailureMessage(raw);
+    expect(sentence).toMatch(/packaging step/i);
+    expect(sentence).not.toMatch(/said:/);
+    expect(sentence).not.toMatch(/different sign-in/i);
+  });
+
   it('does NOT read a disk permission failure as a sign-in problem', () => {
     // The shape this nearly shipped with. conda prints
     // "PermissionError: [Errno 13] Permission denied" while tidying its own

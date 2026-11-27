@@ -41,7 +41,23 @@ const REMOTE_TRACEBACK = /Traceback \(most recent call last\)|ray::ServeReplica|
  * frames and to chained causes, so this takes the LAST one.
  */
 function finalException(raw: string): { type: string; text: string } | null {
-  const lines = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+  const all = raw.split('\n').map((l) => l.trim()).filter(Boolean);
+
+  // STOP AT THE RETURN CODE. Everything after a line carrying `(rc=N)` is
+  // the subprocess's own output, not the raised exception, and the trainer
+  // appends that output to the message.
+  //
+  // This bound is the whole point of the function here. Widening the name
+  // pattern below (to see `training.NotTheOwner`, which ends in no Error or
+  // Exception) made the LAST capitalised line win, and ordinary build noise
+  // is full of them: `WARNING: Running pip as the root user ...`, `Note: you
+  // may need to restart the kernel ...`, conda's `PermissionError: [Errno
+  // 13] ...` while tidying its own files. Each was then quoted to the user
+  // as the reason the export failed, which is the same defect as the first
+  // live screenshot of this dialog.
+  const rcAt = all.findIndex((l) => /\(rc=\d+\)/.test(l));
+  const lines = rcAt === -1 ? all : all.slice(0, rcAt + 1);
+
   for (let i = lines.length - 1; i >= 0; i--) {
     // A dotted name whose LAST segment is capitalised, then a colon. Not a
     // list of known suffixes: the service's own ownership error is
@@ -49,10 +65,10 @@ function finalException(raw: string): { type: string; text: string } | null {
     // Interrupt or Exit, so a suffix list silently failed to see the one
     // exception this file most needs to recognise.
     //
-    // Capitalisation is what keeps log noise out. conda prints lines like
-    // `conda.gateways.disk.delete:unlink_or_rename_to_trash(184): Could not
-    // remove`, whose last segment is lowercase, so they are not read as the
-    // raised exception.
+    // Capitalisation keeps most log noise out on its own. conda prints
+    // lines like `conda.gateways.disk.delete:unlink_or_rename_to_trash(184):
+    // Could not remove`, whose last segment is lowercase, so they are not
+    // read as the raised exception. The bound above handles the rest.
     const m = /^((?:[A-Za-z_][\w]*\.)*[A-Z]\w*)\s*:\s*(.*)$/.exec(lines[i]);
     if (m) return { type: m[1], text: m[2].trim() };
   }
