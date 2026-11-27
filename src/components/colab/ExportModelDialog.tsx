@@ -326,8 +326,19 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Model name</label>
+                {/* BOUND to its control. Both labels here were plain text
+                    beside an input, so a screen reader announced neither
+                    field. Found when a render test could not reach the name
+                    field by its label, which is how this dialog's missing
+                    `role` was found too. */}
+                <label
+                  htmlFor="export-model-name"
+                  className="block text-sm font-medium text-gray-700 mb-1.5"
+                >
+                  Model name
+                </label>
                 <input
+                  id="export-model-name"
                   type="text"
                   value={name}
                   onChange={(e) => setName(e.target.value)}
@@ -337,8 +348,14 @@ const ExportModelDialog: React.FC<ExportModelDialogProps> = ({
               </div>
 
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1.5">Description (optional)</label>
+                <label
+                  htmlFor="export-model-description"
+                  className="block text-sm font-medium text-gray-700 mb-1.5"
+                >
+                  Description (optional)
+                </label>
                 <textarea
+                  id="export-model-description"
                   value={description}
                   onChange={(e) => setDescription(e.target.value)}
                   rows={3}

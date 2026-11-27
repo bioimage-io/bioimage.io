@@ -51,7 +51,13 @@ describe('exportFailureMessage', () => {
     // reason would look like an explanation and is not one.
     const { sentence } = exportFailureMessage(REAL_FAILURE);
     expect(sentence).not.toMatch(/rc=1/);
-    expect(sentence).toMatch(/under the details below/i);
+    // THIS fixture carries no captured output: the packaging step printed
+    // nothing and the details hold only a Ray wrapper. Saying "what it
+    // printed is under the details below" would assert output the service
+    // never gave, which a review caught, so the sentence says how little
+    // was said instead.
+    expect(sentence).toMatch(/without saying why/i);
+    expect(sentence).not.toMatch(/under the details below/i);
   });
 
   it('says plainly that there is no reason when there is also nothing to open', () => {
@@ -109,6 +115,40 @@ describe('exportFailureMessage', () => {
     expect(sentence).not.toContain('KeyError');
   });
 
+  it('does NOT read a disk permission failure as a sign-in problem', () => {
+    // The shape this nearly shipped with. conda prints
+    // "PermissionError: [Errno 13] Permission denied" while tidying its own
+    // files, and the service appends that log to the exception, so matching
+    // PermissionError anywhere in the raw text turned a disk failure inside
+    // the packaging step into "this export belongs to a different sign-in".
+    const withPermissionNoise = [
+      'Traceback (most recent call last):',
+      '  File "/home/bioengine/apps/x/source/runtime.py", line 870, in export_bioimageio',  // agent-env-check: allow (a path inside the service container, not a person)
+      'RuntimeError: BioImage.IO export failed (rc=1): 2 |',
+      '  3 | PermissionError: [Errno 13] Permission denied: /opt/conda/pkgs/urllib3.json',
+      '  4 | conda.gateways.disk.delete: Could not remove or rename',
+    ].join('\n');
+    const { sentence } = exportFailureMessage(withPermissionNoise);
+    expect(sentence).not.toMatch(/different sign-in/i);
+    expect(sentence).not.toMatch(/start a new export/i);
+    expect(sentence).toMatch(/packaging step/i);
+  });
+
+  it('does not call a RUN ownership refusal an export ownership refusal', () => {
+    // The service raises the same error class for a run as for an export.
+    // Reported as an export problem it named something the service never
+    // mentioned, and offered "start a new export", which would be refused
+    // again for the same reason. This is the service's own wording, from
+    // its run-ownership guard.
+    const { sentence } = exportFailureMessage(
+      'Traceback (most recent call last):\n'
+      + 'training.NotTheOwner: this training run belongs to another caller; only its owner '
+      + 'or a workspace administrator can change it',
+    );
+    expect(sentence).toMatch(/training run belongs to someone else/i);
+    expect(sentence).not.toMatch(/start a new export/i);
+  });
+
   it('names the ownership case, which is the one a user can act on', () => {
     const { sentence } = exportFailureMessage(
       'Traceback (most recent call last):\n'
@@ -135,7 +175,7 @@ describe('exportFailureMessage', () => {
 
   it('reads an Error as well as a string', () => {
     const { sentence } = exportFailureMessage(new Error(REAL_FAILURE));
-    expect(sentence).toMatch(/under the details below/i);
+    expect(sentence).toMatch(/without saying why/i);
   });
 
   it('obeys the project rules for user-visible text', () => {
