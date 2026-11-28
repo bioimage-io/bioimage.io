@@ -369,7 +369,7 @@ Shared progress dict — terminal when `completed_at` is not `null`, or equivale
 }
 ```
 
-`state` is one of `queued`, `model_download`, `running`, `completed`, `failed` or `cancelled`.
+`state` is one of `queued`, `model_download`, `env_setup`, `running`, `completed`, `failed` or `cancelled`. `env_setup` is reachable only on a custom-environment test run, so an infer job never reports it, but match on the full set rather than on a subset.
 
 **The per-stage timestamps and the queue position live under `stages`, not at the top level.** There is no top-level `queue_position`, `model_download`, `env_setup` or `running`: a loop that reads those gets `None` or a `KeyError`. The queue position for the GPU queue is `stages.run.queue_position`, and `stages.env_setup` is unused on the infer path.
 

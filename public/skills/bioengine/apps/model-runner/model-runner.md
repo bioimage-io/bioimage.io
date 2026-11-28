@@ -104,7 +104,7 @@ The shared status shape (same for infer and test):
 
 ```python
 {
-  "state":        str,          # queued | model_download | running | completed | failed | cancelled
+  "state":        str,          # queued | model_download | env_setup | running | completed | failed | cancelled
   "submitted_at": float,        # unix ts when queued
   "completed_at": float | None, # ts finished; None until terminal
   "result":       dict | None,  # inference dict / test report on success,
@@ -235,8 +235,10 @@ async def run_infer(mr, model_id, inputs, *, poll=10.0, timeout=300,
                 # run_in_executor rather than asyncio.to_thread, which needs Python 3.9 and
                 # raises AttributeError on 3.8.
                 def fetch(url):
-                    # urllib sends `Accept-Encoding: identity`, so the body arrives
-                    # uncompressed and np.load can read it straight. A client that OFFERS gzip
+                    # http.client, which urllib.request uses, sends
+                    # `Accept-Encoding: identity`, so the body arrives uncompressed and
+                    # np.load can read it straight (the header is in http.client's
+                    # putrequest, not in urllib, if you go looking). A client that OFFERS gzip
                     # must also decompress: requests and aiohttp do, a plain curl does not
                     # (see the curl section below).
                     with urllib.request.urlopen(url) as r:
