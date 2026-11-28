@@ -335,7 +335,6 @@ def main():
         ("model_comparison_barplot.svg",  "Model comparison barplot (SVG)"),
         ("model_comparison_montage.svg",  "Model output montage (SVG)"),
     ]
-    titles = dict(illustration_order)
     for fname, title in illustration_order:
         candidate = output_dir / fname
         if candidate.exists():
@@ -368,8 +367,14 @@ def main():
         q for q in output_dir.iterdir()
         if q.is_file() and q.suffix.lower() in {".png", ".svg"} and q.name not in figure_images
     )
+    # The extension goes in the title when a stem appears more than once, which
+    # happens for a PNG/SVG pair of one figure. Without it both render under the
+    # same heading and only the export button tells them apart.
+    stems = [q.stem for q in extra]
     for q in extra:
         title = q.stem.replace("_", " ").replace("-", " ").strip().capitalize()
+        if stems.count(q.stem) > 1:
+            title = f"{title} ({q.suffix.lstrip('.').upper()})"
         with open(q, "rb") as f:
             figure_images[q.name] = {"filename": q.name, "title": title, "bytes": f.read()}
     if extra:
@@ -384,7 +389,9 @@ def main():
     #
     # Known names keep their curated title, so this only moves rows; it does not
     # rename anything. Sorting is lexicographic on the filename, which is why the
-    # page's own names are numbered.
+    # page's own names are numbered. The sort is lexicographic, so an
+    # `illustration10_*` would land before `illustration2_*`; no name in this
+    # skill reaches 10, and a natural sort is not worth carrying until one does.
     figure_images = {
         name: figure_images[name] for name in sorted(figure_images)
     }
