@@ -1044,9 +1044,10 @@ runner's 2.11.14 axes check could answer `True` for a 0.4.x model whose axes it 
 route it into the wrong branch, which looks like a promising explanation. It is not reachable: in
 that dispatch the separate, unguarded fit check is evaluated first and raises `AttributeError` on
 the 0.4.x descriptor before the axes check is called at all, and the only branch that skips the fit
-check calls neither. So on 2.11.14 a 0.4.x model raises the error above instead. The axes check
-exists only in that one version: before it, the fit check ran only for Cellpose models, so a 0.4.x
-model never reached either.
+check calls neither. So on 2.11.14 a 0.4.x model raises the error above instead. The axes check is
+UNGUARDED only in that one version: before 2.11.14 it did not exist and the fit check ran only for
+Cellpose models, so a 0.4.x model never reached either, and from 2.11.15 both checks decline a
+0.4.x descriptor rather than misreading it.
 
 If you hit it, record the model id, the RDF format version, the app's version and the exact
 `inputs` you passed.
