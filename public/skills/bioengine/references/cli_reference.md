@@ -101,6 +101,15 @@ bioengine apps validate ./my-app/
 The `id` is interpolated from your manifest, so the exact bytes differ per app, and the
 `NOT checked:` line is one long line that is wrapped above to fit. Those four lines arrive
 from worker `0.16.105` on; `0.16.104` and earlier print the `OK:` line and nothing else.
+
+That transcript is what the command prints, but its own last two lines are **incomplete, and
+in a way that can cost you data**. The version rule it describes applies when an *application*
+holds the id. If a dataset, a model, or anything else that is not an application holds it, a
+released worker up to and including `0.16.141` deletes that artifact and recreates it as an
+app, with no version error at all. And `bioengine apps list` cannot warn you, because it
+enumerates only the `applications` collection, which is exactly the case that is already safe.
+See the `validate` caveat in `SKILL.md` for the full picture before you reuse an id you did
+not choose yourself.
 A manifest that fails validation prints nothing at all on stdout: it exits 1 and names the
 offending field on stderr, as `Error: Invalid manifest at <path>:` followed by the field.
 
