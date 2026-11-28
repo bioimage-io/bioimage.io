@@ -1037,12 +1037,17 @@ means the app you are calling is older than that, and there is nothing to change
 **One error with no confirmed cause.** `block with members [] does not overlap with sample
 members []` has been reported three times, so it is worth recognising, but no explanation of it is
 confirmed, including the obvious one. It is **not** caused by sending a bare path for a model whose
-input member is not `input0`: that exact call was run against such a model and succeeded. The one
-candidate worth naming, and still unconfirmed as the cause of this message, is the same 0.4.x
-descriptor problem as above: before 2.11.15 the runner's `_all_space_axes_fixed` iterated a 0.4.x
-`axes` string character by character, skipped every one, answered `True` for a model whose axes it
-had not read, and routed it into the fixed-extent branch. If you hit it, record the model id, the
-RDF format version, the app's version and the exact `inputs` you passed.
+input member is not `input0`: that exact call was run against such a model and succeeded.
+
+One candidate was examined and ruled out, recorded so nobody spends the afternoon on it again. The
+runner's pre-2.11.15 fit check could answer `True` for a 0.4.x model whose axes it had not read and
+so route it into the wrong branch, which looks like a promising explanation. It is not reachable:
+in that dispatch the unguarded `_fits_whole` is evaluated first and raises `AttributeError` on the
+0.4.x descriptor before the misreading predicate is called at all, and the only branch that skips
+`_fits_whole` calls neither. So on those versions a 0.4.x model raises the error above instead.
+
+If you hit it, record the model id, the RDF format version, the app's version and the exact
+`inputs` you passed.
 
 
 ### Uploading a local image — the full contract
