@@ -102,7 +102,7 @@ The `id` is interpolated from your manifest, so the exact bytes differ per app, 
 `NOT checked:` line is one long line that is wrapped above to fit. Those four lines arrive
 from a CLI at `0.16.105` or later; `0.16.104` and earlier print the `OK:` line and nothing else.
 
-That transcript is what workers up to and including `0.16.141` print, and its own last two lines are **incomplete there, and
+That transcript is what a CLI up to and including `0.16.141` prints, and its own last two lines are **incomplete there, and
 in a way that can cost you data**. The version rule it describes applies when an *application*
 holds the id. If a dataset, a model, or anything else that is not an application holds it, a
 released worker up to and including `0.16.141` deletes that artifact and recreates it as an
@@ -123,7 +123,7 @@ the worker's `bioengine_version` rather than trusting the CLI's wording.
 A manifest that fails validation prints nothing at all on stdout: it exits 1 and names the
 offending field on stderr, as `Error: Invalid manifest at <path>:` followed by the field.
 
-> **A green `validate` is not clearance to upload, because it never looked at the workspace.** It takes no `--worker` and no `--token` and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading — and `id` is one of the required fields it *does* check, which is what makes the `OK:` read as covering it. If that id already exists there, `upload` does not reject it for existing; it refuses the bundle unless your `version` is strictly higher (PEP 440) than every version that id already carries, so the error you get talks about versions. Bump `version` above the existing lineage if continuing it is yours to do, or change `id` if it is not. `bioengine apps list` shows which ids the workspace already has — run it before you pick a name, not after the refusal.
+> **A green `validate` is not clearance to upload, because it never looked at the workspace.** It takes no `--worker` and no `--token` and opens no connection, so it cannot know whether the `id` your manifest claims is already taken where you are uploading, and `id` is one of the required fields it *does* check, which is what makes the `OK:` read as covering it. What happens to a taken id depends on **what** holds it and on **which worker version** you upload to, and `bioengine apps list` does not settle it. The full rule, with both cases and the version boundary, is the `validate` caveat in [`SKILL.md`](../SKILL.md). Do not rely on this page for it.
 
 ### `bioengine apps deploy`
 
