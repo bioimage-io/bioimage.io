@@ -308,7 +308,7 @@ Raw brightfield baseline (without CLAHE): **0 cells detected**. CLAHE is require
 
 ## Deploying and updating the cellpose-finetuning app
 
-The `cellpose-finetuning` service is deployed on the BioEngine worker (`bioimage-io/bioengine-worker`) and runs in the `bioimage-io` workspace. It requires a `HYPHA_TOKEN` that has write access to that workspace. If the user does not have one to hand, send them to `https://bioimage.io/#/bioengine/token?workspace=bioimage-io&permission=read_write&expires-in=43200` and ask for the `HYPHA_TOKEN=…` line it produces; the page will tell them plainly if they lack access to the workspace.
+The `cellpose-finetuning` service is deployed on a BioEngine worker in the `bioimage-io` workspace (resolve the worker's concrete id rather than using the bare `bioimage-io/bioengine-worker`, which no longer resolves now that more than one worker is registered there: see [../references/service_ids.md](../references/service_ids.md)). It requires a `HYPHA_TOKEN` that has write access to that workspace. If the user does not have one to hand, send them to `https://bioimage.io/#/bioengine/token?workspace=bioimage-io&permission=read_write&expires-in=43200` and ask for the `HYPHA_TOKEN=…` line it produces; the page will tell them plainly if they lack access to the workspace.
 
 ### First-time deployment (no existing app)
 
@@ -319,12 +319,23 @@ from hypha_rpc import connect_to_server
 import os
 
 server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": os.environ["HYPHA_TOKEN"]})
-worker = await server.get_service("bioimage-io/bioengine-worker")
 
-# Upload code first
+# Resolve the worker, do NOT hardcode "bioimage-io/bioengine-worker". That form
+# names a service without naming the client that registered it, and more than one
+# worker is registered in this workspace, so it now fails with
+#   AssertionError: Multiple services found for bioimage-io/*:bioengine-worker
+# PASTE `worker_service_id()` in from ../references/service_ids.md
+# § "Step 1's helper: resolve the worker over HTTP, never by RPC listing" before
+# running this. It is not importable from anywhere. It refuses rather than
+# guessing when a match hits both sites, and it does not use `list_services`,
+# which hangs against a busy workspace.
+worker_sid = worker_service_id("bioimage-io", "bioengine-worker-kth")   # or "...-denbi"
+worker = await server.get_service(worker_sid)
+
+# Upload code first. The CLI takes the same resolved id.
 import subprocess
 subprocess.run(["bioengine", "apps", "upload", "./bioengine_apps/cellpose-finetuning/",
-                "--worker", "bioimage-io/bioengine-worker"])
+                "--worker", worker_sid])
 
 # Deploy with bioimage-io workspace token
 result = await worker.deploy_app(

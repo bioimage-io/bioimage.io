@@ -194,7 +194,9 @@ def get_valid_size(current_size: int, min_size: int, step: int) -> int:
 from hypha_rpc import connect_to_server
 
 server = await connect_to_server({"server_url": "https://hypha.aicell.io", "method_timeout": 60})
-mr = await server.get_service("bioimage-io/model-runner")
+# `mr` is the RESOLVED per-replica handle. Do not pass "bioimage-io/model-runner"
+# to get_service here: see the model-runner page's "Service ID" section, and
+# ../../../references/service_ids.md for the three-step recipe.
 rdf = await mr.get_model_rdf(model_id="affable-shark")
 ```
 

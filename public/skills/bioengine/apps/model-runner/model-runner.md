@@ -394,8 +394,10 @@ GET https://hypha.aicell.io/bioimage-io/services/model-runner/get_model_document
 ```python
 from hypha_rpc import connect_to_server
 server = await connect_to_server(server_url="https://hypha.aicell.io")
-runner = await server.get_service("bioimage-io/model-runner")
-doc = await runner.get_model_documentation(model_id="affable-shark")
+# `mr` is the handle resolved in [Service ID](#service-id--discover-before-calling)
+# above. Passing "bioimage-io/model-runner" to get_service here is the mistake
+# that section exists to prevent.
+doc = await mr.get_model_documentation(model_id="affable-shark")
 # Returns: Markdown string or None if no documentation file exists
 ```
 
