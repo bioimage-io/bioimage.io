@@ -363,11 +363,21 @@ Shared progress dict — terminal when `completed_at` is not `null`, or equivale
   "result": {"output0": "https://…/temp/uuid.npy?X-Amz-…"},
   "stages": {
     "model_download": {"start": 1735689600.0, "end": 1735689612.0},
-    "env_setup":      {"start": null, "end": null, "queue_position": null},
-    "run":            {"start": 1735689630.0, "end": 1735689645.0, "queue_position": 0}
+    "env_setup":      {"start": null, "end": 1735689630.0, "queue_position": null},
+    "run":            {"start": 1735689630.0, "end": 1735689645.0, "queue_position": null}
   }
 }
 ```
+
+**`queue_position` is `null` on a finished job, and `0` does NOT mean done.** It is non-`null` only
+while the job is in that stage, and there `0` means the job is EXECUTING, not that it is finished.
+`N` means N jobs are ahead of it. Two jobs can execute at once, on two replicas, and both report
+`0`. So a poll loop keyed on `queue_position == 0` fires while the work is still running and never
+fires when it ends: use `completed_at`, or `state`.
+
+Note the `end` without a `start` in `env_setup` above. That is not a transcription slip. A stage's
+`end` marks the moment the NEXT stage began, so a job that skipped the environment build still gets
+an `env_setup.end`, while its `start` stays `null` because nothing ever started.
 
 `state` is one of `queued`, `model_download`, `env_setup`, `running`, `completed`, `failed` or `cancelled`. `env_setup` is reachable only on a custom-environment test run, so an infer job never reports it, but match on the full set rather than on a subset.
 

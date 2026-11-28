@@ -94,7 +94,7 @@ The `bioengine call` command is the generic interface for calling any service me
 
 All commands accept `--json` for machine-parseable output.
 
-> **`infer()` and `test()` are asynchronous.** Each returns a **job id** immediately, not a result. Poll `get_infer_status(request_id=...)` / `get_test_status(test_run_id=...)` until the job is terminal (`completed_at` set, `queue_position == 0`); the `result` field then holds the inference dict / test report, or `{"error": "..."}` on failure. The `bioengine call` CLI does **not** poll for you — do it in a loop, or use the Python helpers in [§ Async job API](#async-job-api--infer-and-test-return-job-ids) below.
+> **`infer()` and `test()` are asynchronous.** Each returns a **job id** immediately, not a result. Poll `get_infer_status(request_id=...)` / `get_test_status(test_run_id=...)` until the job is terminal (`completed_at` set, or `state` in `{completed, failed, cancelled}`); the `result` field then holds the inference dict / test report, or `{"error": "..."}` on failure. The `bioengine call` CLI does **not** poll for you — do it in a loop, or use the Python helpers in [§ Async job API](#async-job-api--infer-and-test-return-job-ids) below.
 
 ## Async job API — `infer()` and `test()` return job ids
 
