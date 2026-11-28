@@ -1040,11 +1040,13 @@ confirmed, including the obvious one. It is **not** caused by sending a bare pat
 input member is not `input0`: that exact call was run against such a model and succeeded.
 
 One candidate was examined and ruled out, recorded so nobody spends the afternoon on it again. The
-runner's pre-2.11.15 fit check could answer `True` for a 0.4.x model whose axes it had not read and
-so route it into the wrong branch, which looks like a promising explanation. It is not reachable:
-in that dispatch the unguarded `_fits_whole` is evaluated first and raises `AttributeError` on the
-0.4.x descriptor before the misreading predicate is called at all, and the only branch that skips
-`_fits_whole` calls neither. So on those versions a 0.4.x model raises the error above instead.
+runner's 2.11.14 axes check could answer `True` for a 0.4.x model whose axes it had not read and so
+route it into the wrong branch, which looks like a promising explanation. It is not reachable: in
+that dispatch the separate, unguarded fit check is evaluated first and raises `AttributeError` on
+the 0.4.x descriptor before the axes check is called at all, and the only branch that skips the fit
+check calls neither. So on 2.11.14 a 0.4.x model raises the error above instead. The axes check
+exists only in that one version: before it, the fit check ran only for Cellpose models, so a 0.4.x
+model never reached either.
 
 If you hit it, record the model id, the RDF format version, the app's version and the exact
 `inputs` you passed.
