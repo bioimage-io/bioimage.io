@@ -142,21 +142,30 @@ arr = image.astype("float32")          # (H, W)
 arr = arr[None, None, ...]             # (1, 1, H, W) -> batch, channel, y, x
 ```
 
-A `channel` axis with `channel_names` of length N wants N channels, not 1, and a `batch` axis with
-no size is free.
+A `channel` axis must have exactly `len(channel_names)` entries, and a `batch` axis with no size is
+free.
 
-**`size: {"min": 64, "step": 16}` is a grid, not a minimum.** A valid spatial size is
-`min + k*step` for a whole number `k`, so this input accepts 64, 80, 96, 112 and so on, and
-refuses 100. Crop or pad to a size on the grid before calling.
+**`size: {"min": 64, "step": 16}` is a grid, not a minimum.** The sizes this input declares are
+`min + k*step` for a whole number `k`, so 64, 80, 96, 112 and so on. 100 is not one of them.
+
+**The service does not check the grid for you.** There is no size validation on the inference path:
+an off-grid array is handed to the model, and what happens then is the model's business, so it
+either fails inside the network or comes back a shape you did not expect. Do not rely on getting an
+error. Crop or pad onto the grid before calling.
 
 A size that is NOT a grid is written differently, and the difference is per format version:
 
 - 0.5.x writes a fixed size as a plain integer (`"size": 256`). It does **not** express a fixed
   size as a grid with `step: 0`, and rejects that: `step` has to be greater than zero. A size may
   also be a reference to another tensor's axis, in which case there is nothing for you to choose.
-- 0.4.x writes the whole tensor at once as `shape: {"min": [...], "step": [...]}`, one entry per
-  axis, and there a `step` of `0` does pin that axis to its `min`. The batch dimension is the
-  exception: its `step` is required to be `0`, and there it means the batch may be any size.
+- 0.4.x is shaped differently throughout, and this is the commoner case in the zoo. Its `axes` is a
+  STRING such as `"bcyx"`, not the list of axis objects the rest of this section teaches you to
+  read, and the extents live in a separate `shape` field on the input. A fixed-size 0.4.x input
+  writes that as a plain list, `shape: [1, 1, 256, 256]`. A variable one writes
+  `shape: {"min": [...], "step": [...]}`, one entry per axis, where a `step` of `0` pins that axis
+  to its `min`. The batch dimension is the exception: its `step` is required to be `0`, and there
+  it means the batch may be any size. So on a 0.4.x RDF, read `shape`, and do not iterate `axes`
+  expecting objects.
 
 This is all unrelated to `default_blocksize_parameter` on [`infer`](#infer), which
 overrides the tiling block size used internally and does not change what shape you may submit.
