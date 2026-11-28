@@ -127,8 +127,12 @@ def generate_html_report(
         """)
 
     figures_html = []
-    for title, image_info in figure_images.items():
-        filename = image_info["filename"]
+    for filename, image_info in figure_images.items():
+        # Keyed by FILENAME, and the title travels in the value. Keying by a
+        # derived title collapsed `x.png` and `x.svg` into one entry and dropped
+        # the first silently, which is exactly the kind of quiet omission this
+        # script was fixed for.
+        title = image_info.get("title") or filename
         image_bytes = image_info["bytes"]
         ext = filename.lower().split(".")[-1]
         mime_type = "image/svg+xml" if ext == "svg" else "image/png"
@@ -331,44 +335,59 @@ def main():
         ("model_comparison_barplot.svg",  "Model comparison barplot (SVG)"),
         ("model_comparison_montage.svg",  "Model output montage (SVG)"),
     ]
+    titles = dict(illustration_order)
     for fname, title in illustration_order:
         candidate = output_dir / fname
         if candidate.exists():
             with open(candidate, "rb") as f:
-                figure_images[title] = {"filename": fname, "bytes": f.read()}
+                figure_images[fname] = {"filename": fname, "title": title, "bytes": f.read()}
 
     # Legacy explicit args
     if args.montage:
         p = Path(args.montage)
-        if p.exists() and p.name not in {v["filename"] for v in figure_images.values()}:
-            name = p.stem.replace("_", " ").title()
+        if p.exists() and p.name not in figure_images:
             with open(p, "rb") as f:
-                figure_images[name] = {"filename": p.name, "bytes": f.read()}
+                figure_images[p.name] = {"filename": p.name,
+                                         "title": p.stem.replace("_", " ").title(),
+                                         "bytes": f.read()}
     if args.barplot:
         for bp in args.barplot.split(","):
             p = Path(bp.strip())
-            if p.exists() and p.name not in {v["filename"] for v in figure_images.values()}:
-                name = p.stem.replace("_", " ").title()
+            if p.exists() and p.name not in figure_images:
                 with open(p, "rb") as f:
-                    figure_images[name] = {"filename": p.name, "bytes": f.read()}
+                    figure_images[p.name] = {"filename": p.name,
+                                             "title": p.stem.replace("_", " ").title(),
+                                             "bytes": f.read()}
 
     # Anything else in the directory that LOOKS like an illustration, in sorted
     # order. Without this the discovery above is a fixed NAME LIST: a run that
     # writes `illustration4_*.png`, or anything named differently, is dropped
     # from the report with no warning, and the report then looks complete. A
     # silently short report is worse than a missing one, because nobody checks.
-    known = {v["filename"] for v in figure_images.values()}
     extra = sorted(
         q for q in output_dir.iterdir()
-        if q.is_file() and q.suffix.lower() in {".png", ".svg"} and q.name not in known
+        if q.is_file() and q.suffix.lower() in {".png", ".svg"} and q.name not in figure_images
     )
     for q in extra:
         title = q.stem.replace("_", " ").replace("-", " ").strip().capitalize()
         with open(q, "rb") as f:
-            figure_images[title] = {"filename": q.name, "bytes": f.read()}
+            figure_images[q.name] = {"filename": q.name, "title": title, "bytes": f.read()}
     if extra:
         print(f"  picked up {len(extra)} further image(s) not on the known list: "
               + ", ".join(q.name for q in extra))
+
+    # ORDER BY FILENAME, over the whole collection rather than per source. The
+    # known list and the glob are two sources, and appending the second after
+    # the first put `illustration1_cmr_ranking.png`, which the page writes and
+    # the list does not carry, AFTER illustration 2. The report then showed the
+    # figures out of order, which is a quieter version of dropping one.
+    #
+    # Known names keep their curated title, so this only moves rows; it does not
+    # rename anything. Sorting is lexicographic on the filename, which is why the
+    # page's own names are numbered.
+    figure_images = {
+        name: figure_images[name] for name in sorted(figure_images)
+    }
 
     if not figure_images:
         print("WARNING: no illustration files found in output directory.")
