@@ -362,8 +362,8 @@ Shared progress dict — terminal when `completed_at` is not `null`, or equivale
   "completed_at": 1735689645.0,
   "result": {"output0": "https://…/temp/uuid.npy?X-Amz-…"},
   "stages": {
-    "model_download": {"start": 1735689600.0, "end": 1735689612.0},
-    "env_setup":      {"start": null, "end": 1735689630.0, "queue_position": null},
+    "model_download": {"start": 1735689600.0, "end": 1735689625.0},
+    "env_setup":      {"start": null, "end": 1735689625.0, "queue_position": null},
     "run":            {"start": 1735689630.0, "end": 1735689645.0, "queue_position": null}
   }
 }
@@ -375,9 +375,13 @@ while the job is in that stage, and there `0` means the job is EXECUTING, not th
 `0`. So a poll loop keyed on `queue_position == 0` fires while the work is still running and never
 fires when it ends: use `completed_at`, or `state`.
 
-Note the `end` without a `start` in `env_setup` above. That is not a transcription slip. A stage's
-`end` marks the moment the NEXT stage began, so a job that skipped the environment build still gets
-an `env_setup.end`, while its `start` stays `null` because nothing ever started.
+Note the `end` without a `start` in `env_setup` above, and that it equals `model_download.end`.
+Neither is a transcription slip. A stage's `end` is the next stage's QUEUE-ENTRY mark, not its
+execution start, falling back to `completed_at` once the job is terminal. On an infer job nothing
+enters the environment-build stage, so both ends are the same value: the moment the run joined the
+GPU queue. `env_setup.start` stays `null` because nothing ever started, and a `start` is only set
+once a stage reaches the front of its queue and actually begins. That also means a stage's `end`
+can precede `run.start`, by however long the GPU queue was.
 
 `state` is one of `queued`, `model_download`, `env_setup`, `running`, `completed`, `failed` or `cancelled`. `env_setup` is reachable only on a custom-environment test run, so an infer job never reports it, but match on the full set rather than on a subset.
 
