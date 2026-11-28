@@ -1231,7 +1231,13 @@ s = await connect_to_server({"server_url": "https://hypha.aicell.io",
 # workspace, so it works only while yours holds exactly one worker and fails
 # the day a second is registered, with no change on your side. Nothing
 # guarantees one worker per workspace, so do not rely on it.
-worker = await s.get_service(worker_service_id(my_workspace, "bioengine-worker"))
+#
+# The match string has to name YOUR worker's client-id stem, not the service
+# name: every worker id ends in `:bioengine-worker`, so passing that matches
+# them all and `worker_service_id` refuses, listing the candidates. Read the
+# stem off the worker's own startup log, or off an HTTP listing of the
+# workspace.
+worker = await s.get_service(worker_service_id(my_workspace, "<your-worker-client-id-stem>"))
 
 result = await worker.deploy_app(
     artifact_id="bioimage-io/model-runner",
