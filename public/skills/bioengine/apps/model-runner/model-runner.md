@@ -1023,21 +1023,26 @@ key = first.get("id") or first.get("name")   # 0.5.x names it `id`, 0.4.x names 
 result = await run_infer(mr, model_id, {key: file_path})
 ```
 
-**Take the input key with that `or`, not `["id"]`.** Reading an input descriptor as if it were
-always 0.5.x is its own failure, and the quiet half is worse than the loud one. On a 0.4.x RDF the
-field comes back as `None` (measured on a 0.4.1 model: `id` is `None`, `name` is `'input'`), so
-`rdf["inputs"][0]["id"]` hands you `None` and you build `{None: array}`, which is not a key any
-model declares, and nothing in that call mentions the key. Reading the same descriptor as a spec object
-rather than a dict is the loud half, and is the reported
-`'InputTensorDescr' object has no attribute 'id'`. The screening examples earlier on this page
-already use the same `or` for the OUTPUT key.
+**Take the input key with that `or`, not `["id"]`.** On a 0.4.x RDF the field comes back as `None`
+(measured on a 0.4.1 model: `id` is `None`, `name` is `'input'`), so `rdf["inputs"][0]["id"]` hands
+you `None`, and the dict you build is keyed on `None` instead of on a member the model declares.
+The screening examples earlier on this page already use the same `or` for the OUTPUT key.
 
-**One error with no established cause.** `block with members [] does not overlap with sample
+**`'InputTensorDescr' object has no attribute 'id'` is not your bug, and is already fixed.** It
+comes from the runner, not from your call: `get_model_rdf` hands you a dict, and a dict cannot
+raise it. The runner's own fit check read `.id` off an input descriptor, which a 0.4.x model does
+not have. It arrived in model-runner 2.11.14 and is declined cleanly from 2.11.15 on, so seeing it
+means the app you are calling is older than that, and there is nothing to change in your code.
+
+**One error with no confirmed cause.** `block with members [] does not overlap with sample
 members []` has been reported three times, so it is worth recognising, but no explanation of it is
 confirmed, including the obvious one. It is **not** caused by sending a bare path for a model whose
-input member is not `input0`: that exact call was run against such a model and succeeded. If you
-hit it, record the model id, the RDF format version and the exact `inputs` you passed, because
-that is the evidence nobody has yet.
+input member is not `input0`: that exact call was run against such a model and succeeded. The one
+candidate worth naming, and still unconfirmed as the cause of this message, is the same 0.4.x
+descriptor problem as above: before 2.11.15 the runner's `_all_space_axes_fixed` iterated a 0.4.x
+`axes` string character by character, skipped every one, answered `True` for a model whose axes it
+had not read, and routed it into the fixed-extent branch. If you hit it, record the model id, the
+RDF format version, the app's version and the exact `inputs` you passed.
 
 
 ### Uploading a local image — the full contract
