@@ -367,14 +367,8 @@ def main():
         q for q in output_dir.iterdir()
         if q.is_file() and q.suffix.lower() in {".png", ".svg"} and q.name not in figure_images
     )
-    # The extension goes in the title when a stem appears more than once, which
-    # happens for a PNG/SVG pair of one figure. Without it both render under the
-    # same heading and only the export button tells them apart.
-    stems = [q.stem for q in extra]
     for q in extra:
         title = q.stem.replace("_", " ").replace("-", " ").strip().capitalize()
-        if stems.count(q.stem) > 1:
-            title = f"{title} ({q.suffix.lstrip('.').upper()})"
         with open(q, "rb") as f:
             figure_images[q.name] = {"filename": q.name, "title": title, "bytes": f.read()}
     if extra:
@@ -395,6 +389,33 @@ def main():
     figure_images = {
         name: figure_images[name] for name in sorted(figure_images)
     }
+
+    # DISAMBIGUATE COLLIDING HEADINGS, over the whole collection and on the
+    # TITLE rather than on the filename stem.
+    #
+    # Two files render under one heading whenever their derived titles match,
+    # and that is not the same condition as their stems matching: `x_y.png` and
+    # `x-y.png` have different stems and the same title, because the derivation
+    # maps both '_' and '-' to a space. An earlier version keyed on the stem and
+    # so missed exactly that pair. Nothing is dropped either way, but one
+    # heading over two figures is the thing this was fixed for.
+    by_title: Dict[str, List[str]] = {}
+    for name, info in figure_images.items():
+        by_title.setdefault(info["title"], []).append(name)
+    for title, names in by_title.items():
+        if len(names) < 2:
+            continue
+        # First try the extension, which is what a PNG/SVG pair of one figure
+        # needs and reads better than a filename.
+        tagged = {n: f"{title} ({Path(n).suffix.lstrip('.').upper()})" for n in names}
+        if len(set(tagged.values())) == len(names):
+            for n, t in tagged.items():
+                figure_images[n]["title"] = t
+            continue
+        # Same extension, different stems. The filename is unique by
+        # construction, so fall back to it rather than leave a collision.
+        for n in names:
+            figure_images[n]["title"] = f"{title} ({n})"
 
     if not figure_images:
         print("WARNING: no illustration files found in output directory.")
