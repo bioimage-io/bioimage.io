@@ -147,8 +147,18 @@ no size is free.
 
 **`size: {"min": 64, "step": 16}` is a grid, not a minimum.** A valid spatial size is
 `min + k*step` for a whole number `k`, so this input accepts 64, 80, 96, 112 and so on, and
-refuses 100. Where `step` is `0` the size is fixed at `min`. Crop or pad to a size on the grid
-before calling. This is unrelated to `default_blocksize_parameter` on [`infer`](#infer), which
+refuses 100. Crop or pad to a size on the grid before calling.
+
+A size that is NOT a grid is written differently, and the difference is per format version:
+
+- 0.5.x writes a fixed size as a plain integer (`"size": 256`). It does **not** express a fixed
+  size as a grid with `step: 0`, and rejects that: `step` has to be greater than zero. A size may
+  also be a reference to another tensor's axis, in which case there is nothing for you to choose.
+- 0.4.x writes the whole tensor at once as `shape: {"min": [...], "step": [...]}`, one entry per
+  axis, and there a `step` of `0` does pin that axis to its `min`. The batch dimension is the
+  exception: its `step` is required to be `0`, and there it means the batch may be any size.
+
+This is all unrelated to `default_blocksize_parameter` on [`infer`](#infer), which
 overrides the tiling block size used internally and does not change what shape you may submit.
 
 ### Known Issue
