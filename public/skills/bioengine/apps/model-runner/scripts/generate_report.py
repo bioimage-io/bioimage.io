@@ -352,8 +352,33 @@ def main():
                 with open(p, "rb") as f:
                     figure_images[name] = {"filename": p.name, "bytes": f.read()}
 
+    # Anything else in the directory that LOOKS like an illustration, in sorted
+    # order. Without this the discovery above is a fixed NAME LIST: a run that
+    # writes `illustration4_*.png`, or anything named differently, is dropped
+    # from the report with no warning, and the report then looks complete. A
+    # silently short report is worse than a missing one, because nobody checks.
+    known = {v["filename"] for v in figure_images.values()}
+    extra = sorted(
+        q for q in output_dir.iterdir()
+        if q.is_file() and q.suffix.lower() in {".png", ".svg"} and q.name not in known
+    )
+    for q in extra:
+        title = q.stem.replace("_", " ").replace("-", " ").strip().capitalize()
+        with open(q, "rb") as f:
+            figure_images[title] = {"filename": q.name, "bytes": f.read()}
+    if extra:
+        print(f"  picked up {len(extra)} further image(s) not on the known list: "
+              + ", ".join(q.name for q in extra))
+
     if not figure_images:
         print("WARNING: no illustration files found in output directory.")
+    else:
+        # Say what went in. The report is self-contained, so this print is the
+        # only place a caller can see WHICH figures it contains without opening
+        # it, and an illustration that failed to render upstream shows up here
+        # as an absence rather than as a surprise in the HTML.
+        print(f"  report will contain {len(figure_images)} figure(s): "
+              + ", ".join(v["filename"] for v in figure_images.values()))
 
     generate_html_report(output_dir, summary, figure_images)
 

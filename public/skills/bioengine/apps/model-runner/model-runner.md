@@ -936,7 +936,7 @@ Model outputs are **raw tensors** — not ready-to-use instance labels. Always r
 | Model type | Output shape | Interpretation |
 |---|---|---|
 | UNet nucleus (e.g. affable-shark) | `(1, 2, H, W)` | ch0=foreground prob, ch1=boundary prob. Use `foreground - boundary` → watershed |
-| UNet softmax (e.g. conscientious-seashell) | `(1, 3, H, W)` | Softmax probabilities across 3 classes (background/boundary/nucleus). Sum=1 per pixel. Identify nucleus channel by lowest mean. |
+| UNet softmax (e.g. conscientious-seashell) | `(1, 3, H, W)` | Softmax probabilities across 3 classes, summing to 1 per pixel. Do NOT pick the nucleus channel by lowest mean: see [HPA multi-channel models](#hpa-multi-channel-models-conscientious-seashell-loyal-parrot) below for this model's actual channel order and the correlation test that identifies it. |
 | StarDist | `(1, H, W, 33)` | ch0=object probability, ch1–32=star polygon radii. Requires NMS postprocessing — do NOT threshold naively. |
 | Restoration (e.g. dazzling-spider) | `(1, 1, H, W)` | Direct output; output key is `"prediction"` not `"output0"` |
 
