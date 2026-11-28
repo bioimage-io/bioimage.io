@@ -105,8 +105,12 @@ async def _existing_versions(server, artifact_id: str) -> list:
     return [v["version"] for v in (art.get("versions") or [])]
 
 
-def artifact_workspace(worker_service_id, explicit=None):
-    """Workspace the app's artifact lives in.
+class WorkerWorkspaceUnknown(Exception):
+    """The worker's workspace could not be read, so the artifact id is unknown."""
+
+
+def artifact_workspace(worker):
+    """Workspace the app's artifact lives in, read off the RESOLVED worker.
 
     NOT the caller's. ``upload_app`` puts the bundle in the WORKER's workspace,
     so that is where the artifact id has to point. Building it from
@@ -116,33 +120,55 @@ def artifact_workspace(worker_service_id, explicit=None):
 
         KeyError: "Artifact with ID 'ws-user-github|<id>/<app>' does not exist"
 
-    A fully-qualified worker id carries the workspace in front of the slash
-    (``bioimage-io/bioengine-worker-…:bioengine-worker``), which is the one
-    place the answer is always right. ``--workspace`` overrides it, and an
-    unqualified worker id falls back to the public workspace.
+    Take it from ``worker.id`` -- the id of the service hypha actually resolved,
+    which is fully qualified as ``<workspace>/<client>:<service>``. Do NOT parse
+    the string you passed on the command line. An unqualified id is resolved in
+    the CALLER's workspace, not in the public one, so a worker reached as
+    ``bioengine-worker`` is in whatever workspace you are signed in to, and a
+    guess of ``bioimage-io`` there would aim the release's refusal check and its
+    pre-release deletes at a different app that happens to share the id.
+
+    There is no fallback, deliberately. The resolved id always carries the
+    answer, so anything else is a bug worth stopping on rather than guessing
+    past.
     """
-    if explicit:
-        return explicit
-    if "/" in worker_service_id:
-        return worker_service_id.split("/", 1)[0]
-    return "bioimage-io"
+    resolved = getattr(worker, "id", None)
+    if isinstance(resolved, str) and "/" in resolved:
+        return resolved.split("/", 1)[0]
+    raise WorkerWorkspaceUnknown(
+        f"the resolved worker service has no workspace-qualified id (got {resolved!r}), "
+        f"so there is no way to say where its apps live. Nothing was uploaded."
+    )
 
 
-def _warn_if_elsewhere(returned, derived):
-    """Say so if the upload did not land where the id was built for.
+def _abort_if_elsewhere(returned, derived, did_what):
+    """STOP if the upload did not land where this run's id points.
 
-    `upload_app` RETURNS the artifact id it actually wrote. The id above is
-    derived from the worker service id before any upload happens, because the
-    script has to read the existing versions first, so the two are independent
-    answers to the same question. They agree today. If they ever disagree, the
-    derivation is wrong and every later call in this run is aimed at the wrong
-    artifact, so say it loudly rather than failing three steps later with a
-    KeyError about a version list.
+    `upload_app` RETURNS the artifact id it actually wrote. The id this script
+    uses is derived from the resolved worker before any upload happens, because
+    it has to read the existing versions first, so the two are independent
+    answers to the same question. They agree today.
+
+    If they ever disagree, every remaining call in this run is aimed at an
+    artifact nothing was written to, so this exits instead of warning. An
+    earlier version printed a warning and carried on, which in --dev meant the
+    very next line deployed `derived` -- an artifact this run did not upload --
+    and in --release meant the pre-release cleanup had already been aimed at
+    the wrong app. Continuing is the failure the check exists to prevent.
+
+    `did_what` says what already happened, because the two call sites leave the
+    world in different states and a reader has to know which one they are in.
     """
     if isinstance(returned, str) and returned and returned != derived:
-        print(f"WARNING: upload_app wrote {returned!r} but this run is using "
-              f"{derived!r}. The derived workspace is wrong; pass --workspace "
-              f"{returned.split('/')[0]!r} or report it.", file=sys.stderr)
+        sys.exit(
+            f"ERROR: upload_app wrote {returned!r}, but this run is built around "
+            f"{derived!r}.\n"
+            f"  Already done: {did_what}\n"
+            f"  Stopping rather than continuing against an artifact nothing was written to.\n"
+            f"  The workspace read off the resolved worker service does not match where the "
+            f"upload landed, which is a bug worth reporting with both ids above."
+        )
+
 
 async def main() -> None:
     ap = argparse.ArgumentParser()
@@ -150,8 +176,6 @@ async def main() -> None:
     ap.add_argument("--worker", required=True, help="worker service id (…:bioengine-worker)")
     ap.add_argument("--token", default=os.environ.get("HYPHA_TOKEN"))
     ap.add_argument("--app-id", help="application_id (defaults to the manifest id)")
-    ap.add_argument("--workspace", help="workspace the app's artifact lives in "
-                    "(default: the worker's, read off --worker)")
     ap.add_argument("--disable-gpu", action="store_true", help="deploy the -dev instance CPU-only")
     mode = ap.add_mutually_exclusive_group(required=True)
     mode.add_argument("--dev", action="store_true", help="upload next <version>-devN + deploy <app>-dev")
@@ -166,8 +190,14 @@ async def main() -> None:
     worker = await server.get_service(args.worker)
     # The artifact lives where upload_app put it, which is the worker's
     # workspace. server.config.workspace is the CALLER's and is wrong whenever
-    # you sign in with a personal token.
-    artifact_id = f"{artifact_workspace(args.worker, args.workspace)}/{manifest['id']}"
+    # you sign in with a personal token; the string in args.worker may not carry
+    # a workspace at all, and an unqualified one was resolved in the caller's
+    # workspace rather than in the public one, so the resolved service's own id
+    # is the only place that always has the answer.
+    try:
+        artifact_id = f"{artifact_workspace(worker)}/{manifest['id']}"
+    except WorkerWorkspaceUnknown as e:
+        sys.exit(f"ERROR: {e}")
 
     files = [f for f in create_file_list_from_directory(directory_path=args.directory)
              if "__pycache__" not in f.get("name", "")]
@@ -185,7 +215,11 @@ async def main() -> None:
         n = max([int(dev_re.match(v).group(1)) for v in existing if dev_re.match(v)] or [0]) + 1
         version = f"{base}-dev{n}"
         returned = await worker.upload_app(files=_set_files_version(files, version))
-        _warn_if_elsewhere(returned, artifact_id)
+        # BEFORE the deploy, not after: deploying `artifact_id` when the bundle
+        # went somewhere else starts an app from whatever is already at that id.
+        _abort_if_elsewhere(returned, artifact_id,
+                            f"the pre-release {version} was uploaded to {returned!r}. "
+                            f"Nothing was deployed.")
         await worker.deploy_app(artifact_id=artifact_id, application_id=f"{app_id}-dev",
                                 version=version, disable_gpu=args.disable_gpu, hypha_token=args.token)
         print(f"uploaded + deployed {artifact_id}@{version} as application_id={app_id}-dev")
@@ -248,7 +282,13 @@ async def main() -> None:
             sys.exit("Nothing was published. Fix the cause above and re-run --release; "
                      "the deletes are only safe while these are still the newest versions.")
         returned = await worker.upload_app(files=_set_files_version(files, base))
-        _warn_if_elsewhere(returned, artifact_id)
+        # Here the world is already half-changed: the pre-release deletes above
+        # ran against `artifact_id`, and the release has landed at `returned`.
+        # Say both plainly and exit non-zero rather than printing a success line
+        # that names the wrong artifact.
+        _abort_if_elsewhere(returned, artifact_id,
+                            f"the pre-release cleanup ran against {artifact_id!r}, and the "
+                            f"release {base} was then uploaded to {returned!r}.")
         print(f"published release {artifact_id}@{base}")
         try:
             await worker.stop_app(application_id=f"{app_id}-dev")
