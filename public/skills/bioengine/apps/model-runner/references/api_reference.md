@@ -148,10 +148,12 @@ free.
 **`size: {"min": 64, "step": 16}` is a grid, not a minimum.** The sizes this input declares are
 `min + k*step` for a whole number `k`, so 64, 80, 96, 112 and so on. 100 is not one of them.
 
-**The service does not check the grid for you.** There is no size validation on the inference path:
-an off-grid array is handed to the model, and what happens then is the model's business, so it
-either fails inside the network or comes back a shape you did not expect. Do not rely on getting an
-error. Crop or pad onto the grid before calling.
+**The service does not check the grid for you.** Nothing validates an off-grid size on a
+parameterized axis: the array is handed to the model, and what happens then is the model's
+business, so it either fails inside the network or comes back a shape you did not expect. Do not
+rely on getting an error. Crop or pad onto the grid before calling. (The service does refuse one
+related thing, which is a different case: an input SMALLER than a FIXED declared extent gets an
+explicit error naming the required size, because a too-small input cannot be tiled up.)
 
 A size that is NOT a grid is written differently, and the difference is per format version:
 
