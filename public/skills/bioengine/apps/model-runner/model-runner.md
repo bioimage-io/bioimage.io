@@ -759,8 +759,12 @@ yc, yp = argmax_class_mask(r_clean[out_key], k), argmax_class_mask(r_pert[out_ke
 score = cmr_nhd_binary(yc, yp)
 ```
 
-Pick `k` from the model's own channel meanings rather than by guessing: the HPA section below
-gives the per-model mapping, and `get_model_rdf`'s `channel_names` is the authority for others.
+Pick `k` from the model's own channel meanings rather than by guessing. Where to look, in order:
+the [output interpretation guide](#common-output-formats) and the HPA section below carry a
+per-model mapping for the models named there; otherwise read the output axes from
+`get_model_rdf`, where a 0.5.x channel axis carries `channel_names`. Note that a **0.4.x RDF has
+no `channel_names` at all**, so for one of those the mapping tables, or the model's own
+documentation, are all you have.
 
 ### Mode collapse — the main failure mode
 
