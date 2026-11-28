@@ -100,7 +100,7 @@ bioengine apps validate ./my-app/
 
 The `id` is interpolated from your manifest, so the exact bytes differ per app, and the
 `NOT checked:` line is one long line that is wrapped above to fit. Those four lines arrive
-from worker `0.16.105` on; `0.16.104` and earlier print the `OK:` line and nothing else.
+from a CLI at `0.16.105` or later; `0.16.104` and earlier print the `OK:` line and nothing else.
 
 That transcript is what workers up to and including `0.16.141` print, and its own last two lines are **incomplete there, and
 in a way that can cost you data**. The version rule it describes applies when an *application*
@@ -111,9 +111,14 @@ enumerates only the `applications` collection, which is exactly the case that is
 See the `validate` caveat in `SKILL.md` for the full picture before you reuse an id you did
 not choose yourself.
 
-From worker `0.16.142` on, the command prints the non-application case itself and says it is
-refused outright, so the gap described above is closed and the output you see will differ
-from the transcript.
+What this command prints is decided by the version of the CLI you installed, not by any
+worker: `validate` runs entirely offline. A CLI from `0.16.142` on prints the
+non-application case itself and says it is refused outright, so your output will differ from
+the transcript above. That sentence is about the CLI only. Whether the upload is actually
+refused depends on the **worker** you upload to: `0.16.142` or later refuses, and anything at
+or below `0.16.141` still deletes. Since the install line above tracks `main`, a current CLI
+telling you "refused outright" is entirely compatible with a worker that will delete, so check
+the worker's `bioengine_version` rather than trusting the CLI's wording.
 
 A manifest that fails validation prints nothing at all on stdout: it exits 1 and names the
 offending field on stderr, as `Error: Invalid manifest at <path>:` followed by the field.
