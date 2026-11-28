@@ -1002,9 +1002,9 @@ When in doubt, call `search_models(keywords=[...])` first — these IDs are stab
 | `inputs` type | Behaviour |
 |---|---|
 | `str` URL (`https://…/test_input_0.npy`) | Worker downloads, deserialises, runs. Use for bundled test tensors. |
-| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. A BARE path is resolved as the tensor named `input0` only, so for any model whose first input is called something else, pass the dict form below instead. |
+| `str` file path from `get_upload_url` | **Preferred, and the only memory-safe route for a local file.** Upload the bytes to the presigned URL, then pass the returned `file_path`. The worker resolves it and spills it to disk, so the image never sits in the proxy actor's memory. Worked example below. A bare path needs no key: the worker stages it under an internal single-input sentinel that the model loader maps onto the model's one input member, so a bare path works even when that member is not called `input0` (measured against a 0.4.x model whose only input is called `input`). |
 | `numpy.ndarray` | Sent over RPC, which means the decoded array is held in the proxy actor's memory for the whole call. Fine for one caller, and the wrong choice under concurrency — see the note after the example. Most models accept a bare `(H, W)` float32 array and internally reshape to `(batch, channel, y, x)` per `rdf.inputs[0].axes`. For multi-channel models (HPA, RGB) pre-stack to `(C, H, W)` or `(1, C, H, W)`. |
-| `dict[str, np.ndarray \| str]` | Multi-input models, AND the safe default for a single-input one. Key matches `rdf.inputs[i].id`. |
+| `dict[str, np.ndarray \| str]` | Required for multi-input models, and a fine default for a single-input one. Key matches `rdf.inputs[i].id` (`.name` on a 0.4.x RDF). |
 
 **Read the TAIL of a failure, not the head.** A remote error arrives as a traceback that the
 transport has already truncated mid-frame, so the first lines are frame noise and the exception
@@ -1012,20 +1012,32 @@ type and message are at the END. Printing `repr(e)` and reading the last line is
 between "RemoteError:Traceback (most recent call last):" and
 "ModuleNotFoundError: No module named 'empanada'".
 
-**Use the dict form by default, keyed from the RDF**, rather than the bare path:
+**A multi-input model needs the dict form, and keying from the RDF is a good habit for a
+single-input one too.** It is the same amount of code either way, and it makes the call say which
+tensor the array is for instead of relying on there being exactly one:
 
 ```python
 rdf = await mr.get_model_rdf(model_id=model_id)
-key = rdf["inputs"][0]["id"]            # 0.5.x; see the fallback below for 0.4.x
+first = rdf["inputs"][0]
+key = first.get("id") or first.get("name")   # 0.5.x names it `id`, 0.4.x names it `name`
 result = await run_infer(mr, model_id, {key: file_path})
 ```
 
-Two errors come from getting this wrong, and neither says what is wrong:
+**Take the input key with that `or`, not `["id"]`.** Reading an input descriptor as if it were
+always 0.5.x is its own failure, and the quiet half is worse than the loud one. On a 0.4.x RDF the
+field comes back as `None` (measured on a 0.4.1 model: `id` is `None`, `name` is `'input'`), so
+`rdf["inputs"][0]["id"]` hands you `None` and you build `{None: array}`, which is not a key any
+model declares, and nothing in that call mentions the key. Reading the same descriptor as a spec object
+rather than a dict is the loud half, and is the reported
+`'InputTensorDescr' object has no attribute 'id'`. The screening examples earlier on this page
+already use the same `or` for the OUTPUT key.
 
-| error | cause |
-|---|---|
-| `block with members [] does not overlap with sample members []` | A bare path or array was sent for a model whose first input is not called `input0`, so the worker built a sample with no members the model recognises. |
-| `'InputTensorDescr' object has no attribute 'id'` | An RDF 0.4.x input descriptor was read as if it were 0.5.x. On 0.4.x the field is `name`, so take `rdf["inputs"][0].get("id") or rdf["inputs"][0].get("name")`, which is what the screening examples below already do for the OUTPUT key. |
+**One error with no established cause.** `block with members [] does not overlap with sample
+members []` has been reported three times, so it is worth recognising, but no explanation of it is
+confirmed, including the obvious one. It is **not** caused by sending a bare path for a model whose
+input member is not `input0`: that exact call was run against such a model and succeeded. If you
+hit it, record the model id, the RDF format version and the exact `inputs` you passed, because
+that is the evidence nobody has yet.
 
 
 ### Uploading a local image — the full contract
