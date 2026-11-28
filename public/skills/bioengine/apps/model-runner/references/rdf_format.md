@@ -194,9 +194,14 @@ def get_valid_size(current_size: int, min_size: int, step: int) -> int:
 from hypha_rpc import connect_to_server
 
 server = await connect_to_server({"server_url": "https://hypha.aicell.io", "method_timeout": 60})
-# `mr` is the RESOLVED per-replica handle. Do not pass "bioimage-io/model-runner"
-# to get_service here: see the model-runner page's "Service ID" section, and
-# ../../../references/service_ids.md for the three-step recipe.
+# Resolve the per-replica handle. Do NOT pass "bioimage-io/model-runner" to
+# get_service: that is a workspace-wide match, not the app. The two steps are in
+# the model-runner page's "Service ID" section; worker_service_id() is in
+# ../../../references/service_ids.md and you paste it in.
+worker = await server.get_service(worker_service_id("bioimage-io", "bioengine-worker-kth"))
+mr_sid = (await worker.get_app_status(None))["model-runner"]["service_ids"]["websocket_service_id"]
+mr = await server.get_service(mr_sid)
+
 rdf = await mr.get_model_rdf(model_id="affable-shark")
 ```
 

@@ -72,6 +72,40 @@ app = await s.get_service(ws_sid)                     # e.g. "...-denbi-<hash>-<
 request_id = await app.infer(model_id="affable-shark", inputs="<url-or-tensor>")
 ```
 
+## `Multiple services found`: what the short form actually asks for
+
+If you pass `<workspace>/<name>` to `get_service`, this is what you get back:
+
+```
+AssertionError: Multiple services found for bioimage-io/*:bioengine-worker
+```
+
+Read the message literally. Hypha expands `<workspace>/X` into `<workspace>/*:X`, the `*` being the
+CLIENT. So that form does not name one service, it asks for a service called `X` on **any** client
+in the workspace. It works for exactly as long as there is one match, and stops working the moment
+somebody registers a second. Measured on 2026-11-28 against `hypha.aicell.io`:
+
+| id passed to `get_service` | result |
+|---|---|
+| `bioimage-io/bioengine-worker` | the assertion above, two matches (a KTH worker and a de.NBI one) |
+| `bioimage-io/bioengine-worker-kth-<hash>:bioengine-worker` | OK |
+| `bioimage-io/omezarr-view` | the same assertion: the app is registered twice |
+| `bioimage-io/definitely-not-a-service` | `KeyError: Service not found`, which is the different error |
+
+Two consequences worth keeping separate:
+
+- **It is not a replica problem, and the fix is not "pick one".** Two matching workers are two
+  different machines, with different GPUs and different apps deployed. Binding to an arbitrary one
+  is not a smaller version of the right answer, it is a different worker, with nothing in your code
+  or on your screen saying which. Among several replicas of one app, by contrast, any replica really
+  is interchangeable, so a first-match helper is fine there and wrong here.
+- **The failure arrives later than the mistake.** It appears when somebody else adds a worker, not
+  when you write the call, so it will not show up in your own testing.
+
+The fix is to name the client. Use `worker_service_id()` below, which resolves over HTTP and
+**refuses an ambiguous match instead of guessing**, then ask the worker for the app's concrete
+`websocket_service_id` as in Step 2 above.
+
 ## Step 1's helper: resolve the worker over HTTP, never by RPC listing
 
 `list_services` has been observed to **hang** against a busy workspace. The fault is in the

@@ -394,9 +394,9 @@ GET https://hypha.aicell.io/bioimage-io/services/model-runner/get_model_document
 ```python
 from hypha_rpc import connect_to_server
 server = await connect_to_server(server_url="https://hypha.aicell.io")
-# `mr` is the handle resolved in [Service ID](#service-id--discover-before-calling)
-# above. Passing "bioimage-io/model-runner" to get_service here is the mistake
-# that section exists to prevent.
+# `mr` is the handle resolved in the "Service ID" section above. Passing
+# "bioimage-io/model-runner" to get_service here is the mistake that section
+# exists to prevent.
 doc = await mr.get_model_documentation(model_id="affable-shark")
 # Returns: Markdown string or None if no documentation file exists
 ```
@@ -1226,7 +1226,12 @@ from hypha_rpc import connect_to_server
 s = await connect_to_server({"server_url": "https://hypha.aicell.io",
                              "token": admin_token,
                              "workspace": my_workspace})
-worker = await s.get_service(f"{my_workspace}/bioengine-worker")
+# Resolve it rather than using f"{my_workspace}/bioengine-worker". That short
+# form asks for a service called `bioengine-worker` on ANY client in the
+# workspace, so it works only while yours holds exactly one worker and fails
+# the day a second is registered, with no change on your side. Nothing
+# guarantees one worker per workspace, so do not rely on it.
+worker = await s.get_service(worker_service_id(my_workspace, "bioengine-worker"))
 
 result = await worker.deploy_app(
     artifact_id="bioimage-io/model-runner",

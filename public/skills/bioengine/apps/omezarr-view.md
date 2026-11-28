@@ -30,7 +30,14 @@ The only RPC method is `get_service_url()`, for clients that have an RPC handle 
 from hypha_rpc import connect_to_server
 
 server = await connect_to_server({"server_url": "https://hypha.aicell.io", "token": "<HYPHA_TOKEN>"})
-svc = await server.get_service("bioimage-io/omezarr-view")
+# Resolve the concrete per-replica id. "bioimage-io/omezarr-view" is a
+# workspace-wide match, and this app is registered more than once, so it fails
+# with "AssertionError: Multiple services found for bioimage-io/*:omezarr-view".
+# Same two steps as every other app: resolve a worker, then ask it. See
+# ../references/service_ids.md for worker_service_id(), which you paste in.
+worker = await server.get_service(worker_service_id("bioimage-io", "bioengine-worker-kth"))
+sid = (await worker.get_app_status(None))["omezarr-view"]["service_ids"]["websocket_service_id"]
+svc = await server.get_service(sid)
 info = await svc.get_service_url()
 # {'service_url': 'https://hypha.aicell.io/bioimage-io/apps/omezarr-view:omezarr-view', ...}
 ```

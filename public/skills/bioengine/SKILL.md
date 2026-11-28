@@ -542,7 +542,10 @@ bioengine apps run bioimage-io/cellpose-finetuning \
 Equivalent path when you already have a Hypha client open (no separate CLI process). Use this from agents that resolve the worker themselves rather than via the `BIOENGINE_WORKER_SERVICE_ID` env var — with `worker_service_id()` from [references/service_ids.md](references/service_ids.md), which resolves over HTTP, **not** with `list_services`, which hangs against a busy workspace:
 
 ```python
-worker = await server.get_service(f"{workspace}/bioengine-worker")
+# NOT f"{workspace}/bioengine-worker": that names a service without naming the
+# client that registered it, so it fails as soon as the workspace holds more
+# than one worker. See references/service_ids.md.
+worker = await server.get_service(worker_service_id(workspace, "bioengine-worker-kth"))
 result = await worker.deploy_app(
     artifact_id="bioimage-io/cellpose-finetuning",
     application_id="cellpose-finetuning",   # stable id ⇒ stable, addressable service
@@ -994,7 +997,7 @@ When working with a specific deployed app, load its dedicated subskill for the m
 | A user cannot delete/see their own records after minting a new API token | You keyed ownership on `context["user"]["id"]`, which is per-token, not per-human. Match against the key set `{email, parent, id}` and write `email`-or-`parent` going forward |
 | Long cold start on first request | `min_replicas: 1`; preload model in `async_init()` |
 | Blocking inference stalls event loop | `await asyncio.get_event_loop().run_in_executor(None, fn)` |
-| `Multiple services found` error | Use `connect_service()` from `bioengine.cli.utils` |
+| `Multiple services found` error | You passed `<workspace>/<name>`, which matches any client. Name the client: [references/service_ids.md](references/service_ids.md) § `Multiple services found`. Do **not** reach for `connect_service()` from `bioengine.cli.utils` to clear it: that picks the first match, which for two WORKERS means an arbitrary machine with nothing saying which |
 | App UNHEALTHY — `HYPHA_TOKEN` missing | Use `--hypha-token $HYPHA_TOKEN`, not `--env HYPHA_TOKEN=...` |
 | Composition runtime not injected | In 0.6.0 the wiring is the **import + type hint**: `from runtime_a import RuntimeA` and annotate the `__init__` parameter `runtime_a: RuntimeA` (not `DeploymentHandle`). The parameter *name* is free; there is no `deployments:` list to match |
 | `Field()` mutable default crash | Use `Field(None)`, assign default inside method |
